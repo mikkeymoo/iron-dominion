@@ -1,0 +1,130 @@
+// LAYER REGISTRY: the single declaration of every piece of mutable sim state.
+// hash.ts, snapshot.ts, protocol Resync/ChunkPatch and the tests all iterate this table.
+// Add a layer here and it is hashed, saved and mirrored; a state array that is not here fails the completeness test.
+
+export const MAP = 256;
+export const CHUNK = 16;
+export const CHUNKS = MAP / CHUNK;
+export const TILES = MAP * MAP;
+export const BMAX = 8192;
+export const AMAX = 4096;
+export const UMAX = 16;
+export const UCELLS = 4096;
+
+export type DirtyClass = 'geometry' | 'overlay' | 'none';
+export type TypedCtor =
+  | Int8ArrayConstructor | Uint8ArrayConstructor | Int16ArrayConstructor | Uint16ArrayConstructor
+  | Int32ArrayConstructor | Uint32ArrayConstructor | Float32ArrayConstructor | Float64ArrayConstructor;
+
+const L = <C extends TypedCtor>(ctor: C, length: number, render: boolean, dirty: DirtyClass) =>
+  ({ ctor, length, render, dirty }) as const;
+
+export const SPEC = {
+  // Height: Int16 in 1/16 tile-height units (HEIGHT_SCALE), sea level = 0. Quantised so it hashes and
+  // snapshots as exact integers and halves the memory of Float32; range +-2048 tiles.
+  height: L(Int16Array, TILES, true, 'geometry'),
+  terrain: L(Uint8Array, TILES, true, 'geometry'),
+  // Water depth in 1/16 units above the tile height; water surface = height + depth.
+  waterDepth: L(Uint8Array, TILES, true, 'geometry'),
+  // Zone byte: bits 0-1 type (0 none, 1 R, 2 C, 3 I), bits 2-3 density (0..2).
+  zone: L(Uint8Array, TILES, true, 'geometry'),
+  // Road tile Uint16 (see ROAD below).
+  road: L(Uint16Array, TILES, true, 'geometry'),
+  // Building id per tile: building slot + 1, 0 = none.
+  bId: L(Uint16Array, TILES, true, 'geometry'),
+  ugPower: L(Uint8Array, TILES, true, 'overlay'),
+  ugWater: L(Uint8Array, TILES, true, 'overlay'),
+  powerOn: L(Uint8Array, TILES, true, 'overlay'),
+  waterOn: L(Uint8Array, TILES, true, 'overlay'),
+  landValue: L(Uint8Array, TILES, true, 'overlay'),
+  pollution: L(Uint8Array, TILES, true, 'overlay'),
+  covFire: L(Uint8Array, TILES, true, 'overlay'),
+  covPolice: L(Uint8Array, TILES, true, 'overlay'),
+  covHealth: L(Uint8Array, TILES, true, 'overlay'),
+  covEdu: L(Uint8Array, TILES, true, 'overlay'),
+
+  // Building table (SoA pool). Slot is free when bArch = 0. Sent as slot deltas, not chunk slices.
+  bArch: L(Uint8Array, BMAX, true, 'geometry'),
+  bX: L(Uint16Array, BMAX, true, 'geometry'),
+  bY: L(Uint16Array, BMAX, true, 'geometry'),
+  bW: L(Uint8Array, BMAX, true, 'geometry'),
+  bH: L(Uint8Array, BMAX, true, 'geometry'),
+  bRot: L(Uint8Array, BMAX, true, 'geometry'),
+  bLevel: L(Uint8Array, BMAX, true, 'geometry'),
+  bProg: L(Uint8Array, BMAX, true, 'geometry'),
+  bFlags: L(Uint8Array, BMAX, true, 'geometry'),
+  // Bumped each time the slot is freed, so a stale reference (undo journal) cannot match a reused slot.
+  bGen: L(Uint16Array, BMAX, false, 'none'),
+
+  // Agent pools: stable slot id + generation; slot is free when aKind = 0. Sent through the Agents message.
+  aKind: L(Uint8Array, AMAX, false, 'none'),
+  aGen: L(Uint16Array, AMAX, false, 'none'),
+  aX: L(Float32Array, AMAX, false, 'none'),
+  aY: L(Float32Array, AMAX, false, 'none'),
+  aHead: L(Float32Array, AMAX, false, 'none'),
+  aState: L(Uint8Array, AMAX, false, 'none'),
+  aTarget: L(Uint32Array, AMAX, false, 'none'),
+
+  // Undo journal: ring of UMAX entries keyed by a sim-assigned id (S.journalNext), not the client's command id.
+  // Each entry owns UCELLS cell records (previous and resulting values).
+  uCmd: L(Uint32Array, UMAX, false, 'none'),
+  uKind: L(Uint8Array, UMAX, false, 'none'),
+  uCount: L(Uint16Array, UMAX, false, 'none'),
+  uArg: L(Uint32Array, UMAX, false, 'none'),
+  uGen: L(Uint16Array, UMAX, false, 'none'),
+  uCost: L(Float64Array, UMAX, false, 'none'),
+  jIdx: L(Uint32Array, UMAX * UCELLS, false, 'none'),
+  jPrevRoad: L(Uint16Array, UMAX * UCELLS, false, 'none'),
+  jPostRoad: L(Uint16Array, UMAX * UCELLS, false, 'none'),
+  jPrevZone: L(Uint8Array, UMAX * UCELLS, false, 'none'),
+  jPostZone: L(Uint8Array, UMAX * UCELLS, false, 'none'),
+
+  scalars: L(Float64Array, 32, false, 'none'),
+  rng: L(Uint32Array, 4, false, 'none'),
+} as const;
+
+export type LayerName = keyof typeof SPEC;
+export type World = { [K in LayerName]: InstanceType<(typeof SPEC)[K]['ctor']> };
+
+export interface LayerInfo {
+  name: LayerName;
+  ctor: TypedCtor;
+  length: number;
+  render: boolean;
+  dirty: DirtyClass;
+}
+
+export const REGISTRY: readonly LayerInfo[] = (Object.keys(SPEC) as LayerName[]).map((name) => ({ name, ...SPEC[name] }));
+
+/** Tile layers are the ones sliced per chunk in ChunkPatch. */
+export const isTileLayer = (l: LayerInfo): boolean => l.length === TILES;
+
+export const TERRAIN = { WATER: 0, SAND: 1, GRASS: 2, ROCK: 3, FOREST: 4, ORE: 5, RIVER: 6 } as const;
+export const isWaterTerrain = (t: number): boolean => t === TERRAIN.WATER || t === TERRAIN.RIVER;
+
+export const HEIGHT_SCALE = 16;
+
+export const ZONE = { NONE: 0, R: 1, C: 2, I: 3 } as const;
+
+// Road tile Uint16 bit layout:
+//   bits 0-2   class: 0 none, 1 street, 2 avenue, 3 highway (4-7 reserved)
+//   bit  3     connects North (y - 1)
+//   bit  4     connects East  (x + 1)
+//   bit  5     connects South (y + 1)
+//   bit  6     connects West  (x - 1)
+//   bit  7     bridge / elevated (road over water)
+//   bit  8     slope (a 4-neighbour is more than SLOPE_LIMIT higher or lower)
+//   bits 9-15  reserved
+export const ROAD = {
+  CLASS_MASK: 0x7, N: 1 << 3, E: 1 << 4, S: 1 << 5, W: 1 << 6, CONN_MASK: 0x78, BRIDGE: 1 << 7, SLOPE: 1 << 8,
+} as const;
+export const SLOPE_LIMIT = HEIGHT_SCALE * 0.75;
+
+export const S = {
+  tick: 0, tickOfDay: 1, dayFrac: 2, day: 3, weather: 4, weatherIntensity: 5, weatherTimer: 6,
+  treasury: 7, demandR: 8, demandC: 9, demandI: 10, population: 11, tax: 12,
+  journalNext: 13, nextAgentId: 14, undoNext: 15, seed: 16, lightningCount: 17, weatherTarget: 18,
+} as const;
+
+export const WEATHER = { CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;
+export const DAY_TICKS = 4800;
