@@ -326,6 +326,326 @@ async function persistenceChecks(open) {
 }
 // ---- end U5 block ----
 
+// ---- U6 build tools checks (webgl2 low only) ----
+// Costs below are the catalog's: depot 500, street 10 per tile on land, zone 2 per tile.
+const BUILD_QUERY = '?autostart=1&seed=42&backend=webgl2&tier=low&governor=off';
+const DEPOT_COST = 500, STREET_COST = 10, ZONE_COST = 2;
+const until = (page, fn, arg, timeout = 20000) => page.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
+const camOf = (page) => page.evaluate(() => ({ ...window.__iron.render.camera }));
+
+async function bootBuildPage(open, add) {
+  const page = await open(BUILD_QUERY);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && r.triangles > 10000 && window.__iron.tools); }, null, 60000);
+  if (!up) { add('city boots with tools', 'renderer or __iron.tools never ready'); await page.close(); return null; }
+  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return null; }
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
+  await waitFrames(page, (await frames(page)) + 6, 10000);
+  return { page, site };
+}
+
+async function placeDepot(page, site, add, label) {
+  const before = await page.evaluate(() => ({ inst: window.__iron.render.buildings.instances, money: window.__iron.tools.treasury }));
+  const placed = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    t.select('service', { name: 'depot' });
+    const id = t.dragTiles(t.tileFor('depot', { x: s.x + 2, y: s.y + 2 }), t.tileFor('depot', { x: s.x + 2, y: s.y + 2 }));
+    return id;
+  }, site);
+  add(`${label}depot placed through tools.dragTiles (command sent)`, placed > 0 ? null : `dragTiles returned ${placed}; toasts ${JSON.stringify(await page.evaluate(() => window.__iron.tools.toasts))}`);
+  if (!(placed > 0)) return null;
+  const accepted = await until(page, (id) => { const e = window.__iron.tools.lastEvent; return !!e && e.cmd === id; }, placed);
+  const ev = await page.evaluate(() => window.__iron.tools.lastEvent);
+  add(`${label}sim accepts the depot`, accepted && ev.type === 'accepted' ? null : JSON.stringify(ev));
+  const grew = await until(page, (n) => window.__iron.render.buildings.instances > n, before.inst);
+  add(`${label}render.buildings.instances increases after the depot`, grew ? null : `still ${await page.evaluate(() => window.__iron.render.buildings.instances)} (was ${before.inst})`);
+  const paid = await until(page, (v) => window.__iron.tools.treasury === v, before.money - DEPOT_COST);
+  add(`${label}treasury drops by the depot's catalog cost ${DEPOT_COST}`, paid ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}, want ${before.money - DEPOT_COST}`);
+  return before.money - DEPOT_COST;
+}
+
+async function buildToolChecksDesktop(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`build: ${name}`, problem]);
+  const boot = await bootBuildPage(open, add);
+  if (!boot) return out;
+  const { page, site } = boot;
+  const waitMoney = (v) => until(page, (x) => window.__iron.tools.treasury === x, v);
+
+  let money = await placeDepot(page, site, add, '');
+  if (money === null) { await page.close(); return out; }
+
+  // Road: a straight street on the row just below the depot.
+  const roadY = site.y + 4, x0 = site.x + 2, x1 = site.x + 9;
+  const roadId = await page.evaluate(({ x0, x1, y }) => { const t = window.__iron.tools; t.select('road', { cls: 1 }); return t.dragTiles({ x: x0, y }, { x: x1, y }); }, { x0, x1, y: roadY });
+  const roadOk = roadId > 0 && await until(page, (id) => window.__iron.tools.lastEvent?.cmd === id, roadId);
+  const roaded = await until(page, ({ x0, x1, y }) => { for (let x = x0; x <= x1; x++) if ((window.__iron.tools.peek('road', x, y) & 7) === 0) return false; return true; }, { x0, x1, y: roadY });
+  add('a dragged road line puts road tiles in the mirror', roadOk && roaded ? null : `command ${roadId}, mirror road ${roaded}`);
+  money -= (x1 - x0 + 1) * STREET_COST;
+  add('the road debits 10 per tile', await waitMoney(money) ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}, want ${money}`);
+
+  // Zone a rect below the road, then undo it.
+  const zr = { x0: site.x + 2, y0: site.y + 6, x1: site.x + 9, y1: site.y + 10 };
+  const zoneId = await page.evaluate((r) => { const t = window.__iron.tools; t.select('zone', { zone: 1, density: 0 }); return t.dragTiles({ x: r.x0, y: r.y0 }, { x: r.x1, y: r.y1 }); }, zr);
+  const zoneOk = zoneId > 0 && await until(page, (id) => window.__iron.tools.lastEvent?.cmd === id, zoneId);
+  const zoned = await until(page, (r) => { for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) if (window.__iron.tools.peek('zone', x, y) !== 1) return false; return true; }, zr);
+  add('a dragged zone rect sets the zone layer', zoneOk && zoned ? null : `command ${zoneId}, mirror zone ${zoned}`);
+  const beforeZone = money;
+  money -= (zr.x1 - zr.x0 + 1) * (zr.y1 - zr.y0 + 1) * ZONE_COST;
+  add('the zone debits 2 per tile', await waitMoney(money) ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}, want ${money}`);
+  add('the undo stack holds the road and the zone (the depot too)', (await page.evaluate(() => window.__iron.tools.undoDepth)) === 3 ? null : `depth ${await page.evaluate(() => window.__iron.tools.undoDepth)}`);
+
+  const undoId = await page.evaluate(() => window.__iron.tools.undo());
+  const undoOk = undoId > 0 && await until(page, (id) => { const e = window.__iron.tools.lastEvent; return !!e && e.cmd === id && e.type === 'accepted'; }, undoId);
+  const cleared = await until(page, (r) => { for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) if (window.__iron.tools.peek('zone', x, y) !== 0) return false; return true; }, zr);
+  add('Undo accepted clears the zone', undoOk && cleared ? null : `undo ${undoId} ok ${undoOk}, cleared ${cleared}`);
+  add('undo refunds the zone', await waitMoney(beforeZone) ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}, want ${beforeZone}`);
+  add('the zone leaves the undo stack', (await page.evaluate(() => window.__iron.tools.undoDepth)) === 2 ? null : `depth ${await page.evaluate(() => window.__iron.tools.undoDepth)}`);
+
+  // A building on water is refused with a toast and costs nothing.
+  const water = await page.evaluate(() => window.__iron.tools.findWater());
+  if (!water) add('water tile exists for the rejection check', 'findWater returned null');
+  else {
+    const moneyBefore = await page.evaluate(() => window.__iron.tools.treasury);
+    const sent = await page.evaluate((w) => { const t = window.__iron.tools; t.select('service', { name: 'depot' }); return t.dragTiles(t.tileFor('depot', w), t.tileFor('depot', w)); }, water);
+    const toast = await page.locator('[data-testid="toast"]').first().waitFor({ timeout: 5000 }).then(() => true, () => false);
+    const text = toast ? await page.locator('[data-testid="toast"]').first().innerText() : '';
+    add('placing a building on water shows a rejection toast in plain words', toast && /water|ground/i.test(text) ? null : `toast "${text}"`);
+    add('the refused placement sent no command', sent === 0 ? null : `command ${sent}`);
+    await page.waitForTimeout(400);
+    add('treasury is unchanged after the refused placement', (await page.evaluate(() => window.__iron.tools.treasury)) === moneyBefore ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}, was ${moneyBefore}`);
+  }
+
+  // Pointer path: with a tool active a left-drag draws instead of panning, Escape abandons it, and with no tool the drag pans.
+  await page.evaluate(() => { window.__iron.tools.cancel(); window.__iron.tools.select('zone', { zone: 2, density: 1 }); });
+  const box = await page.locator('canvas').boundingBox();
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  const cam0 = await camOf(page);
+  const ev0 = await page.evaluate(() => window.__iron.tools.lastEvent);
+  const moneyBeforeDrag = await page.evaluate(() => window.__iron.tools.treasury);
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 90, cy + 50, { steps: 6 });
+  await waitFrames(page, (await frames(page)) + 3, 5000);
+  const ghost = await page.evaluate(() => window.__iron.render.ghostTiles);
+  const cam1 = await camOf(page);
+  add('a tool drag paints the ghost and does not pan the camera', ghost > 0 && Math.hypot(cam1.x - cam0.x, cam1.z - cam0.z) < 0.01 ? null : `ghost tiles ${ghost}, camera moved ${Math.hypot(cam1.x - cam0.x, cam1.z - cam0.z).toFixed(3)}`);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await waitFrames(page, (await frames(page)) + 2, 5000);
+  const ev1 = await page.evaluate(() => window.__iron.tools.lastEvent);
+  await page.waitForTimeout(400);
+  add('Escape during a drag abandons it without sending a command', JSON.stringify(ev1) === JSON.stringify(ev0) && (await page.evaluate(() => window.__iron.tools.treasury)) === moneyBeforeDrag ? null : `lastEvent ${JSON.stringify(ev1)}, treasury ${await page.evaluate(() => window.__iron.tools.treasury)} was ${moneyBeforeDrag}`);
+  await page.evaluate(() => window.__iron.tools.cancel());
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 90, cy + 50, { steps: 6 });
+  await page.mouse.up();
+  const cam2 = await camOf(page);
+  add('with the tool cancelled the same drag pans the camera again', Math.hypot(cam2.x - cam1.x, cam2.z - cam1.z) > 0.5 ? null : `camera moved ${Math.hypot(cam2.x - cam1.x, cam2.z - cam1.z).toFixed(3)}`);
+
+  // Keyboard: B selects bulldoze, Ctrl+Z undoes the road.
+  await page.keyboard.press('b');
+  add('the B key selects the bulldoze tool', (await page.evaluate(() => window.__iron.tools.selected?.tool)) === 'bulldoze' ? null : JSON.stringify(await page.evaluate(() => window.__iron.tools.selected)));
+  await page.keyboard.press('Escape');
+  add('Escape with no drag clears the tool', (await page.evaluate(() => window.__iron.tools.selected)) === null ? null : 'tool still selected');
+  await page.keyboard.press('Control+z');
+  const undoneByKey = await until(page, () => window.__iron.tools.undoDepth === 1, null, 10000);
+  add('Ctrl+Z undoes the newest undoable action (the road)', undoneByKey ? null : `undo depth ${await page.evaluate(() => window.__iron.tools.undoDepth)}`);
+
+  // Building while paused: the command runs at once, the building appears, and the tick does not advance.
+  await page.locator('button[title="Pause (0)"]').click();
+  await page.waitForTimeout(600);
+  const tickPaused = await tickOf(page);
+  const instBefore = await page.evaluate(() => window.__iron.render.buildings.instances);
+  const moneyPaused = await page.evaluate(() => window.__iron.tools.treasury);
+  const pausedId = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    t.select('service', { name: 'depot' });
+    const at = t.tileFor('depot', { x: s.x + 11, y: s.y + 2 });
+    return t.dragTiles(at, at);
+  }, site);
+  const pausedOk = pausedId > 0 && await until(page, (id) => { const e = window.__iron.tools.lastEvent; return !!e && e.cmd === id && e.type === 'accepted'; }, pausedId, 10000);
+  add('a depot placed while paused is accepted', pausedOk ? null : `command ${pausedId}, lastEvent ${JSON.stringify(await page.evaluate(() => window.__iron.tools.lastEvent))}`);
+  add('the paused depot appears in the render', await until(page, (n) => window.__iron.render.buildings.instances > n, instBefore, 10000) ? null : 'instances did not increase');
+  add('the paused depot is paid for', await waitMoney(moneyPaused - DEPOT_COST) ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}`);
+  await page.waitForTimeout(500);
+  add('the tick did not advance while paused', (await tickOf(page)) === tickPaused ? null : `tick ${tickPaused} -> ${await tickOf(page)}`);
+  await page.locator('button[title="1x (1)"]').click();
+  await page.close();
+  return out;
+}
+
+async function buildToolChecksPhone(open, ctx) {
+  const out = [];
+  const add = (name, problem) => out.push([`build: ${name}`, problem]);
+  const boot = await bootBuildPage(open, add);
+  if (!boot) return out;
+  const { page, site } = boot;
+
+  // Real touch events through CDP: one finger draws with the tool, a second finger hands the gesture to the camera.
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([id, x, y]) => ({ id, x, y })) });
+  await page.evaluate(() => window.__iron.tools.select('zone', { zone: 1, density: 0 }));
+  const box = await page.locator('canvas').boundingBox();
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  const cam0 = await camOf(page);
+  const ev0 = await page.evaluate(() => window.__iron.tools.lastEvent);
+  await touch('touchStart', [[1, cx, cy]]);
+  await touch('touchMove', [[1, cx + 60, cy + 40]]);
+  await waitFrames(page, (await frames(page)) + 3, 5000);
+  const ghost = await page.evaluate(() => window.__iron.render.ghostTiles);
+  const cam1 = await camOf(page);
+  add('one-finger drag with a tool paints the ghost and leaves the camera alone', ghost > 0 && Math.hypot(cam1.x - cam0.x, cam1.z - cam0.z) < 0.01 ? null : `ghost tiles ${ghost}, camera moved ${Math.hypot(cam1.x - cam0.x, cam1.z - cam0.z).toFixed(3)}`);
+  await touch('touchStart', [[1, cx + 60, cy + 40], [2, cx - 60, cy - 40]]);
+  await touch('touchMove', [[1, cx + 120, cy + 80], [2, cx - 120, cy - 80]]);
+  await waitFrames(page, (await frames(page)) + 3, 5000);
+  const cam2 = await camOf(page);
+  await touch('touchEnd', []);
+  await waitFrames(page, (await frames(page)) + 2, 5000);
+  add('a second finger switches to the camera (pinch zooms in)', cam2.dist < cam1.dist ? null : `dist ${cam1.dist} -> ${cam2.dist}`);
+  const ev1 = await page.evaluate(() => window.__iron.tools.lastEvent);
+  add('the cancelled draw sent no command', JSON.stringify(ev0) === JSON.stringify(ev1) ? null : JSON.stringify(ev1));
+  await page.evaluate(() => window.__iron.tools.cancel());
+
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
+  await waitFrames(page, (await frames(page)) + 6, 10000);
+  await placeDepot(page, site, add, 'phone ');
+  await page.close();
+  return out;
+}
+// ---- end U6 block ----
+
+// ---- U7a road graph checks (desktop, webgl2 low, sim debug mode) ----
+// Two street segments meeting at a corner give one connected network; bulldozing the middle splits it and bumps graphEpoch.
+async function roadGraphChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`roads: ${name}`, problem]);
+  const page = await open(`${BUILD_QUERY}&debug=1`);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.roads); }, null, 60000);
+  if (!up) { add('debug session boots with __iron.roads', 'renderer, tools or roads hook never ready'); await page.close(); return out; }
+  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
+  const A = { x: site.x + 1, y: site.y + 2 }, B = { x: site.x + 8, y: site.y + 2 }, D = { x: site.x + 8, y: site.y + 9 }, M = { x: site.x + 4, y: site.y + 2 };
+  const idx = (p) => p.y * MAP + p.x;
+
+  const none = await page.evaluate((a) => window.__iron.roads.requestPath(a, a), A);
+  add('a path query on bare ground is refused with no-road', !none.ok && none.reason === 'no-road' ? null : JSON.stringify(none));
+
+  const drag = (from, to) => page.evaluate(({ from, to }) => { const t = window.__iron.tools; t.select('road', { cls: 1 }); return t.dragTiles(from, to); }, { from, to });
+  const id1 = await drag(A, B), id2 = await drag(B, D);
+  const accepted = id1 > 0 && id2 > 0 && await until(page, (id) => window.__iron.tools.lastEvent?.cmd === id && window.__iron.tools.lastEvent.type === 'accepted', id2);
+  const laid = await until(page, ({ a, d }) => (window.__iron.tools.peek('road', a.x, a.y) & 7) !== 0 && (window.__iron.tools.peek('road', d.x, d.y) & 7) !== 0, { a: A, d: D });
+  add('two dragged street segments are accepted and reach the mirror', accepted && laid ? null : `commands ${id1}, ${id2}; accepted ${accepted}; mirror ${laid}`);
+
+  const p1 = await page.evaluate(({ a, d }) => window.__iron.roads.requestPath(a, d), { a: A, d: D });
+  const epoch0 = p1.epoch;
+  add('requestPath across the turn returns a non-empty path', p1.ok && p1.tiles.length === 15 ? null : JSON.stringify(p1));
+  add('the path starts at the first tile and ends at the far end', p1.ok && p1.tiles[0] === idx(A) && p1.tiles[p1.tiles.length - 1] === idx(D) ? null : `ends ${p1.tiles?.[0]} .. ${p1.tiles?.[p1.tiles.length - 1]}, want ${idx(A)} .. ${idx(D)}`);
+  add('the path turns at the corner tile', p1.ok && p1.tiles.includes(idx(B)) ? null : 'corner tile missing from the path');
+  add('graphEpoch is above zero after roads were laid', epoch0 > 0 ? null : `graphEpoch ${epoch0}`);
+
+  const bd = await page.evaluate((m) => { const t = window.__iron.tools; t.select('bulldoze'); return t.dragTiles(m, m); }, M);
+  const cut = bd > 0 && await until(page, (m) => (window.__iron.tools.peek('road', m.x, m.y) & 7) === 0, M);
+  add('bulldozing the middle tile removes it from the mirror', cut ? null : `bulldoze command ${bd}, tile cleared ${cut}`);
+  const p2 = await page.evaluate(({ a, d }) => window.__iron.roads.requestPath(a, d), { a: A, d: D });
+  add('graphEpoch (read from the path reply) increases after the bulldoze', p2.epoch > epoch0 ? null : `epoch ${p2.epoch}, was ${epoch0}`);
+  const statsCaught = await until(page, (e) => window.__iron.roads.graphEpoch >= e, p2.epoch, 10000);
+  add('the Stats graphEpoch catches up to the path reply epoch', statsCaught ? null : `stats ${await page.evaluate(() => window.__iron.roads.graphEpoch)}, want ${p2.epoch}`);
+  add('the same path query now fails as unreachable', !p2.ok && p2.reason === 'unreachable' && p2.tiles.length === 0 ? null : JSON.stringify(p2));
+  const p3 = await page.evaluate(({ b, d }) => window.__iron.roads.requestPath(b, d), { b: B, d: D });
+  add('the intact segment still routes', p3.ok && p3.tiles.length === 8 ? null : JSON.stringify(p3));
+  await page.close();
+  return out;
+}
+// ---- end U7a block ----
+
+// ---- U8 economy checks (desktop, webgl2 low, sim debug mode) ----
+// A small road-side city of completed buildings (4 R, 2 C, 2 I) runs at max speed through several budget months. Catalog ids:
+// R low L1 = 16, C low L1 = 25, I low L1 = 34. Residents 24, jobs 20 against a labour force of 12, so R demand starts near +0.24.
+async function economyChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`economy: ${name}`, problem]);
+  const page = await open(`${BUILD_QUERY}&debug=1`);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  if (!up) { add('debug session boots with __iron.economy', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
+  const site = await page.evaluate(() => window.__iron.tools.findSite(24));
+  if (!site) { add('a flat 24x24 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
+  const sx = site.x, sy = site.y, roadY = sy + 8;
+  const accepted = (id) => until(page, (i) => window.__iron.tools.lastEvent?.cmd === i && window.__iron.tools.lastEvent.type === 'accepted', id);
+  const drag = (tool, opts, from, to) => page.evaluate(({ tool, opts, from, to }) => { const t = window.__iron.tools; t.select(tool, opts); return t.dragTiles(from, to); }, { tool, opts, from, to });
+
+  const roadId = await drag('road', { cls: 1 }, { x: sx + 1, y: roadY }, { x: sx + 20, y: roadY });
+  add('a street is laid through the tools', roadId > 0 && await accepted(roadId) ? null : `command ${roadId}`);
+  const zones = [[1, sx + 2, sy + 4, sx + 9, sy + 7], [2, sx + 2, sy + 10, sx + 6, sy + 12], [3, sx + 10, sy + 10, sx + 14, sy + 12]];
+  let zoneOk = true;
+  for (const [zone, x0, y0, x1, y1] of zones) {
+    const id = await drag('zone', { zone, density: 0 }, { x: x0, y: y0 }, { x: x1, y: y1 });
+    zoneOk = zoneOk && id > 0 && await accepted(id);
+  }
+  add('R, C and I zones are painted through the tools', zoneOk ? null : 'a zone drag was not accepted');
+
+  const grow = (x, y, archetype) => page.evaluate((b) => window.__iron.economy.command({ type: 'debugGrow', ...b, progress: 1 }), { x, y, archetype });
+  for (const dx of [2, 4, 6, 8]) await grow(sx + dx, sy + 7, 16);
+  for (const dx of [3, 5]) await grow(sx + dx, sy + 9, 25);
+  for (const dx of [10, 12]) await grow(sx + dx, sy + 9, 34);
+  const grown = await until(page, () => (window.__iron.economy.stats?.population ?? 0) === 24 && (window.__iron.economy.stats?.jobsC ?? 0) === 8 && (window.__iron.economy.stats?.jobsI ?? 0) === 12, null, 15000);
+  add('completed R, C and I buildings give population 24 and 8 + 12 jobs', grown ? null : JSON.stringify(await page.evaluate(() => { const s = window.__iron.economy.stats; return s && { population: s.population, jobsC: s.jobsC, jobsI: s.jobsI }; })));
+
+  const settled = await until(page, () => { const s = window.__iron.economy.stats; return !!s && s.rciDemand[0] > 0.15 && s.rciDemand[0] < 0.3; }, null, 30000);
+  const before = await page.evaluate(() => window.__iron.economy.stats?.rciDemand ?? null);
+  add('R demand settles near +0.24 with jobs available', settled ? null : `rciDemand ${JSON.stringify(before)}`);
+  const bars = await page.evaluate(() => ['R', 'C', 'I'].map((k) => Number(document.querySelector(`[data-testid="demand-${k}"]`)?.getAttribute('data-demand'))));
+  add('the top bar shows three demand bars in [-1, 1]', bars.length === 3 && bars.every((v) => Number.isFinite(v) && v >= -1 && v <= 1) ? null : JSON.stringify(bars));
+
+  await page.locator('.speeds button', { hasText: 'Max' }).click();
+  const monthsRan = await until(page, () => (window.__iron.economy.stats?.month ?? 0) >= 3, null, 120000);
+  const m = await page.evaluate(() => ({ month: window.__iron.economy.stats?.month, tick: window.__iron.economy.stats?.tick, treasury: window.__iron.economy.stats?.treasury }));
+  add('the budget month advances at max speed', monthsRan ? null : `month ${m.month} at tick ${m.tick}`);
+  if (!monthsRan) { await page.close(); return out; }
+
+  const all = await page.evaluate(() => window.__iron.economy.samples.map((s) => ({ month: s.month, treasury: s.treasury, net: s.lastMonth.net, demand: s.rciDemand, population: s.population })));
+  add('population is above zero', all.some((s) => s.population > 0) ? null : 'population never rose');
+  add('every sampled demand stays within [-1, 1]', all.every((s) => s.demand.every((d) => d >= -1 && d <= 1)) ? null : 'a demand left the range');
+  let pair = null;
+  for (let i = 1; i < all.length && !pair; i++) if (all[i].month === all[i - 1].month + 1 && all[i - 1].month >= 0) pair = [all[i - 1], all[i]];
+  add('treasury moved by exactly the closed month net across a month boundary', pair && pair[1].treasury - pair[0].treasury === pair[1].net ? null : `pair ${JSON.stringify(pair)}`);
+  const budget = await page.evaluate(() => window.__iron.economy.requestBudget());
+  const rec = pair && budget.history.find((r) => r.month === pair[0].month);
+  add('requestBudget history carries that same month net', rec && rec.net === pair[1].net && rec.treasury === pair[1].treasury ? null : `record ${JSON.stringify(rec)}, pair ${JSON.stringify(pair)}`);
+  add('the budget has income and expenses, and the projected month is present', budget.history.length >= 2 && budget.history[0].income > 0 && budget.history[0].roads > 0 && budget.current.expenses > 0 ? null : JSON.stringify(budget.history[0]));
+  add('the top bar shows the monthly net', (await page.locator('[data-testid="monthly-net"]').textContent())?.includes('/mo') ? null : 'monthly net missing');
+
+  const coin = page.getByRole('button', { name: 'Budget', exact: true });
+  const coinBox = await coin.boundingBox();
+  add('the budget button is a 44px touch target', coinBox && coinBox.width >= 44 && coinBox.height >= 44 ? null : JSON.stringify(coinBox));
+  await coin.click();
+  const open2 = await until(page, () => !!document.querySelector('[data-testid="budget"]') && document.querySelectorAll('[data-testid="budget-row"]').length === 12, null, 10000);
+  add('the Budget panel opens with a 12-row month table', open2 ? null : 'panel or rows missing');
+  const filled = await until(page, () => [...document.querySelectorAll('[data-testid="budget-row"]')].filter((r) => r.querySelector('td')?.textContent !== '-').length >= 2, null, 10000);
+  add('the table lists the closed months', filled ? null : 'fewer than two filled rows');
+  add('the chart is labelled for assistive tech', /Income and expenses/.test((await page.locator('[data-testid="budget-chart"]').getAttribute('aria-label')) ?? '') ? null : 'chart aria-label missing');
+  const slider = page.locator('[data-testid="tax-R"]');
+  const sliderBox = await slider.boundingBox();
+  add('the tax slider is at least 44px tall', sliderBox && sliderBox.height >= 44 ? null : JSON.stringify(sliderBox));
+
+  const m0 = await page.evaluate(() => window.__iron.economy.stats.month);
+  const dBefore = await page.evaluate(() => window.__iron.economy.stats.rciDemand[0]);
+  await slider.focus();
+  await page.keyboard.press('End');
+  const taxed = await until(page, () => window.__iron.economy.stats?.taxRates[0] === 20, null, 10000);
+  add('the R tax slider sets the rate to 20% in the sim', taxed ? null : `taxRates ${JSON.stringify(await page.evaluate(() => window.__iron.economy.stats?.taxRates))}`);
+  const next = await until(page, (mm) => (window.__iron.economy.stats?.month ?? 0) >= mm + 2, m0, 120000);
+  const dAfter = await page.evaluate(() => window.__iron.economy.stats.rciDemand[0]);
+  add('R demand decreases over the next months after the tax rise', next && dAfter < dBefore - 0.1 ? null : `before ${dBefore}, after ${dAfter}, month ${m0} -> ${await page.evaluate(() => window.__iron.economy.stats.month)}`);
+  add('the month projection reflects the new rate', (await page.evaluate(() => window.__iron.economy.requestBudget())).taxRates[0] === 20 ? null : 'taxRates not 20');
+  await page.keyboard.press('Escape');
+  add('Escape closes the Budget panel', await until(page, () => !document.querySelector('[data-testid="budget"]'), null, 5000) ? null : 'panel still open');
+  await page.close();
+  return out;
+}
+// ---- end U8 block ----
+
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true, fx: true, rain: true }, { backend: 'webgpu', showcaseTier: 'high', fx: true }],
   phone: [{ backend: 'webgl2' }],
@@ -377,6 +697,13 @@ try {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
+    }
+    const buildChecks = vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
+    if (vp.name === 'desktop') buildChecks.push(...await roadGraphChecks(open));
+    if (vp.name === 'desktop') buildChecks.push(...await economyChecks(open));
+    for (const [name, problem] of buildChecks) {
+      console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
+      if (problem) failed++;
     }
     if (errors.length) { failed++; console.log(`${vp.name.padEnd(8)} FAIL console errors:\n  ${errors.join('\n  ')}`); }
     else console.log(`${vp.name.padEnd(8)} ok   no console errors`);

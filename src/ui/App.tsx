@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IronDebug } from '../render/debug.ts';
 import '../platform/debug.ts';
+import './toolsStore.ts';
+import './roadsDebug.ts';
+import { StatsRing } from './economyDebug.ts';
 import type { ClientState } from '../sim/client.ts';
+import { DEFAULT_TAX } from '../sim/economy/tables.ts';
 import { openPlatformDb, type PlatformDb, type SlotMeta } from '../platform/db.ts';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
 import { readFileBytes } from '../platform/save.ts';
@@ -13,7 +17,11 @@ import './app.css';
 
 // ?autostart=1 skips the title screen with an unsaved city; add &slot=<id> to load that slot instead.
 // ?seed=42&haltAt=200 is the determinism debug path (see session.ts).
-const ZERO: HudStats = { tick: 0, day: 0, dayFrac: 0, treasury: 0, population: 0 };
+const ZERO: HudStats = {
+  tick: 0, day: 0, dayFrac: 0, treasury: 0, population: 0, rciDemand: [0, 0, 0], taxRates: [DEFAULT_TAX, DEFAULT_TAX, DEFAULT_TAX], month: 0, lastNet: 0, loans: [], debtMonths: 0,
+};
+const SAMPLE_CAP = 2000;
+const isDebug = (): boolean => query().get('debug') === '1' || query().get('showcase') === '1';
 
 const query = (): URLSearchParams => new URLSearchParams(window.location.search);
 
@@ -31,6 +39,8 @@ export function App() {
   const db = useRef<PlatformDb | undefined>(undefined);
   const current = useRef<Session | null>(null);
   const iron = useRef<IronDebug | null>(null);
+  const graphEpoch = useRef(0);
+  const samplesRef = useRef<StatsRing | null>(null);
 
   const refreshSlots = useCallback(async (): Promise<void> => {
     const r = await db.current?.listSlots();
@@ -44,6 +54,24 @@ export function App() {
     const dbg = iron.current;
     if (dbg) {
       dbg.sim = { tick: 0 };
+      dbg.tools = s.tools.debug;
+      graphEpoch.current = 0;
+      delete dbg.economy;
+      samplesRef.current = null;
+      if (isDebug()) {
+        const ring = new StatsRing(SAMPLE_CAP);
+        samplesRef.current = ring;
+        dbg.economy = {
+          command: (body) => s.client.command(body),
+          requestBudget: () => s.client.requestBudget(),
+          get stats() { return ring.last; },
+          get samples() { return ring.toArray(); },
+        };
+      }
+      dbg.roads = {
+        get graphEpoch() { return graphEpoch.current; },
+        requestPath: (from, to) => s.client.requestPath(from, to),
+      };
       dbg.platform = {
         save: () => saveSession(s),
         load: (id) => loadInto(s, id),
@@ -63,12 +91,17 @@ export function App() {
       onState: (st) => { if (current.current === s || current.current === null) setWorker(st); },
       onStats: (st) => {
         if (current.current !== s) return;
+        graphEpoch.current = st.graphEpoch;
         const dbg = iron.current;
         if (dbg) {
           dbg.sim.tick = st.tick;
           if (st.hash !== undefined) { dbg.sim.hash = st.hash; dbg.sim.hashTick = st.tick; }
         }
-        setHud({ tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population });
+        samplesRef.current?.push(st);
+        setHud({
+          tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
+          rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths,
+        });
       },
     });
     return s;
@@ -77,6 +110,7 @@ export function App() {
   async function loadInto(s: Session, id: string): Promise<Awaited<ReturnType<Session['service']['load']>>> {
     const r = await s.service.load(id);
     if (r.ok) {
+      s.tools.reset();
       s.lifecycle.cacheSnapshot(r.value.snapshot);
       s.lifecycle.holdForResume();
     }
@@ -220,7 +254,7 @@ export function App() {
   if (view === 'game' && live && platformReady) {
     return (
       <GameView
-        client={live.client} mirror={live.mirror} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
+        client={live.client} mirror={live.mirror} tools={live.tools} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
         tick={hud.tick} worker={worker} onExit={onQuit}
         quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
       />

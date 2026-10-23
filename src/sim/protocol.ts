@@ -2,7 +2,7 @@ import type { Command } from './commands.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export type Speed = 0 | 1 | 2 | 4 | 'max';
 export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float32Array | Float64Array | Int8Array | Int32Array;
@@ -60,6 +60,34 @@ export interface AgentsMsg {
 }
 export interface AgentsReturn { type: 'agentsReturn'; pos: Float32Array; ids: Uint32Array }
 export interface EventsMsg { type: 'events'; tick: number; events: SimEvent[] }
+/** One closed budget month (or, in BudgetMsg.current, the running month's projection). All amounts are whole currency units. */
+export interface BudgetRecord {
+  /** Months completed before this one (0 for the first month of the game). */
+  month: number;
+  incomeR: number; incomeC: number; incomeI: number;
+  roads: number; services: number; interest: number;
+  income: number; expenses: number; net: number;
+  population: number;
+  /** Treasury after the month was paid. */
+  treasury: number;
+}
+export interface LoanInfo { slot: number; principal: number; /** Monthly interest in basis points. */ bp: number }
+/** Net of a closed month; month is -1 before the first closes. */
+export interface MonthSummary { month: number; income: number; expenses: number; net: number }
+export interface RequestBudget { type: 'requestBudget'; id: number }
+export interface BudgetMsg {
+  type: 'budget';
+  id: number;
+  /** Months completed so far. */
+  month: number;
+  /** Up to 12 closed months, oldest first. */
+  history: BudgetRecord[];
+  /** The running month as it would close right now (not yet paid). */
+  current: BudgetRecord;
+  loans: LoanInfo[];
+  /** [R, C, I] tax percent. */
+  taxRates: [number, number, number];
+}
 export interface Stats {
   type: 'stats';
   tick: number;
@@ -69,10 +97,39 @@ export interface Stats {
   halted: boolean;
   treasury: number;
   population: number;
+  /** [R, C, I] demand in [-1, 1]. */
+  rciDemand: [number, number, number];
+  /** [R, C, I] tax percent. */
+  taxRates: [number, number, number];
+  /** Budget months completed. */
+  month: number;
+  lastMonth: MonthSummary;
+  loans: LoanInfo[];
+  jobsC: number;
+  jobsI: number;
+  /** Fraction of the labour force without a job, 0..1. */
+  unemployment: number;
+  /** Consecutive months the treasury ended below zero (3 or more is a bankruptcy warning). */
+  debtMonths: number;
   dayFrac: number;
   day: number;
   weather: number;
   weatherIntensity: number;
+  /** Road graph epoch: bumps once per tick in which roads changed. */
+  graphEpoch: number;
+}
+/** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
+export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }
+export interface PathMsg {
+  type: 'path';
+  id: number;
+  ok: boolean;
+  /** Why not: 'debug-only', 'bounds', 'no-road' or 'unreachable'. */
+  reason?: string;
+  cost: number;
+  epoch: number;
+  /** Tile indices (y * MAP + x) from start to goal. */
+  tiles: number[];
 }
 export interface ViewRect { type: 'viewRect'; x0: number; y0: number; x1: number; y1: number }
 export interface SetSpeed { type: 'setSpeed'; speed: Speed }
@@ -85,6 +142,6 @@ export interface RequestHash { type: 'requestHash' }
 
 export type ToWorker =
   | Hello | CommandMsg | ResyncRequest | AgentsReturn | ViewRect | SetSpeed | Pause | Resume
-  | RequestSnapshot | LoadSnapshot | RequestHash;
+  | RequestSnapshot | LoadSnapshot | RequestHash | RequestPath | RequestBudget;
 export type FromWorker =
-  | Ready | ErrorMsg | ResyncMsg | ChunkPatch | OverlayPatch | AgentsMsg | EventsMsg | Stats | SnapshotMsg;
+  | Ready | ErrorMsg | ResyncMsg | ChunkPatch | OverlayPatch | AgentsMsg | EventsMsg | Stats | SnapshotMsg | PathMsg | BudgetMsg;

@@ -1,7 +1,9 @@
 import type { CommandBody } from './commands.ts';
 import {
-  PROTOCOL_VERSION, type AgentsMsg, type EventsMsg, type FromWorker, type Speed, type Stats, type ToWorker,
+  PROTOCOL_VERSION, type AgentsMsg, type BudgetMsg, type EventsMsg, type FromWorker, type PathMsg, type Speed, type Stats, type ToWorker,
 } from './protocol.ts';
+
+const PATH_TIMEOUT_MS = 10000;
 
 export type ClientState = 'loading' | 'ready' | 'failed';
 
@@ -31,6 +33,10 @@ export interface SimClient {
   requestHash(): void;
   requestSnapshot(): Promise<Uint8Array>;
   loadSnapshot(data: Uint8Array): void;
+  /** Debug sessions only: the worker answers every request, with `ok: false` and a reason when it cannot. */
+  requestPath(from: { x: number; y: number }, to: { x: number; y: number }): Promise<PathMsg>;
+  /** The 12-month budget history, the running month's projection, loans and tax rates. */
+  requestBudget(): Promise<BudgetMsg>;
   returnAgents(m: AgentsMsg): void;
   terminate(): void;
 }
@@ -41,9 +47,17 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
   let nextCmd = 1;
   let nextSnap = 1;
   const snaps = new Map<number, { res: (d: Uint8Array) => void; rej: (e: Error) => void }>();
+  let nextPath = 1;
+  const paths = new Map<number, { res: (m: PathMsg) => void; rej: (e: Error) => void }>();
+  let nextBudget = 1;
+  const budgets = new Map<number, { res: (m: BudgetMsg) => void; rej: (e: Error) => void }>();
   const rejectSnaps = (why: string): void => {
     for (const p of snaps.values()) p.rej(new Error(why));
     snaps.clear();
+    for (const p of paths.values()) p.rej(new Error(why));
+    paths.clear();
+    for (const p of budgets.values()) p.rej(new Error(why));
+    budgets.clear();
   };
 
   const setState = (s: ClientState, error?: string): void => {
@@ -69,6 +83,8 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
       case 'events': opt.onEvents?.(m); break;
       case 'stats': opt.onStats?.(m); break;
       case 'snapshot': snaps.get(m.id)?.res(m.data); snaps.delete(m.id); break;
+      case 'path': paths.get(m.id)?.res(m); paths.delete(m.id); break;
+      case 'budget': budgets.get(m.id)?.res(m); budgets.delete(m.id); break;
     }
   };
   worker.onerror = (e) => setState('failed', `worker error: ${e.message || 'unknown'}`);
@@ -95,6 +111,24 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
       return new Promise<Uint8Array>((res, rej) => { snaps.set(id, { res, rej }); send({ type: 'requestSnapshot', id }); });
     },
     loadSnapshot: (data) => send({ type: 'loadSnapshot', data }, [data.buffer]),
+    requestPath(from, to) {
+      if (state !== 'ready') return Promise.reject(new Error(state === 'failed' ? 'sim failed' : 'sim not ready'));
+      const id = nextPath++;
+      return new Promise<PathMsg>((res, rej) => {
+        const timer = setTimeout(() => { paths.delete(id); rej(new Error('path request timed out')); }, PATH_TIMEOUT_MS);
+        paths.set(id, { res: (m) => { clearTimeout(timer); res(m); }, rej: (e) => { clearTimeout(timer); rej(e); } });
+        send({ type: 'requestPath', id, from, to });
+      });
+    },
+    requestBudget() {
+      if (state !== 'ready') return Promise.reject(new Error(state === 'failed' ? 'sim failed' : 'sim not ready'));
+      const id = nextBudget++;
+      return new Promise<BudgetMsg>((res, rej) => {
+        const timer = setTimeout(() => { budgets.delete(id); rej(new Error('budget request timed out')); }, PATH_TIMEOUT_MS);
+        budgets.set(id, { res: (m) => { clearTimeout(timer); res(m); }, rej: (e) => { clearTimeout(timer); rej(e); } });
+        send({ type: 'requestBudget', id });
+      });
+    },
     returnAgents: (m) => send({ type: 'agentsReturn', pos: m.pos, ids: m.ids }, [m.pos.buffer, m.ids.buffer]),
     terminate() {
       rejectSnaps('client terminated');

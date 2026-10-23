@@ -68,7 +68,8 @@ describe('command validation', () => {
 
   it('leaves every layer untouched when a command is rejected', () => {
     const sim = createSim(42);
-    const strip = (s: Sim) => hashWorld(s.world, (n) => n !== 'scalars' && n !== 'rng');
+    // The economy refreshes landValue and pollution on its own schedule, so those layers move with the tick like the scalars.
+    const strip = (s: Sim) => hashWorld(s.world, (n) => n !== 'scalars' && n !== 'rng' && n !== 'landValue' && n !== 'pollution');
     const before = strip(sim);
     const wet = sim.world.terrain.indexOf(TERRAIN.WATER);
     run(sim, { type: 'zone', x0: wet % MAP, y0: (wet / MAP) | 0, x1: wet % MAP, y1: (wet / MAP) | 0, zone: 1, density: 0 });

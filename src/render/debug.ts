@@ -17,6 +17,8 @@ export interface RenderDebug {
   readonly buildings: BuildingDebug;
   /** Atmosphere state: displayed day fraction, weather, sun direction, post passes, particles. `?time=` and `?weather=` pin the first two. */
   readonly fx: FxDebug;
+  /** Tiles the build-tool ghost is painting right now (0 when no tool plan is shown). */
+  readonly ghostTiles: number;
   /** Set by ?showcase=1 once the district is planned: the camera pose that frames it. */
   readonly showcaseCamera?: { x: number; z: number; yaw: number; pitch: number; dist: number };
   readonly canvasCount: number;

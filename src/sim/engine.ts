@@ -2,33 +2,41 @@ import type { Command } from './commands.ts';
 import { hashWorld } from './hash.ts';
 import { AMAX, CHUNK, REGISTRY, S, isTileLayer, type World } from './layers.ts';
 import type { ChunkPatch, EventsMsg, FromWorker, OverlayPatch, ResyncMsg, Typed } from './protocol.ts';
+import { DEFAULT_TAX } from './economy/tables.ts';
+import { RoadNet } from './roads/graph.ts';
+import { roadsSystem } from './roads/index.ts';
 import { seedRng } from './rng.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
 import { generateTerrain } from './terrain.ts';
-import { runTick } from './tick.ts';
+import { commandsSystem, runTick } from './tick.ts';
 import { copyChunkOut, readBuilding } from './tiles.ts';
 import { allocWorld, newDirty, type Sim } from './world.ts';
 
 export const START_TREASURY = 50000;
-export const DEFAULT_TAX = 9;
 
 export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   const world = allocWorld();
   const s = world.scalars;
   s[S.seed] = seed >>> 0;
   s[S.treasury] = START_TREASURY;
-  s[S.tax] = DEFAULT_TAX;
+  s[S.taxR] = DEFAULT_TAX; s[S.taxC] = DEFAULT_TAX; s[S.taxI] = DEFAULT_TAX;
   s[S.nextAgentId] = 1;
   seedRng(world.rng, seed);
   generateTerrain(world, seed);
-  return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true };
+  return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true, roads: RoadNet.build(world) };
 }
 
 export function simFromWorld(world: World): Sim {
-  return { world, queue: [], events: [], dirty: newDirty(), resync: true };
+  return { world, queue: [], events: [], dirty: newDirty(), resync: true, roads: RoadNet.build(world) };
 }
 
 export const step = (sim: Sim): void => runTick(sim);
+/**
+ * Run the queued commands due at the current tick without advancing it. This is exactly what the first two systems (commands,
+ * roads) of the next step would do, including the graphEpoch bump, so applying a command while paused and then stepping gives the same state and hash as applying it and
+ * stepping. The worker uses it only while paused or at speed 0; while running, commands wait for the next tick start.
+ */
+export const drainCommands = (sim: Sim): void => { commandsSystem(sim); roadsSystem(sim); };
 export const apply = (sim: Sim, cmd: Command): void => { sim.queue.push(cmd); };
 export const tickOf = (sim: Sim): number => sim.world.scalars[S.tick]!;
 export const stateHash = (sim: Sim): number => hashWorld(sim.world);

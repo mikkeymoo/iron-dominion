@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BFLAG, rciId } from '../sim/catalog.ts';
+import { ARCH, BFLAG, rciId } from '../sim/catalog.ts';
 import { CHUNKS, ROAD } from '../sim/layers.ts';
 import type { BuildingRec, ChunkPatch } from '../sim/protocol.ts';
 import { chunkIdx } from '../sim/tiles.ts';
@@ -147,6 +147,23 @@ describe('BuildingInstances over a synthetic mirror', () => {
     bump();
     d.sync();
     expect(d.lastWritten).toEqual([]);
+  });
+
+  it('turns a player-placed building by its stored rotation, not toward a road, while grown buildings still face roads', () => {
+    const { mirror, d } = setup(ALL);
+    mirror.layers.road![(30) * 256 + 21] = 1;
+    patch(mirror, [rec(0, ARCH.DEPOT, 20, 20, 2, { rot: 1, level: 0 }), rec(1, A, 40, 40, 1)]);
+    mirror.layers.road![(30) * 256 + 41] = 1;
+    patch(mirror, [rec(1, A, 40, 40, 1)]);
+    d.sync();
+    const m = (slot: number): [number, number] => {
+      const b = d.near.batches.get(d.near.keyOf(slot)!)!, o = d.near.indexOf(slot) * MATRIX_STRIDE;
+      return [b.matrix[o]!, b.matrix[o + 8]!];
+    };
+    const [c, s] = m(0);
+    expect(Math.atan2(s, c)).toBeCloseTo(Math.PI / 2, 5);
+    const [gc, gs] = m(1);
+    expect(Math.atan2(gs, gc)).toBeCloseTo(facingRot(mirror, 40, 40, 1, 1), 5);
   });
 
   it('shows the crane only mid-construction and tallest far boxes at their built fraction', () => {

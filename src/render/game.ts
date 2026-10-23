@@ -11,12 +11,17 @@ import { computeViewRect } from './viewrect.ts';
 import { WorldScene } from './scene.ts';
 import { planShowcase } from './kit/showcase.ts';
 import { TIER_TABLE, createGovernor, readStoredTier, resolveTier, type Governor, type Tier } from './tier.ts';
+import type { ToolController } from './tools/controller.ts';
+import { GhostView } from './tools/ghostView.ts';
+import { createToolInput } from './tools/pointer.ts';
 
 export interface GameDeps {
   host: HTMLElement;
   mirror: RenderMirror;
   client: SimClient;
   search: string;
+  /** Build tools: when set, an active tool takes one-finger / left-button drags and the ghost preview is drawn. */
+  tools?: ToolController;
   /** Called when the renderer cannot be recovered after a device loss. */
   onFatal: (message: string) => void;
 }
@@ -72,11 +77,12 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   let governor: Governor = createGovernor({ tier, enabled: false });
   let ctx!: RenderContext;
   let world!: WorldScene;
+  let ghost: GhostView | undefined;
 
   const onLost = (message: string): void => { void recover(message); };
   // Creates a context and scene without touching the live ones, so a caller can discard them if it was disposed meanwhile.
   // `pickTier` runs once the adapter is known and before the scene exists, so every graph is built once for the final tier.
-  const createParts = async (pickTier?: (c: RenderContext) => void): Promise<{ ctx: RenderContext; world: WorldScene }> => {
+  const createParts = async (pickTier?: (c: RenderContext) => void): Promise<{ ctx: RenderContext; world: WorldScene; ghost?: GhostView }> => {
     const c = await createRenderContext({ container: host, backend: pref, tier: () => tier, onLost });
     try {
       pickTier?.(c);
@@ -84,7 +90,9 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       w.applyTier(tier);
       c.resize();
       w.setAspect(host.clientWidth / Math.max(1, host.clientHeight));
-      return { ctx: c, world: w };
+      const g = deps.tools ? new GhostView(heights) : undefined;
+      if (g) w.scene.add(g.group);
+      return { ctx: c, world: w, ghost: g };
     } catch (e) {
       try { c.dispose(); } catch { /* nothing else to release */ }
       throw e;
@@ -100,6 +108,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   });
   ctx = parts.ctx;
   world = parts.world;
+  ghost = parts.ghost;
   sawTerrain = false;
   governor = createGovernor({ tier, enabled: governorOn && resolved.source !== 'query' });
   ctx.setTier(tier);
@@ -109,7 +118,12 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     const n = pixelToNdc(px, py, w, h);
     return pickPoint(rayFromPose(rig.pose(), world.camera.fov, w / h, n.nx, n.ny), mirror);
   };
-  const input = bindCameraInput({ element: host, rig, groundAt });
+  const pickAt = (px: number, py: number): { x: number; y: number } | null => {
+    const w = host.clientWidth, h = host.clientHeight;
+    const n = pixelToNdc(px, py, w, h);
+    return pickTile(rayFromPose(rig.pose(), world.camera.fov, w / h, n.nx, n.ny), mirror);
+  };
+  const input = bindCameraInput({ element: host, rig, groundAt, tool: deps.tools ? createToolInput(deps.tools, pickAt) : undefined });
 
   const sendViewRect = (now: number): void => {
     const w = host.clientWidth, h = host.clientHeight;
@@ -147,6 +161,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     }
     mirror.takeDirtyOverlay();
     world.buildings.update();
+    if (deps.tools && ghost) { deps.tools.sync(); ghost.update(deps.tools); }
 
     world.render();
     const r = ctx.renderer.info.render;
@@ -182,12 +197,14 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     console.warn(`[render] device lost (${message}); rebuilding from the mirror`);
     try {
       ctx.renderer.setAnimationLoop(null);
+      try { ghost?.dispose(); } catch { /* same */ }
       try { world.dispose(); } catch { /* the device is gone; the GPU objects went with it */ }
       try { ctx.dispose(); } catch { /* same */ }
       const parts = await createParts();
-      if (disposed) { parts.world.dispose(); parts.ctx.dispose(); return; }
+      if (disposed) { parts.ghost?.dispose(); parts.world.dispose(); parts.ctx.dispose(); return; }
       ctx = parts.ctx;
       world = parts.world;
+      ghost = parts.ghost;
       sawTerrain = false;
       governor = createGovernor({ tier, enabled: governorOn && resolved.source !== 'query' });
       ctx.setTier(tier);
@@ -225,16 +242,13 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       return { instances: b.instances, farInstances: b.farInstances, sites: b.sites, cranes: b.cranes, drawCalls: b.drawCalls };
     },
     get fx() { return world.fx.debug; },
+    get ghostTiles() { return ghost?.painted ?? 0; },
     get canvasCount() { return host.querySelectorAll('canvas').length; },
     get camera() {
       const s = rig.state, p = rig.pose();
       return { x: s.x, z: s.z, ty: s.ty, yaw: s.yaw, pitch: s.pitch, dist: s.dist, px: p.px, py: p.py, pz: p.pz };
     },
-    pickTile(x, y) {
-      const w = host.clientWidth, h = host.clientHeight;
-      const n = pixelToNdc(x, y, w, h);
-      return pickTile(rayFromPose(rig.pose(), world.camera.fov, w / h, n.nx, n.ny), mirror);
-    },
+    pickTile: pickAt,
     resetCamera(pose) { rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
     loseDevice() {
       const gl = (ctx.renderer.backend as unknown as { gl?: WebGL2RenderingContext }).gl;
@@ -257,7 +271,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       ro.disconnect();
       input.dispose();
       unblock();
-      try { ctx.renderer.setAnimationLoop(null); world.dispose(); ctx.dispose(); } catch { /* already gone */ }
+      try { ctx.renderer.setAnimationLoop(null); ghost?.dispose(); world.dispose(); ctx.dispose(); } catch { /* already gone */ }
     },
   };
 }

@@ -10,6 +10,10 @@ export interface Archetype {
   zone?: number;
   density?: number;
   level?: number;
+  /** Monthly upkeep charged to the budget (service and utility buildings; RCI pay none). */
+  upkeep?: number;
+  /** Pollution units emitted per pollution pass by a non-RCI building (economy/overlays.ts). */
+  pollution?: number;
 }
 
 export const ARCH = { DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4 } as const;
@@ -31,7 +35,11 @@ const FOOTPRINT = [[1, 1, 2], [2, 2, 3], [2, 3, 3]] as const;
 export const rciFootprint = (density: number, level: number): number => FOOTPRINT[density]![level - 1]!;
 
 /** bFlags bit 0: the building is under construction and bProg (0..255) is the progress. Unset means complete. */
-export const BFLAG = { CONSTRUCTING: 1 } as const;
+export const BFLAG = {
+  CONSTRUCTING: 1,
+  /** Set by the economy when a completed RCI building has sat in very low desirability with negative demand; U7 decays or demolishes it. */
+  ABANDONED: 2,
+} as const;
 
 const rciArchetypes = (): Archetype[] => {
   const out: Archetype[] = [];
@@ -46,10 +54,10 @@ const rciArchetypes = (): Archetype[] => {
 };
 
 export const CATALOG: readonly Archetype[] = [
-  { id: ARCH.DEPOT, name: 'depot', w: 2, h: 2, cost: 500, placeable: true },
-  { id: ARCH.POWER_PLANT, name: 'powerPlant', w: 4, h: 4, cost: 3000, placeable: true },
-  { id: ARCH.WATER_PUMP, name: 'waterPump', w: 2, h: 2, cost: 800, placeable: true },
-  { id: ARCH.FIRE_STATION, name: 'fireStation', w: 3, h: 3, cost: 1200, placeable: true },
+  { id: ARCH.DEPOT, name: 'depot', w: 2, h: 2, cost: 500, placeable: true, upkeep: 20 },
+  { id: ARCH.POWER_PLANT, name: 'powerPlant', w: 4, h: 4, cost: 3000, placeable: true, upkeep: 120, pollution: 200 },
+  { id: ARCH.WATER_PUMP, name: 'waterPump', w: 2, h: 2, cost: 800, placeable: true, upkeep: 30 },
+  { id: ARCH.FIRE_STATION, name: 'fireStation', w: 3, h: 3, cost: 1200, placeable: true, upkeep: 60 },
   ...rciArchetypes(),
 ];
 
@@ -59,3 +67,11 @@ export const ROAD_COST = [0, 10, 25, 60] as const;
 export const BRIDGE_EXTRA = 40;
 export const ZONE_COST = 2;
 export const BULLDOZE_COST = 1;
+
+/** One raise or lower step is 1/4 tile of height (4 height units); leveling rounds each tile's change up to whole steps for cost. */
+export const TERRAFORM_STEP = 4;
+export const TERRAFORM_COST = 6;
+export const MAX_TERRAFORM_TILES = 1024;
+/** Land stays above sea level and below the tallest peak the generator can make. */
+export const HEIGHT_MIN = 1;
+export const HEIGHT_MAX = 48 * 16;

@@ -1,5 +1,7 @@
 import { execute } from './commands.ts';
 import { DAY_TICKS, MAP, S, WEATHER } from './layers.ts';
+import { economySystem } from './economy/index.ts';
+import { roadsSystem } from './roads/index.ts';
 import { nextFloat, nextInt } from './rng.ts';
 import type { Sim } from './world.ts';
 
@@ -7,7 +9,7 @@ export const TICK_HZ = 10;
 
 type System = (sim: Sim) => void;
 
-function commandsSystem(sim: Sim): void {
+export function commandsSystem(sim: Sim): void {
   const tick = sim.world.scalars[S.tick]!;
   if (sim.queue.length === 0) return;
   const rest = [];
@@ -50,7 +52,6 @@ function clockWeather(sim: Sim): void {
 
 // Named no-op hooks reserve each future system's slot in the fixed order.
 const growth: System = () => {};
-const economy: System = () => {};
 const utilities: System = () => {};
 const traffic: System = () => {};
 const services: System = () => {};
@@ -59,9 +60,10 @@ const disasters: System = () => {};
 /** Fixed system order: later units fill the hooks, they never reorder. */
 export const SYSTEMS: readonly { name: string; run: System }[] = [
   { name: 'commands', run: commandsSystem },
+  { name: 'roads', run: roadsSystem },
   { name: 'clockWeather', run: clockWeather },
   { name: 'growth', run: growth },
-  { name: 'economy', run: economy },
+  { name: 'economy', run: economySystem },
   { name: 'utilities', run: utilities },
   { name: 'traffic', run: traffic },
   { name: 'services', run: services },
