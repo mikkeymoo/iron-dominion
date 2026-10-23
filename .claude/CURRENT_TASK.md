@@ -16,8 +16,8 @@ Run: `/lfg` through U0..U14, one commit per unit, pushed to `origin/main` (Micha
 
 | Unit | Commit | Accept output | Notes |
 | ---- | ------ | ------------- | ----- |
-| U0   |        |               |       |
-| U1   |        |               |       |
+| U0   | fbbcc48 | 1 test, build ok, smoke pass (2 viewports) | old game deleted; three 0.186.1 |
+| U1   | 20f126b | 22 tests, build ok (2 tsconfigs), smoke pass incl. worker golden hash | review: 10 findings applied (undo slot reuse, sim-assigned journal ids, mirror resync, snapshot protocol check, worker fatal flag) |
 | U2   |        |               |       |
 | U3   |        |               |       |
 | U4   |        |               |       |
