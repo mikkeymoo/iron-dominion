@@ -191,6 +191,60 @@ async function showcaseChecks(page, base, backend, label) {
   add(`centre colour variance > ${SHOWCASE_MIN_CVAR} and above the terrain-only baseline`, show.centre.cvar > SHOWCASE_MIN_CVAR && (!baseline || show.centre.cvar > baseline.centre.cvar * 2) ? null : `showcase ${show.centre.cvar.toFixed(1)}, baseline ${baseline ? baseline.centre.cvar.toFixed(1) : 'n/a'}`);
   return out;
 }
+// ---- U5 persistence and lifecycle checks (real IndexedDB, same browser context so storage survives the reload) ----
+const PERSIST_QUERY = '?autostart=1&seed=42&backend=webgl2&tier=low&governor=off';
+const tickOf = (page) => page.evaluate(() => window.__iron?.sim?.tick ?? 0);
+
+async function persistenceChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`persist: ${name}`, problem]);
+  const a = await open(PERSIST_QUERY);
+  const reached = await a.waitForFunction(() => (window.__iron?.sim?.tick ?? 0) >= 50 && !!window.__iron?.platform, null, { timeout: 60000 }).then(() => true, () => false);
+  if (!reached) { add('sim reaches tick 50', `tick ${await tickOf(a)}`); await a.close(); return out; }
+  const saved = await a.evaluate(async () => {
+    const r = await window.__iron.platform.save();
+    return r.ok ? { ok: true, id: r.value.slot.id, tick: r.value.tick, hash: r.value.hash, lastHash: window.__iron.platform.lastSaveHash } : r;
+  });
+  add('save() stores the running city', saved.ok && saved.tick >= 50 && saved.hash === saved.lastHash ? null : JSON.stringify(saved));
+  if (!saved.ok) { await a.close(); return out; }
+  const listed = await a.evaluate(async (id) => { const r = await window.__iron.platform.slots(); return r.ok && r.value.some((s) => s.id === id); }, saved.id);
+  add('slots() lists the saved slot', listed ? null : 'slot missing from list');
+  await a.close();
+
+  const b = await open(`${PERSIST_QUERY}&slot=${saved.id}`);
+  const loaded = await b.waitForFunction((t) => window.__iron?.sim?.hashTick === t, saved.tick, { timeout: 60000 }).then(() => true, () => false);
+  const got = await b.evaluate(() => ({ hash: window.__iron.sim.hash, hashTick: window.__iron.sim.hashTick }));
+  add('reload with &slot= gives the saved hash at the saved tick', loaded && got.hash === saved.hash ? null : `got ${JSON.stringify(got)}, want hash ${saved.hash} at tick ${saved.tick}`);
+  const overlay = await b.getByRole('button', { name: 'Resume' }).waitFor({ timeout: 15000 }).then(() => true, () => false);
+  add('a loaded city waits behind the Resume overlay', overlay ? null : 'no Resume button');
+  const held = await tickOf(b);
+  await b.waitForTimeout(1200);
+  add('a loaded city does not tick before Resume', (await tickOf(b)) === held ? null : `tick moved from ${held} to ${await tickOf(b)}`);
+  await b.getByRole('button', { name: 'Resume' }).click();
+  const ticking = await b.waitForFunction((t) => (window.__iron?.sim?.tick ?? 0) > t, held, { timeout: 15000 }).then(() => true, () => false);
+  add('Resume restarts ticking', ticking ? null : `tick stayed at ${await tickOf(b)}`);
+
+  const setVisibility = (state) => b.evaluate((st) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => st });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
+  await setVisibility('hidden');
+  await b.waitForTimeout(400);
+  const frozen = await tickOf(b);
+  await b.waitForTimeout(1500);
+  add('hidden page stops the tick for 1.5 s', (await tickOf(b)) === frozen ? null : `tick moved from ${frozen} to ${await tickOf(b)}`);
+  await setVisibility('visible');
+  const shown = await b.getByRole('button', { name: 'Resume' }).waitFor({ timeout: 5000 }).then(() => true, () => false);
+  add('returning shows the Resume overlay', shown ? null : 'no Resume button after returning');
+  await b.waitForTimeout(600);
+  add('returning does not resume by itself', (await tickOf(b)) === frozen ? null : `tick moved from ${frozen} to ${await tickOf(b)}`);
+  await b.getByRole('button', { name: 'Resume' }).click();
+  const again = await b.waitForFunction((t) => (window.__iron?.sim?.tick ?? 0) > t, frozen, { timeout: 15000 }).then(() => true, () => false);
+  add('Resume after hide restarts ticking', again ? null : `tick stayed at ${await tickOf(b)}`);
+  await b.close();
+  return out;
+}
+// ---- end U5 block ----
 
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true }, { backend: 'webgpu', showcaseTier: 'high' }],
@@ -230,6 +284,12 @@ try {
       }
       await sp.close();
       await p.close();
+    }
+    if (vp.name === 'desktop') {
+      for (const [name, problem] of await persistenceChecks(open)) {
+        console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
+        if (problem) failed++;
+      }
     }
     if (errors.length) { failed++; console.log(`${vp.name.padEnd(8)} FAIL console errors:\n  ${errors.join('\n  ')}`); }
     else console.log(`${vp.name.padEnd(8)} ok   no console errors`);
