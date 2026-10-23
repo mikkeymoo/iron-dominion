@@ -40,6 +40,7 @@ export function openSession(o: SessionOptions): Session {
     buildHash: BUILD_HASH,
     onState: (s) => o.onState(s),
     onPatch: (m) => { mirror.apply(m); },
+    onEvents: (e) => { mirror.apply(e); },
     onStats: (s) => {
       mirror.apply(s);
       o.onStats(s);

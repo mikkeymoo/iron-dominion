@@ -14,6 +14,12 @@ export class RenderMirror {
   scalars = new Float64Array(32);
   tick = 0;
   hasResync = false;
+  /** Bumped when height, terrain or water depth may have changed (resync, or a patch carrying one of those layers). */
+  terrainVersion = 0;
+  /** Bumped when the road layer may have changed. */
+  roadVersion = 0;
+  private lightning: { x: number; y: number; tick: number }[] = [];
+  private terrainDirty = new Set<number>();
   private dirtyGeometry = new Set<number>();
   private dirtyOverlay = new Set<number>();
   private dirtyBuildings = new Set<number>();
@@ -41,12 +47,20 @@ export class RenderMirror {
         this.scalars.set(m.scalars);
         this.tick = m.tick;
         this.hasResync = true;
+        this.terrainVersion++;
+        this.roadVersion++;
+        for (let c = 0; c < CHUNKS * CHUNKS; c++) this.terrainDirty.add(c);
         for (let c = 0; c < CHUNKS * CHUNKS; c++) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); }
         for (let b = 0; b < before.length; b++) if (before[b] || this.table.bArch[b]) this.dirtyBuildings.add(b);
         return true;
       }
       case 'chunkPatch':
         this.writeChunks(m.chunks, m.layers);
+        if ('height' in m.layers || 'terrain' in m.layers || 'waterDepth' in m.layers) {
+          this.terrainVersion++;
+          for (const c of m.chunks) this.terrainDirty.add(c);
+        }
+        if ('road' in m.layers) this.roadVersion++;
         for (const c of m.chunks) this.dirtyGeometry.add(c);
         for (const b of m.buildings) { writeBuilding(this.table, b); this.dirtyBuildings.add(b.slot); }
         this.tick = m.tick;
@@ -63,9 +77,23 @@ export class RenderMirror {
         this.scalars[S.weather] = m.weather;
         this.scalars[S.weatherIntensity] = m.weatherIntensity;
         return true;
+      case 'events':
+        for (const e of m.events) if (e.type === 'lightning') this.lightning.push({ x: e.x, y: e.y, tick: e.tick });
+        if (this.lightning.length > 16) this.lightning.splice(0, this.lightning.length - 16);
+        return this.lightning.length > 0;
       default:
         return false;
     }
+  }
+
+  /** Chunks whose height, terrain or water depth changed since the last call (everything after a resync). */
+  takeTerrainDirty(): number[] { const r = [...this.terrainDirty]; this.terrainDirty.clear(); return r; }
+
+  /** Lightning strikes received since the last call (tile coordinates). */
+  takeLightning(): { x: number; y: number; tick: number }[] {
+    const r = this.lightning;
+    this.lightning = [];
+    return r;
   }
 
   private writeChunks(chunks: number[], layers: Record<string, Typed>): void {

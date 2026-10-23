@@ -4,12 +4,15 @@ import {
   BufferGeometry, DataTexture, Float32BufferAttribute, LinearFilter, LinearMipmapLinearFilter, MeshStandardNodeMaterial, RGBAFormat,
   UnsignedByteType, type Node, type Texture,
 } from 'three/webgpu';
-import { attribute, clamp, float, hash, max, min, mix, normalGeometry, normalView, positionGeometry, positionWorld, step, texture, uniform, vec3, vertexColor } from 'three/tsl';
+import { attribute, clamp, float, hash, max, min, mix, normalGeometry, normalView, normalWorld, positionGeometry, positionWorld, smoothstep, step, texture, vec3, vertexColor } from 'three/tsl';
+import { fxU } from './fx/uniforms.ts';
 import { ATLAS_H, ATLAS_W, buildWindowAtlas } from './kit/atlas.ts';
 import { FINISH, FOUNDATION_END, NO_CLIP, SCAFFOLD_LEAD } from './kit/construction.ts';
 
-/** Shared with the future atmosphere unit: 0 = day, 1 = night. Drives lit windows and signs. */
-export const buildingLight = { night: uniform(0) };
+/** 0 = day, 1 = night. Owned by the atmosphere unit (fx/uniforms.ts), which ramps it with the sun. Drives lit windows and signs. */
+export const buildingLight = { night: fxU.night };
+
+const snowOnTop = () => fxU.snow.mul(smoothstep(0.6, 0.9, normalWorld.y));
 
 const LIT_FRACTION = 0.42;
 
@@ -56,7 +59,7 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
   const albedo = mix(solid, glassCol, isGlass);
 
   const material = new MeshStandardNodeMaterial();
-  material.colorNode = albedo.mul(ao.mul(0.55).add(0.45));
+  material.colorNode = mix(albedo.mul(ao.mul(0.55).add(0.45)), vec3(0.93, 0.95, 0.99), snowOnTop().mul(0.9));
   material.aoNode = ao;
   material.emissiveNode = litColor.mul(pane).mul(glow).mul(lit).mul(buildingLight.night).mul(1.7)
     .add(base.mul(isAccent).mul(buildingLight.night.mul(1.3).add(0.12)));
@@ -98,7 +101,7 @@ export function createFarMaterial(): MeshStandardNodeMaterial {
   const top = step(0.5, normalGeometry.y);
   const band = step(0.5, positionWorld.y.mul(5.9).fract());
   const sideShade = mix(float(0.84), float(1), band).mul(positionGeometry.y.mul(0.3).add(0.7));
-  material.colorNode = mix(iTint.mul(sideShade), iState.xyz.mul(0.95), top);
+  material.colorNode = mix(mix(iTint.mul(sideShade), iState.xyz.mul(0.95), top), vec3(0.93, 0.95, 0.99), top.mul(fxU.snow).mul(0.9));
   material.roughness = 0.85;
   material.metalness = 0;
   return material;

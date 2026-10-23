@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  TIERS, TIER_TABLE, createGovernor, detectTier, pixelRatio, readStoredTier, resolveTier, tierBelow, type Governor, type Tier,
+  SHADOW_CASCADES, TIERS, TIER_TABLE, createGovernor, detectTier, pixelRatio, readStoredTier, resolveTier, tierBelow, type Governor, type Tier,
 } from './tier.ts';
 
 describe('tier table', () => {
@@ -25,6 +25,36 @@ describe('tier table', () => {
       expect(b.variants).toBeGreaterThanOrEqual(a.variants);
       expect(b.particleBudget).toBeGreaterThan(a.particleBudget);
       expect(b.maxTextureSize).toBeGreaterThanOrEqual(a.maxTextureSize);
+    }
+  });
+
+  it('keeps the fx flags consistent with the post chain and never loses a feature going up a tier', () => {
+    for (const t of TIERS) {
+      const s = TIER_TABLE[t];
+      expect(s.post.tiltShift, `${t} tilt-shift taps`).toBe(s.fx.tiltShiftTaps > 0);
+      expect(s.post.ao, `${t} ao`).toBe(s.fx.aoSamples > 0);
+      expect(s.post.ao, `${t} ao flag matches the ao mode`).toBe(s.ao !== 'off');
+      expect(s.post.godRays, `${t} god rays`).toBe(s.fx.godRaySamples > 0);
+      expect(s.fx.weatherDrops, `${t} weather drops fit in the particle budget`).toBeLessThanOrEqual(s.particleBudget / 2);
+      expect(s.fx.bloomScale).toBeGreaterThan(0);
+      expect(s.fx.bloomScale).toBeLessThanOrEqual(1);
+      expect(s.fx.gerstner, `${t} gerstner`).toBe(s.water !== 'flat');
+      expect(s.fx.reflectionScale > 0, `${t} planar reflection`).toBe(s.water === 'planar' || s.water === 'refract');
+      expect(SHADOW_CASCADES[s.shadows] > 0, `${t} shadows`).toBe(s.shadowMapSize > 0);
+    }
+    expect(TIERS.map((t) => TIER_TABLE[t].water)).toEqual(['flat', 'sky', 'planar', 'refract']);
+    expect(TIERS.map((t) => SHADOW_CASCADES[TIER_TABLE[t].shadows])).toEqual([0, 1, 3, 4]);
+    expect(TIERS.map((t) => TIER_TABLE[t].shadowMapSize)).toEqual([0, 1024, 2048, 4096]);
+    expect(TIERS.map((t) => TIER_TABLE[t].post.aa)).toEqual(['none', 'none', 'fxaa', 'taa']);
+    expect(TIERS.map((t) => TIER_TABLE[t].post.dof)).toEqual([false, false, false, true]);
+    for (let i = 1; i < TIERS.length; i++) {
+      const a = TIER_TABLE[TIERS[i - 1]!], b = TIER_TABLE[TIERS[i]!];
+      for (const k of ['streetlights', 'weatherDrops', 'emitters', 'aoSamples', 'godRaySamples', 'tiltShiftTaps', 'reflectionScale', 'clouds'] as const) {
+        expect(b.fx[k], `${TIERS[i]}.fx.${k}`).toBeGreaterThanOrEqual(a.fx[k]);
+      }
+      for (const k of ['tiltShift', 'ao', 'godRays', 'dof', 'lens', 'bloom', 'grade'] as const) {
+        expect(!a.post[k] || b.post[k], `${TIERS[i]}.post.${k} stays on`).toBe(true);
+      }
     }
   });
 });

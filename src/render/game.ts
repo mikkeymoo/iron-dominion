@@ -9,7 +9,6 @@ import type { RenderMirror } from './mirror.ts';
 import { pickPoint, pickTile } from './picking.ts';
 import { computeViewRect } from './viewrect.ts';
 import { WorldScene } from './scene.ts';
-import { buildingLight } from './buildingMaterial.ts';
 import { planShowcase } from './kit/showcase.ts';
 import { TIER_TABLE, createGovernor, readStoredTier, resolveTier, type Governor, type Tier } from './tier.ts';
 
@@ -70,18 +69,18 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   let showcaseDone = false;
   let showcaseCamera: { x: number; z: number; yaw: number; pitch: number; dist: number } | undefined;
   const wantShowcase = q.get('showcase') === '1';
-  const night = Number(q.get('night'));
-  if (q.has('night') && Number.isFinite(night)) buildingLight.night.value = Math.min(1, Math.max(0, night));
   let governor: Governor = createGovernor({ tier, enabled: false });
   let ctx!: RenderContext;
   let world!: WorldScene;
 
   const onLost = (message: string): void => { void recover(message); };
   // Creates a context and scene without touching the live ones, so a caller can discard them if it was disposed meanwhile.
-  const createParts = async (): Promise<{ ctx: RenderContext; world: WorldScene }> => {
+  // `pickTier` runs once the adapter is known and before the scene exists, so every graph is built once for the final tier.
+  const createParts = async (pickTier?: (c: RenderContext) => void): Promise<{ ctx: RenderContext; world: WorldScene }> => {
     const c = await createRenderContext({ container: host, backend: pref, tier: () => tier, onLost });
     try {
-      const w = new WorldScene(c.renderer, mirror);
+      pickTier?.(c);
+      const w = new WorldScene(c.renderer, mirror, deps.search, tier);
       w.applyTier(tier);
       c.resize();
       w.setAspect(host.clientWidth / Math.max(1, host.clientHeight));
@@ -91,21 +90,18 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       throw e;
     }
   };
-  const openContext = async (): Promise<void> => {
-    const parts = await createParts();
-    ctx = parts.ctx;
-    world = parts.world;
-    sawTerrain = false;
-  };
-
-  await openContext();
-  const resolved = resolveTier(
-    { backend: ctx.backend, software: ctx.software }, q.get('tier'),
-    readStoredTier(typeof localStorage === 'undefined' ? undefined : localStorage),
-  );
-  tier = resolved.tier;
+  let resolved!: ReturnType<typeof resolveTier>;
+  const parts = await createParts((c) => {
+    resolved = resolveTier(
+      { backend: c.backend, software: c.software }, q.get('tier'),
+      readStoredTier(typeof localStorage === 'undefined' ? undefined : localStorage),
+    );
+    tier = resolved.tier;
+  });
+  ctx = parts.ctx;
+  world = parts.world;
+  sawTerrain = false;
   governor = createGovernor({ tier, enabled: governorOn && resolved.source !== 'query' });
-  world.applyTier(tier);
   ctx.setTier(tier);
 
   const groundAt = (px: number, py: number): { x: number; z: number } | null => {
@@ -131,7 +127,9 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     const dt = Math.min(0.1, dtMs / 1000);
     input.flush(dt);
     rig.step(dt);
-    world.applyPose(rig.pose());
+    const pose = rig.pose();
+    world.applyPose(pose);
+    world.update(dt, now / 1000, pose, rig.state.dist, rig.state.pitch);
 
     if (mirror.hasResync) {
       world.terrain.update(rig.state.x, rig.state.z, TIER_TABLE[tier].fullDetailChunks);
@@ -226,6 +224,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       const b = world.buildings.stats;
       return { instances: b.instances, farInstances: b.farInstances, sites: b.sites, cranes: b.cranes, drawCalls: b.drawCalls };
     },
+    get fx() { return world.fx.debug; },
     get canvasCount() { return host.querySelectorAll('canvas').length; },
     get camera() {
       const s = rig.state, p = rig.pose();

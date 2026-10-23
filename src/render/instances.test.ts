@@ -239,6 +239,29 @@ describe('ground changes and variants', () => {
     expect([...d.near.batches.values()].filter((b) => b.count > 0)).toHaveLength(1);
   });
 
+  it('registers stack smoke on finished industry and dust on sites, and drops them with the building', () => {
+    const { mirror, d } = setup(ALL);
+    const industry = rciId(3, 2, 3), houses = rciId(1, 0, 1);
+    patch(mirror, [rec(0, industry, 40, 40, 3), rec(1, houses, 60, 60, 1), rec(2, industry, 80, 80, 3, { flags: BFLAG.CONSTRUCTING, prog: 100 })]);
+    d.sync();
+    const smoke = d.emitters.get(0)!;
+    expect(smoke.length).toBeGreaterThan(0);
+    for (const e of smoke) {
+      expect(e.kind).toBe('smoke');
+      expect(e.x).toBeGreaterThan(38); expect(e.x).toBeLessThan(44);
+      expect(e.z).toBeGreaterThan(38); expect(e.z).toBeLessThan(44);
+      expect(e.y).toBeGreaterThan(0.5);
+      expect(e.rate).toBeGreaterThan(0);
+    }
+    expect(d.emitters.has(1)).toBe(false);
+    const site = d.emitters.get(2)!;
+    expect(site.map((e) => e.kind)).toEqual(['dust']);
+    expect(site[0]!.rate).toBeGreaterThan(0);
+    patch(mirror, [rec(0, 0, 0, 0, 0)]);
+    d.sync();
+    expect(d.emitters.has(0)).toBe(false);
+  });
+
   it('puts the crane inside the footprint', () => {
     const { mirror, d } = setup(ALL);
     patch(mirror, [rec(0, rciId(2, 2, 3), 40, 40, 3, { flags: BFLAG.CONSTRUCTING, prog: 128 })]);

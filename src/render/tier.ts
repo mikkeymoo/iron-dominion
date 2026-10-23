@@ -4,14 +4,44 @@ export type Tier = 'low' | 'mid' | 'high' | 'ultra';
 export const TIERS: readonly Tier[] = ['low', 'mid', 'high', 'ultra'];
 export type Backend = 'webgpu' | 'webgl2';
 
+/** Explicit per-tier knobs for the atmosphere unit (src/render/fx). Counts are ceilings, 0 turns the feature off. */
+export interface FxSpec {
+  /** Cloud fbm octaves in the sky dome. */
+  clouds: 0 | 2 | 4;
+  stars: boolean;
+  /** Gerstner waves in the vertex stage; false = scrolling normals only. */
+  gerstner: boolean;
+  foam: boolean;
+  /** Planar reflection resolution scale; 0 = the water reflects the sky colour only. */
+  reflectionScale: number;
+  streetlights: number;
+  /** Rain/snow drops at full intensity. */
+  weatherDrops: number;
+  lightningBolt: boolean;
+  /** Continuous emitters (stacks, construction dust) serviced per frame. */
+  emitters: number;
+  aoSamples: number;
+  godRaySamples: number;
+  tiltShiftTaps: number;
+  bloomScale: number;
+}
+
+export const SHADOW_CASCADES: Record<TierSpec['shadows'], number> = { blob: 0, csm1: 1, csm3: 3, csm4: 4 };
+
 export interface TierSpec {
   renderScale: number;
   dprCap: number;
   shadows: 'blob' | 'csm1' | 'csm3' | 'csm4';
   shadowMapSize: number;
   ao: 'off' | 'half' | 'full' | 'bent';
-  water: 'flat' | 'reflect' | 'refract' | 'ssr';
-  post: { bloom: boolean; grade: boolean; tiltShift: boolean; godRays: boolean; dof: boolean; lens: boolean; aa: 'none' | 'msaa' | 'taa' };
+  /** flat: scrolling normals + sky colour; sky: Gerstner waves + sky reflection; planar: + reflector(); refract: + refraction distortion. */
+  water: 'flat' | 'sky' | 'planar' | 'refract';
+  post: {
+    bloom: boolean; grade: boolean; tiltShift: boolean; ao: boolean; godRays: boolean; dof: boolean; lens: boolean;
+    aa: 'none' | 'fxaa' | 'taa';
+  };
+  fx: FxSpec;
+  /** Ceiling on live particles: weather drops plus the general ring. */
   particleBudget: number;
   visibleAgents: number;
   fullDetailChunks: number;
@@ -23,30 +53,48 @@ export interface TierSpec {
   frameBudgetMs: number;
 }
 
-// Draw-call budgets cover terrain + water + road superchunk meshes, buildings (near batches, far box, construction sites, crane)
-// and the pipeline quad, plus the shadow pass where the tier has one (asserted in smoke). U3 raised mid/high from 220/340 after
-// measuring the full showcase (27 RCI archetypes + services, half under construction): low 82, mid 214, high 271, ultra 315.
-// The new numbers keep ~35% headroom over that; `variants` bounds the per-archetype near batches that dominate the growth.
+// Draw-call budgets cover terrain + water + road superchunk meshes, buildings (near batches, far box, construction sites, crane),
+// sky, particles, streetlights and every post pass, plus each shadow cascade and the planar reflection pass where the tier has them
+// (asserted in smoke). `renderer.info` counts all of it. Measured on the full showcase (27 RCI archetypes + services, half under
+// construction) after U4: low 99, mid 175, high 442 (3 cascades + reflection), ultra 556 (4 cascades, 81 fine chunks, reflection).
+// The budgets keep ~25-30% headroom; `variants` bounds the per-archetype near batches that dominate the growth, and scaffolds and
+// cranes do not cast shadows so each cascade costs only the near building batches.
 export const TIER_TABLE: Record<Tier, TierSpec> = {
   low: {
     renderScale: 0.6, dprCap: 1.5, shadows: 'blob', shadowMapSize: 0, ao: 'off', water: 'flat',
-    post: { bloom: true, grade: true, tiltShift: false, godRays: false, dof: false, lens: false, aa: 'none' },
-    particleBudget: 2000, visibleAgents: 300, fullDetailChunks: 9, drawCallBudget: 160, variants: 2, maxTextureSize: 1024, frameBudgetMs: 33.3,
+    post: { bloom: true, grade: true, tiltShift: false, ao: false, godRays: false, dof: false, lens: false, aa: 'none' },
+    fx: {
+      clouds: 0, stars: true, gerstner: false, foam: true, reflectionScale: 0, streetlights: 200, weatherDrops: 700, lightningBolt: true,
+      emitters: 24, aoSamples: 0, godRaySamples: 0, tiltShiftTaps: 0, bloomScale: 0.35,
+    },
+    particleBudget: 2000, visibleAgents: 300, fullDetailChunks: 9, drawCallBudget: 130, variants: 2, maxTextureSize: 1024, frameBudgetMs: 33.3,
   },
   mid: {
-    renderScale: 0.8, dprCap: 2, shadows: 'csm1', shadowMapSize: 1024, ao: 'off', water: 'reflect',
-    post: { bloom: true, grade: true, tiltShift: true, godRays: false, dof: false, lens: false, aa: 'none' },
-    particleBudget: 8000, visibleAgents: 1500, fullDetailChunks: 25, drawCallBudget: 300, variants: 3, maxTextureSize: 2048, frameBudgetMs: 33.3,
+    renderScale: 0.8, dprCap: 2, shadows: 'csm1', shadowMapSize: 1024, ao: 'off', water: 'sky',
+    post: { bloom: true, grade: true, tiltShift: true, ao: false, godRays: false, dof: false, lens: false, aa: 'none' },
+    fx: {
+      clouds: 2, stars: true, gerstner: true, foam: true, reflectionScale: 0, streetlights: 500, weatherDrops: 2500, lightningBolt: true,
+      emitters: 64, aoSamples: 0, godRaySamples: 0, tiltShiftTaps: 10, bloomScale: 0.5,
+    },
+    particleBudget: 8000, visibleAgents: 1500, fullDetailChunks: 25, drawCallBudget: 230, variants: 3, maxTextureSize: 2048, frameBudgetMs: 33.3,
   },
   high: {
-    renderScale: 1, dprCap: 2, shadows: 'csm3', shadowMapSize: 2048, ao: 'full', water: 'refract',
-    post: { bloom: true, grade: true, tiltShift: true, godRays: true, dof: false, lens: false, aa: 'msaa' },
-    particleBudget: 64000, visibleAgents: 6000, fullDetailChunks: 49, drawCallBudget: 380, variants: 4, maxTextureSize: 4096, frameBudgetMs: 17.5,
+    renderScale: 1, dprCap: 2, shadows: 'csm3', shadowMapSize: 2048, ao: 'full', water: 'planar',
+    post: { bloom: true, grade: true, tiltShift: true, ao: true, godRays: true, dof: false, lens: false, aa: 'fxaa' },
+    fx: {
+      clouds: 4, stars: true, gerstner: true, foam: true, reflectionScale: 0.3, streetlights: 1000, weatherDrops: 9000, lightningBolt: true,
+      emitters: 160, aoSamples: 12, godRaySamples: 24, tiltShiftTaps: 14, bloomScale: 0.5,
+    },
+    particleBudget: 64000, visibleAgents: 6000, fullDetailChunks: 49, drawCallBudget: 560, variants: 4, maxTextureSize: 4096, frameBudgetMs: 17.5,
   },
   ultra: {
-    renderScale: 1, dprCap: 3, shadows: 'csm4', shadowMapSize: 4096, ao: 'bent', water: 'ssr',
-    post: { bloom: true, grade: true, tiltShift: true, godRays: true, dof: true, lens: true, aa: 'taa' },
-    particleBudget: 256000, visibleAgents: 20000, fullDetailChunks: 81, drawCallBudget: 520, variants: 4, maxTextureSize: 8192, frameBudgetMs: 17.5,
+    renderScale: 1, dprCap: 3, shadows: 'csm4', shadowMapSize: 4096, ao: 'bent', water: 'refract',
+    post: { bloom: true, grade: true, tiltShift: true, ao: true, godRays: true, dof: true, lens: true, aa: 'taa' },
+    fx: {
+      clouds: 4, stars: true, gerstner: true, foam: true, reflectionScale: 0.5, streetlights: 2000, weatherDrops: 20000, lightningBolt: true,
+      emitters: 320, aoSamples: 16, godRaySamples: 32, tiltShiftTaps: 18, bloomScale: 0.5,
+    },
+    particleBudget: 256000, visibleAgents: 20000, fullDetailChunks: 81, drawCallBudget: 700, variants: 4, maxTextureSize: 8192, frameBudgetMs: 17.5,
   },
 };
 

@@ -57,6 +57,8 @@ export const ZERO_UV: UvRect = [0, 0, 0, 0];
 export class Geo {
   readonly parts: Part[] = Array.from({ length: SLOT_COUNT }, () => new Part());
   maxY = 0;
+  /** Smoke and steam sources in model space (x, top y, z): stacks and cooling towers register themselves. */
+  smoke: [number, number, number][] = [];
   /** Running window id so every window quad hashes to its own lit state. */
   nextWid = 1;
 

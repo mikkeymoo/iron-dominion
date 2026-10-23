@@ -3,7 +3,7 @@ import { CHUNK, CHUNKS, MAP, ZONE } from '../sim/layers.ts';
 import type { RenderMirror } from './mirror.ts';
 import { buildTerrainMesh, buildWaterMesh, withNeighbours, type MeshData, type TerrainLayers } from './terrainMesh.ts';
 import { buildRoadMesh } from './kit/roads.ts';
-import { createRoadMaterial, createTerrainMaterial, createWaterMaterial, type TerrainSlots } from './terrainMaterial.ts';
+import { createRoadMaterial, createTerrainMaterial, type TerrainSlots } from './terrainMaterial.ts';
 
 const SUPER = 4;
 const SUPERS = CHUNKS / SUPER;
@@ -65,7 +65,6 @@ export class TerrainView {
   readonly group = new Group();
   readonly slots: TerrainSlots;
   private readonly terrainMat;
-  private readonly waterMat = createWaterMaterial();
   private readonly roadMat = createRoadMaterial();
   private readonly layers: TerrainLayers;
   private readonly fine: Slot[] = [];
@@ -79,7 +78,8 @@ export class TerrainView {
   private shadows = false;
   builds = 0;
 
-  constructor(private readonly mirror: RenderMirror) {
+  /** `waterMat` is owned by the atmosphere unit (fx/water.ts), which rebuilds its nodes in place on a tier change. */
+  constructor(private readonly mirror: RenderMirror, private readonly waterMat: Material) {
     this.group.name = 'terrain';
     const { material, slots } = createTerrainMaterial();
     this.terrainMat = material;
@@ -98,7 +98,8 @@ export class TerrainView {
   setShadows(on: boolean): void {
     if (on === this.shadows) return;
     this.shadows = on;
-    for (const s of [...this.fine, ...this.coarse]) if (s.mesh) { s.mesh.castShadow = on; s.mesh.receiveShadow = on; }
+    // Terrain only receives: buildings carry the shadows, and a terrain caster would cost every cascade up to ~65 more draws.
+    for (const s of [...this.fine, ...this.coarse]) if (s.mesh) { s.mesh.castShadow = false; s.mesh.receiveShadow = on; }
   }
 
   /** Mark geometry dirty (also called by the dirty-queue drain). */
@@ -193,7 +194,7 @@ export class TerrainView {
         }
         if ((f.stale || !f.mesh) && left > 0) {
           const cx = (c % CHUNKS) * CHUNK, cy = ((c / CHUNKS) | 0) * CHUNK;
-          f.set(buildTerrainMesh(L, cx, cy, CHUNK, 1, FINE_SKIRT), this.shadows, this.shadows);
+          f.set(buildTerrainMesh(L, cx, cy, CHUNK, 1, FINE_SKIRT), false, this.shadows);
           left--; this.builds++;
         }
         if (f.mesh) { f.show(true); covered.add(local); }
@@ -213,7 +214,7 @@ export class TerrainView {
       if ((cs.stale || cs.key !== key) && (left > 0 || !cs.built)) {
         const perChunk = CHUNK / COARSE_STEP;
         const skip = covered.size === 0 ? undefined : (a: number, b: number): boolean => covered.has(Math.floor(b / perChunk) * SUPER + Math.floor(a / perChunk));
-        cs.set(buildTerrainMesh(L, sx, sy, SUPER_TILES, COARSE_STEP, COARSE_SKIRT, skip), this.shadows, this.shadows);
+        cs.set(buildTerrainMesh(L, sx, sy, SUPER_TILES, COARSE_STEP, COARSE_SKIRT, skip), false, this.shadows);
         cs.key = key;
         left--; this.builds++;
       }
@@ -231,7 +232,6 @@ export class TerrainView {
   dispose(): void {
     for (const s of [...this.fine, ...this.coarse, ...this.water, ...this.roads]) s.dispose();
     this.terrainMat.dispose();
-    this.waterMat.dispose();
     this.roadMat.dispose();
     this.slots.overlayTexture.dispose();
     this.slots.zoneTexture.dispose();

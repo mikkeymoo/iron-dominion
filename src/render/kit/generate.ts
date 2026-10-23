@@ -35,6 +35,8 @@ export interface KitModel {
   footprint: number;
   wallColor: RGB;
   roofColor: RGB;
+  /** Smoke and steam sources in model space (x, top y, z), for the particle emitters. */
+  smoke: [number, number, number][];
 }
 
 function avg(part: PartData | undefined): RGB | null {
@@ -67,7 +69,7 @@ export function generate(archetypeId: number, variantSeed: number): KitModel {
   const wallColor: RGB = parts[1]!.indices.length > parts[0]!.indices.length * 0.5 ? [wall[0] * 0.5 + glass[0] * 0.5, wall[1] * 0.5 + glass[1] * 0.5, wall[2] * 0.5 + glass[2] * 0.5] : [wall[0] * 0.75 + glass[0] * 0.25, wall[1] * 0.75 + glass[1] * 0.25, wall[2] * 0.75 + glass[2] * 0.25];
   return {
     archetype: archetypeId, variant: variantSeed, parts, height: g.maxY, bodyHeight: bodyHeightOf(parts), triangles: triCount(parts),
-    footprint: a.w, wallColor, roofColor: avg(parts[2]) ?? wallColor,
+    footprint: a.w, wallColor, roofColor: avg(parts[2]) ?? wallColor, smoke: g.smoke,
   };
 }
 

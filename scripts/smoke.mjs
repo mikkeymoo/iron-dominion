@@ -49,7 +49,9 @@ const CHECKS = [
 
 // Render checks run per backend on a fresh ?autostart page. Each returns a failure string or null.
 const MAP = 256;
-const RENDER_QUERY = (backend) => `?autostart=1&seed=42&backend=${backend}&governor=off&tier=low`;
+// time=0.5 pins noon: a new game starts at 00:00, and the sky/terrain/colour checks below are daylight checks.
+const RENDER_QUERY = (backend) => `?autostart=1&seed=42&backend=${backend}&governor=off&tier=low&time=0.5`;
+const READY_MS = 240000;
 
 async function decodeBands(page, png) {
   return page.evaluate(async (b64) => {
@@ -71,9 +73,12 @@ async function decodeBands(page, png) {
       return { r: r / n, g: gr / n, b: b / n, sd, cvar: (vr + vg + vb) / n };
     };
     const W = bmp.width, H = bmp.height;
+    // `body` skips the HUD (toolbar on top, perf panel on the left) so a day/night comparison measures the world.
+    const bx = Math.floor(W * 0.3), by = Math.floor(H * 0.12);
     return {
       top: stats(0, 0, W, Math.max(1, Math.floor(H * 0.06))),
       centre: stats(Math.floor(W * 0.35), Math.floor(H * 0.35), Math.floor(W * 0.3), Math.floor(H * 0.3)),
+      body: stats(bx, by, W - bx, H - by),
       size: [W, H],
     };
   }, png.toString('base64'));
@@ -85,7 +90,7 @@ const waitFrames = (page, n, timeout = 8000) => page.waitForFunction((target) =>
 async function renderChecks(page, backend, opts) {
   const out = [];
   const add = (name, problem) => out.push([`${backend}: ${name}`, problem]);
-  const up = await page.waitForFunction(() => window.__iron?.render?.ready === true, null, { timeout: 60000 }).then(() => true, () => false);
+  const up = await page.waitForFunction(() => window.__iron?.render?.ready === true, null, { timeout: READY_MS }).then(() => true, () => false);
   if (!up) {
     const err = await page.locator('.game-error .detail').allTextContents().catch(() => []);
     add('renderer starts', `__iron.render never became ready${err.length ? `: ${err.join(' ')}` : ''}`);
@@ -164,7 +169,7 @@ const SHOWCASE_MIN_BUILDINGS = 90;
 async function showcaseChecks(page, base, backend, label) {
   const out = [];
   const add = (name, problem) => out.push([`${backend}: showcase ${name}`, problem]);
-  const up = await page.waitForFunction(() => window.__iron?.render?.ready === true, null, { timeout: 60000 }).then(() => true, () => false);
+  const up = await page.waitForFunction(() => window.__iron?.render?.ready === true, null, { timeout: READY_MS }).then(() => true, () => false);
   if (!up) { add('renderer starts', 'never ready'); return out; }
   const loaded = await page.waitForFunction((n) => { const b = window.__iron?.render?.buildings; return b && b.instances + b.farInstances >= n; }, SHOWCASE_MIN_BUILDINGS, { timeout: 120000 }).then(() => true, () => false);
   const f0 = await frames(page);
@@ -191,6 +196,81 @@ async function showcaseChecks(page, base, backend, label) {
   add(`centre colour variance > ${SHOWCASE_MIN_CVAR} and above the terrain-only baseline`, show.centre.cvar > SHOWCASE_MIN_CVAR && (!baseline || show.centre.cvar > baseline.centre.cvar * 2) ? null : `showcase ${show.centre.cvar.toFixed(1)}, baseline ${baseline ? baseline.centre.cvar.toFixed(1) : 'n/a'}`);
   return out;
 }
+// ---- U4 atmosphere and post checks ----
+// The expected effect chain and shadow rig per tier mirror TIER_TABLE in src/render/tier.ts; a mismatch means the chain
+// built something other than what the table promises.
+const EXPECTED_PASSES = {
+  low: ['scene', 'bloom', 'grade'],
+  mid: ['scene', 'tiltShift', 'bloom', 'grade'],
+  high: ['scene', 'ao', 'tiltShift', 'godRays', 'bloom', 'fxaa', 'grade'],
+  ultra: ['scene', 'ao', 'taa', 'tiltShift', 'dof', 'godRays', 'bloom', 'chromatic', 'grade'],
+};
+const EXPECTED_SHADOWS = { low: ['none', 0], mid: ['view', 1], high: ['csm', 3], ultra: ['csm', 4] };
+const lumaOf = (s) => 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b;
+const fxInfo = (page) => page.evaluate(() => { const r = window.__iron.render; return { backend: r.backend, tier: r.tier, drawCalls: r.drawCalls, budget: r.drawCallBudget, fx: JSON.parse(JSON.stringify(r.fx)) }; });
+
+async function readyShowcase(page) {
+  const up = await page.waitForFunction(() => window.__iron?.render?.ready === true, null, { timeout: READY_MS }).then(() => true, () => false);
+  if (!up) return false;
+  await page.waitForFunction((n) => { const b = window.__iron?.render?.buildings; return b && b.instances + b.farInstances >= n; }, SHOWCASE_MIN_BUILDINGS, { timeout: READY_MS }).catch(() => {});
+  const f0 = await frames(page);
+  await waitFrames(page, f0 + 6, 60000);
+  return true;
+}
+
+async function fxChecks(noon, open, leg, label) {
+  const out = [];
+  const tier = leg.showcaseTier ?? 'low';
+  const add = (name, problem) => out.push([`${leg.backend}: fx ${tier} ${name}`, problem]);
+  const query = (time, extra = '') => `${RENDER_QUERY(leg.backend)}&showcase=1${extra}`.replace('tier=low', `tier=${tier}`).replace('time=0.5', `time=${time}`);
+  const shots = process.env.SMOKE_SHOTS;
+  const save = async (suffix, png) => { if (shots) await import('node:fs/promises').then((fs) => fs.writeFile(`${shots}-${label}-${leg.backend}-${tier}-${suffix}.png`, png)); };
+
+  const dayInfo = await fxInfo(noon);
+  const dayPng = await noon.screenshot();
+  await save('noon', dayPng);
+  const day = await decodeBands(noon, dayPng);
+
+  // Software rendering shares the CPU between every open page, so the noon page goes away before the night page loads.
+  await noon.close();
+  const night = await open(query(0.95));
+  let nightInfo = null, nightLuma = NaN;
+  if (await readyShowcase(night)) {
+    nightInfo = await fxInfo(night);
+    const nightPng = await night.screenshot();
+    await save('night', nightPng);
+    nightLuma = lumaOf((await decodeBands(night, nightPng)).body);
+  }
+  await night.close();
+  const dayLuma = lumaOf(day.body);
+  console.log(`         ${leg.backend} ${tier} fx: noon luma ${dayLuma.toFixed(1)}, night luma ${nightLuma.toFixed(1)}, passes [${dayInfo.fx.postPasses.join(', ')}], ${dayInfo.drawCalls}/${dayInfo.budget} draw calls at noon, ${nightInfo?.drawCalls ?? 'n/a'} at night, ${nightInfo?.fx.lamps ?? 0} streetlights, shadows ${JSON.stringify(dayInfo.fx.shadows)}, water ${JSON.stringify(dayInfo.fx.water)}`);
+
+  add('?time=0.5 pins the displayed day fraction', Math.abs(dayInfo.fx.dayFrac - 0.5) < 0.01 && dayInfo.fx.overrides.time ? null : JSON.stringify(dayInfo.fx));
+  add('noon mean luminance >= 2x night (?time=0.95)', nightInfo && dayLuma >= 2 * nightLuma ? null : `noon ${dayLuma.toFixed(1)}, night ${nightLuma.toFixed(1)}`);
+  add('night pins dayFrac 0.95 and lights streetlights', nightInfo && Math.abs(nightInfo.fx.dayFrac - 0.95) < 0.01 && nightInfo.fx.lamps > 0 ? null : `night page ${nightInfo ? JSON.stringify(nightInfo.fx) : 'never became ready'}`);
+  add('postPasses match the tier table', JSON.stringify(dayInfo.fx.postPasses) === JSON.stringify(EXPECTED_PASSES[tier]) ? null : `got ${JSON.stringify(dayInfo.fx.postPasses)}, want ${JSON.stringify(EXPECTED_PASSES[tier])}`);
+  const [mode, cascades] = EXPECTED_SHADOWS[tier];
+  add(`shadow rig is ${mode} with ${cascades} cascade(s)`, dayInfo.fx.shadows.mode === mode && dayInfo.fx.shadows.cascades === cascades ? null : JSON.stringify(dayInfo.fx.shadows));
+  add('draw calls within the tier budget at noon and at night', dayInfo.drawCalls > 0 && dayInfo.drawCalls <= dayInfo.budget && nightInfo && nightInfo.drawCalls <= nightInfo.budget ? null : `noon ${dayInfo.drawCalls}, night ${nightInfo?.drawCalls}, budget ${dayInfo.budget}`);
+
+  if (leg.rain) {
+    const rain = await open(query(0.5, '&weather=rain'));
+    if (await readyShowcase(rain)) {
+      await rain.waitForFunction(() => window.__iron.render.fx.particles.rain > 0, null, { timeout: 60000 }).catch(() => {});
+      const r = await fxInfo(rain);
+      const png = await rain.screenshot();
+      await save('rain', png);
+      console.log(`         ${leg.backend} ${tier} fx rain: weather ${r.fx.weather}, particles ${JSON.stringify(r.fx.particles)}, ${r.drawCalls}/${r.budget} draw calls`);
+      add('?weather=rain pins the visual weather', r.fx.weather === 'rain' && r.fx.overrides.weather ? null : JSON.stringify(r.fx));
+      add('rain reports live particles > 0', r.fx.particles.live > 0 && r.fx.particles.rain > 0 ? null : JSON.stringify(r.fx.particles));
+      add('rain draw calls within the tier budget', r.drawCalls <= r.budget ? null : `${r.drawCalls} > ${r.budget}`);
+    } else add('rain page starts', 'renderer never ready');
+    await rain.close();
+  }
+  return out;
+}
+// ---- end U4 block ----
+
 // ---- U5 persistence and lifecycle checks (real IndexedDB, same browser context so storage survives the reload) ----
 const PERSIST_QUERY = '?autostart=1&seed=42&backend=webgl2&tier=low&governor=off';
 const tickOf = (page) => page.evaluate(() => window.__iron?.sim?.tick ?? 0);
@@ -247,7 +327,7 @@ async function persistenceChecks(open) {
 // ---- end U5 block ----
 
 const RENDER_LEGS = {
-  desktop: [{ backend: 'webgl2', interact: true, loseDevice: true }, { backend: 'webgpu', showcaseTier: 'high' }],
+  desktop: [{ backend: 'webgl2', interact: true, loseDevice: true, fx: true, rain: true }, { backend: 'webgpu', showcaseTier: 'high', fx: true }],
   phone: [{ backend: 'webgl2' }],
 };
 
@@ -282,8 +362,15 @@ try {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
-      await sp.close();
-      await p.close();
+      if (leg.fx) {
+        await p.close();
+        for (const [name, problem] of await fxChecks(sp, open, leg, vp.name)) {
+          console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
+          if (problem) failed++;
+        }
+      }
+      if (!sp.isClosed()) await sp.close();
+      if (!p.isClosed()) await p.close();
     }
     if (vp.name === 'desktop') {
       for (const [name, problem] of await persistenceChecks(open)) {

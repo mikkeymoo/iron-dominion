@@ -11,7 +11,7 @@
 import { Group, InstancedBufferAttribute, InstancedMesh, BufferAttribute, BufferGeometry, DynamicDrawUsage, type DataTexture, type Material } from 'three/webgpu';
 import { surfaceHeight } from './heightfield.ts';
 import { InstancePacker, type Batch } from './instancePacker.ts';
-import { BuildingInstances, cachedModel } from './instances.ts';
+import { BuildingInstances, cachedModel, type EmitterRec } from './instances.ts';
 import { boxGeometry, createAtlasTexture, createBuildingMaterial, createFarMaterial, createSiteMaterial } from './buildingMaterial.ts';
 import { mergeParts } from './kit/generate.ts';
 import { generateCrane, generateSite } from './kit/site.ts';
@@ -154,8 +154,9 @@ export class BuildingsView {
     };
     this.nearSet = new BatchSet(this.group, this.data.near, this.nearMat, near, true, 'bld');
     this.farSet = new BatchSet(this.group, this.data.far, this.farMat, () => boxGeometry(), false, 'far');
-    this.siteSet = new BatchSet(this.group, this.data.site, this.siteMat, site, true, 'site');
-    this.craneSet = new BatchSet(this.group, this.data.crane, this.siteMat, () => fromPart(generateCrane().part), true, 'crane');
+    // Scaffolds and cranes only receive shadows: as casters they were half of every cascade's draw calls for thin geometry.
+    this.siteSet = new BatchSet(this.group, this.data.site, this.siteMat, site, false, 'site');
+    this.craneSet = new BatchSet(this.group, this.data.crane, this.siteMat, () => fromPart(generateCrane().part), false, 'crane');
   }
 
   setTier(tier: Tier): void {
@@ -170,6 +171,9 @@ export class BuildingsView {
     this.pending = this.data.sync(budgetMs);
     this.nearSet.sync(); this.farSet.sync(); this.siteSet.sync(); this.craneSet.sync();
   }
+
+  /** Continuous particle sources (stack smoke, site dust), keyed by building slot. */
+  get emitters(): ReadonlyMap<number, EmitterRec[]> { return this.data.emitters; }
 
   get stats(): BuildingStats {
     const s = this.data.stats;

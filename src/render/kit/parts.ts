@@ -231,6 +231,7 @@ export function stack(g: Geo, x: number, z: number, h: number, r = 0.05, banded 
     g.cyl(SLOT.ROOF, x, h * 0.88, z, r * 0.62 + (r - r * 0.62) * 0.12 + 0.004, h * 0.09, 10, RED, { rTop: r * 0.62 + (r - r * 0.62) * 0.03 + 0.004, capTop: false, aoBase: 0, aoRange: 1.2, aoMin: 0.7 });
   }
   g.box(SLOT.ACCENT, x - 0.008, h, z - 0.008, x + 0.008, h + 0.018, z + 0.008, hex(0xff3a2a), { noBottom: true });
+  g.smoke.push([x, h + 0.02, z]);
 }
 
 export function silo(g: Geo, x: number, z: number, h: number, r = 0.08): void {
@@ -251,6 +252,7 @@ export function coolingTower(g: Geo, x: number, z: number, h: number, r: number)
   g.cyl(SLOT.CONCRETE, x, 0, z, rs[0]!, hs, 12, col, { rTop: rs[1], capTop: false, aoRange: 1.0, aoMin: 0.55 });
   g.cyl(SLOT.CONCRETE, x, hs, z, rs[1]!, hs, 12, col, { rTop: rs[2], capTop: false, aoRange: 1.0, aoMin: 0.55 });
   g.cyl(SLOT.CONCRETE, x, hs * 2, z, rs[2]!, hs, 12, col, { rTop: rs[3], capTop: hex(0x7d8a92), aoRange: 1.0, aoMin: 0.55 });
+  g.smoke.push([x, h + 0.02, z]);
 }
 
 export function pipeRack(g: Geo, a: V3, b: V3, rng: Rng, tubes = 3): void {

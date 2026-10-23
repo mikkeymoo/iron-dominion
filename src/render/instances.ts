@@ -27,6 +27,12 @@ export interface InstanceDeps {
 
 export interface InstanceStats { near: number; far: number; sites: number; cranes: number }
 
+/** A continuous particle source anchored to a building: stack smoke on finished industry, dust on a building site. */
+export interface EmitterRec { kind: 'smoke' | 'dust'; x: number; y: number; z: number; rate: number }
+
+const SMOKE_RATE = 2.4;
+const DUST_RATE_PER_TILE = 1.6;
+
 const modelCache = new Map<string, KitModel>();
 export function cachedModel(arch: number, variant: number): KitModel {
   const k = `${arch}:${variant}`;
@@ -77,6 +83,8 @@ export class BuildingInstances {
   readonly far = new InstancePacker();
   readonly site = new InstancePacker();
   readonly crane = new InstancePacker();
+  /** Particle sources per building slot, rebuilt whenever the slot is written. */
+  readonly emitters = new Map<number, EmitterRec[]>();
   private pending = new Set<number>();
   private cls = new Map<number, 0 | 1>();
   private fineVersion = -1;
@@ -136,6 +144,7 @@ export class BuildingInstances {
   private removeAll(slot: number): void {
     this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot);
     this.cls.delete(slot);
+    this.emitters.delete(slot);
   }
 
   private write(slot: number): void {
@@ -154,6 +163,15 @@ export class BuildingInstances {
     const near = this.classify(slot) === 0;
     this.cls.set(slot, near ? 0 : 1);
     const mat = new Float32Array(MATRIX_STRIDE);
+
+    const recs: EmitterRec[] = [];
+    if (p >= 1) {
+      const c = Math.cos(rot), s = Math.sin(rot);
+      for (const [lx, ly, lz] of model.smoke) recs.push({ kind: 'smoke', x: cx + c * lx + s * lz, y: gy + ly, z: cz - s * lx + c * lz, rate: SMOKE_RATE });
+    } else if (stageOf(p) !== 'complete') {
+      recs.push({ kind: 'dust', x: cx, y: gy + 0.05, z: cz, rate: DUST_RATE_PER_TILE * Math.max(1, b.w * b.h) * (p > 0.04 ? 1 : 0.5) });
+    }
+    if (recs.length > 0) this.emitters.set(slot, recs); else this.emitters.delete(slot);
 
     if (near) {
       composeMatrix(mat, cx, gy, cz, rot);

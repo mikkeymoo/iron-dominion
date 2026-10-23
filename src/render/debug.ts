@@ -1,3 +1,4 @@
+import type { FxDebug } from './fx/index.ts';
 import type { Backend, Tier } from './tier.ts';
 
 /** `window.__iron.render`, read by scripts/smoke.mjs. Values are live getters. */
@@ -14,6 +15,8 @@ export interface RenderDebug {
   readonly drawCallBudget: number;
   readonly deviceLosses: number;
   readonly buildings: BuildingDebug;
+  /** Atmosphere state: displayed day fraction, weather, sun direction, post passes, particles. `?time=` and `?weather=` pin the first two. */
+  readonly fx: FxDebug;
   /** Set by ?showcase=1 once the district is planned: the camera pose that frames it. */
   readonly showcaseCamera?: { x: number; z: number; yaw: number; pitch: number; dist: number };
   readonly canvasCount: number;

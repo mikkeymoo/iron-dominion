@@ -1,6 +1,7 @@
-import { Color, DataTexture, MeshStandardNodeMaterial, NearestFilter, Vector4 } from 'three/webgpu';
-import { mix, positionWorld, step, texture, uniform, vec4, vertexColor } from 'three/tsl';
+import { DataTexture, MeshStandardNodeMaterial, NearestFilter, Vector4 } from 'three/webgpu';
+import { float, mix, normalWorld, positionWorld, smoothstep, step, texture, uniform, vec3, vec4, vertexColor } from 'three/tsl';
 import { MAP } from '../sim/layers.ts';
+import { fxU } from './fx/uniforms.ts';
 
 export const OVERLAY = { OFF: 0, ON: 1 } as const;
 
@@ -49,10 +50,16 @@ export function createTerrainMaterial(): { material: MeshStandardNodeMaterial; s
   c = mix(c, overlay.rgb, overlay.a.mul(overlayOpacity).mul(step(0.5, overlayMode)));
   c = mix(c, selectionTint.rgb, inRect.mul(selectionTint.a));
 
+  // Weather: wet ground darkens and shines, snow whitens upward faces.
+  const flat = smoothstep(0.5, 0.85, normalWorld.y);
+  const snowAmt = fxU.snow.mul(flat);
+  c = c.mul(float(1).sub(fxU.wet.mul(0.3)));
+  c = mix(c, vec3(0.92, 0.94, 0.98), snowAmt.mul(0.92));
+
   const material = new MeshStandardNodeMaterial();
   material.colorNode = vec4(c, 1);
   material.opacityNode = cutawayAlpha;
-  material.roughness = 0.95;
+  material.roughnessNode = mix(float(0.95), float(0.5), fxU.wet.mul(float(1).sub(snowAmt)));
   material.metalness = 0;
 
   return {
@@ -63,21 +70,13 @@ export function createTerrainMaterial(): { material: MeshStandardNodeMaterial; s
   };
 }
 
-export function createWaterMaterial(): MeshStandardNodeMaterial {
-  const m = new MeshStandardNodeMaterial();
-  m.color = new Color(0x2c7fb5);
-  m.transparent = true;
-  m.opacity = 0.72;
-  m.roughness = 0.12;
-  m.metalness = 0;
-  m.depthWrite = false;
-  return m;
-}
-
 export function createRoadMaterial(): MeshStandardNodeMaterial {
   const m = new MeshStandardNodeMaterial();
-  m.colorNode = vertexColor();
-  m.roughness = 0.92;
+  // Asphalt darkens and turns glossy in the wet; traffic keeps snow thinner on roads than on the ground.
+  const flat = smoothstep(0.5, 0.85, normalWorld.y);
+  const snowAmt = fxU.snow.mul(flat).mul(0.55);
+  m.colorNode = mix(vertexColor().rgb.mul(float(1).sub(fxU.wet.mul(0.4))), vec3(0.9, 0.92, 0.96), snowAmt);
+  m.roughnessNode = mix(float(0.92), float(0.28), fxU.wet.mul(float(1).sub(snowAmt)));
   m.metalness = 0;
   m.polygonOffset = true;
   m.polygonOffsetFactor = -2;
