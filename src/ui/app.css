@@ -49,3 +49,18 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .menu .check input { width: 22px; height: 22px; }
 .resume { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 0.4rem; text-align: center; background: rgba(11, 17, 22, 0.78); color: #e6edf3; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .resume h2, .resume p { margin: 0; }
+
+.toolsheet { position: absolute; left: calc(env(safe-area-inset-left) + 6px); right: calc(env(safe-area-inset-right) + 6px); bottom: calc(env(safe-area-inset-bottom) + 6px); max-width: 44rem; margin: 0 auto; box-sizing: border-box; display: grid; gap: 6px; padding: 6px; background: rgba(11, 17, 22, 0.86); border-radius: 10px; color: #e6edf3; font-size: 0.85rem; }
+.tool-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.toolsheet .tb { flex: 1 1 auto; white-space: nowrap; }
+.tool-gap { flex: 0 0 8px; }
+.tool-hint { opacity: 0.7; font-size: 0.78rem; padding: 0 4px; }
+.hud > .tool-cost { position: absolute; display: grid; gap: 2px; max-width: 12rem; padding: 4px 8px; background: rgba(11, 17, 22, 0.88); border: 1px solid rgba(111, 176, 255, 0.6); border-radius: 6px; font-size: 0.8rem; pointer-events: none; }
+.hud > .tool-cost.bad { border-color: #e05a50; }
+.hud > .tool-cost.bad span { color: #ffb3ab; }
+.hud > .tool-floats { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.tool-float { position: absolute; font-weight: 700; font-size: 1.05rem; color: #ff9a8f; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); animation: tool-rise 1.5s ease-out forwards; }
+.tool-float.gain { color: #9be58f; }
+@keyframes tool-rise { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-48px); opacity: 0; } }
+.hud > .tool-toasts { position: absolute; top: calc(env(safe-area-inset-top) + 112px); left: 50%; transform: translateX(-50%); display: grid; gap: 6px; width: max-content; max-width: min(28rem, calc(100vw - 24px)); pointer-events: none; }
+.tool-toast { padding: 8px 12px; background: rgba(124, 29, 29, 0.94); border: 1px solid #a53a3a; border-radius: 8px; color: #fff; font-size: 0.85rem; }

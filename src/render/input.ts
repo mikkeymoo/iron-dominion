@@ -1,10 +1,13 @@
 import type { CameraRig } from './camera.ts';
 import { PointerControl } from './pointerControl.ts';
+import type { ToolInput } from './tools/pointer.ts';
 
 export interface InputHost {
   element: HTMLElement;
   rig: CameraRig;
   groundAt(px: number, py: number): { x: number; z: number } | null;
+  /** With a tool active, one finger / the left button drives the tool; two fingers and the other buttons still drive the camera. */
+  tool?: ToolInput;
 }
 
 export interface CameraInput {
@@ -26,15 +29,44 @@ export function bindCameraInput(host: InputHost): CameraInput {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
+  const tool = host.tool;
+  let toolPtr: { id: number; x: number; y: number } | null = null;
+
   const onDown = (e: PointerEvent): void => {
-    element.setPointerCapture?.(e.pointerId);
+    try { element.setPointerCapture?.(e.pointerId); } catch { /* the pointer is already gone; the gesture still works without capture */ }
     const p = local(e);
-    control.down(e.pointerId, p.x, p.y, e.pointerType === 'mouse' ? 'mouse' : 'touch', e.button);
+    const kind = e.pointerType === 'mouse' ? 'mouse' : 'touch';
     element.focus({ preventScroll: true });
+    if (tool?.active() && !toolPtr && control.pointerCount === 0 && (kind === 'touch' || e.button === 0)) {
+      toolPtr = { id: e.pointerId, x: p.x, y: p.y };
+      tool.begin(p.x, p.y);
+      return;
+    }
+    if (toolPtr && kind === 'touch') {
+      // A second finger means the player is steering the camera, not drawing: drop the tool drag and give both fingers to the rig.
+      tool?.cancelDrag();
+      control.down(toolPtr.id, toolPtr.x, toolPtr.y, 'touch');
+      toolPtr = null;
+    }
+    control.down(e.pointerId, p.x, p.y, kind, e.button);
   };
-  const onMove = (e: PointerEvent): void => { const p = local(e); control.move(e.pointerId, p.x, p.y); };
+  const onMove = (e: PointerEvent): void => {
+    const p = local(e);
+    if (toolPtr) {
+      if (e.pointerId === toolPtr.id) { toolPtr.x = p.x; toolPtr.y = p.y; tool?.move(p.x, p.y); }
+      return;
+    }
+    if (tool?.active() && e.pointerType === 'mouse' && e.buttons === 0) tool.move(p.x, p.y);
+    control.move(e.pointerId, p.x, p.y);
+  };
   const onUp = (e: PointerEvent): void => {
     element.releasePointerCapture?.(e.pointerId);
+    if (toolPtr && e.pointerId === toolPtr.id) {
+      toolPtr = null;
+      if (e.type === 'pointercancel') tool?.cancelDrag(); else tool?.end();
+      if (e.pointerType !== 'mouse') tool?.leave();
+      return;
+    }
     control.up(e.pointerId, e.pointerType === 'mouse' ? 'mouse' : 'touch');
   };
   const onWheel = (e: WheelEvent): void => {
@@ -64,6 +96,7 @@ export function bindCameraInput(host: InputHost): CameraInput {
   return {
     flush: (dt) => control.flush(dt),
     dispose() {
+      toolPtr = null;
       element.removeEventListener('pointerdown', onDown);
       element.removeEventListener('pointermove', onMove);
       element.removeEventListener('pointerup', onUp);

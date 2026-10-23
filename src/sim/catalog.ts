@@ -59,3 +59,11 @@ export const ROAD_COST = [0, 10, 25, 60] as const;
 export const BRIDGE_EXTRA = 40;
 export const ZONE_COST = 2;
 export const BULLDOZE_COST = 1;
+
+/** One raise or lower step is 1/4 tile of height (4 height units); leveling rounds each tile's change up to whole steps for cost. */
+export const TERRAFORM_STEP = 4;
+export const TERRAFORM_COST = 6;
+export const MAX_TERRAFORM_TILES = 1024;
+/** Land stays above sea level and below the tallest peak the generator can make. */
+export const HEIGHT_MIN = 1;
+export const HEIGHT_MAX = 48 * 16;

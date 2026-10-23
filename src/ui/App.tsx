@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IronDebug } from '../render/debug.ts';
 import '../platform/debug.ts';
+import './toolsStore.ts';
 import type { ClientState } from '../sim/client.ts';
 import { openPlatformDb, type PlatformDb, type SlotMeta } from '../platform/db.ts';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
@@ -44,6 +45,7 @@ export function App() {
     const dbg = iron.current;
     if (dbg) {
       dbg.sim = { tick: 0 };
+      dbg.tools = s.tools.debug;
       dbg.platform = {
         save: () => saveSession(s),
         load: (id) => loadInto(s, id),
@@ -220,7 +222,7 @@ export function App() {
   if (view === 'game' && live && platformReady) {
     return (
       <GameView
-        client={live.client} mirror={live.mirror} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
+        client={live.client} mirror={live.mirror} tools={live.tools} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
         tick={hud.tick} worker={worker} onExit={onQuit}
         quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
       />

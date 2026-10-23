@@ -5,6 +5,7 @@ import { RenderMirror } from '../render/mirror.ts';
 import { createLifecycle, type Lifecycle } from '../platform/lifecycle.ts';
 import { createPlatformService, type PlatformService, type SaveInfo } from '../platform/service.ts';
 import { fail, ok, type Outcome, type PlatformDb } from '../platform/db.ts';
+import { ToolsRuntime } from './toolsStore.ts';
 
 // Debug query: ?seed=42&haltAt=200 runs the sim from that seed and halts at tick 200, reporting the state hash.
 // A halting run uses max speed. Without haltAt the worker still includes the hash in Stats every HASH_EVERY ticks.
@@ -13,6 +14,7 @@ export const HASH_EVERY = 100;
 export interface Session {
   client: SimClient;
   mirror: RenderMirror;
+  tools: ToolsRuntime;
   service: PlatformService;
   lifecycle: Lifecycle;
   seed: number;
@@ -32,7 +34,8 @@ export interface SessionOptions {
 export function openSession(o: SessionOptions): Session {
   const mirror = new RenderMirror();
   const w = new Worker(new URL(`./sim-worker.js?v=${BUILD_HASH}`, document.baseURI));
-  const client = createSimClient(w, {
+  const tools = new ToolsRuntime({ world: mirror, submit: (body) => client.command(body) });
+  const client: SimClient = createSimClient(w, {
     seed: o.seed,
     debug: o.debug,
     haltAt: o.haltAt,
@@ -40,6 +43,7 @@ export function openSession(o: SessionOptions): Session {
     buildHash: BUILD_HASH,
     onState: (s) => o.onState(s),
     onPatch: (m) => { mirror.apply(m); },
+    onEvents: (m) => tools.handleEvents(m.events),
     onStats: (s) => {
       mirror.apply(s);
       o.onStats(s);
@@ -56,7 +60,7 @@ export function openSession(o: SessionOptions): Session {
     hasSlot: () => service.current !== null,
     write: (data, _why, opt) => service.writeSnapshot(data, opt),
   }, { initialSpeed: o.haltAt !== undefined ? 'max' : 1 });
-  return { client, mirror, service, lifecycle, seed: o.seed, dispose: () => client.terminate() };
+  return { client, mirror, tools, service, lifecycle, seed: o.seed, dispose: () => { tools.dispose(); client.terminate(); } };
 }
 
 /** Manual Save (or Save as, with a name) through the lifecycle's single write queue. */

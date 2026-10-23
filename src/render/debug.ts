@@ -14,6 +14,8 @@ export interface RenderDebug {
   readonly drawCallBudget: number;
   readonly deviceLosses: number;
   readonly buildings: BuildingDebug;
+  /** Tiles the build-tool ghost is painting right now (0 when no tool plan is shown). */
+  readonly ghostTiles: number;
   /** Set by ?showcase=1 once the district is planned: the camera pose that frames it. */
   readonly showcaseCamera?: { x: number; z: number; yaw: number; pitch: number; dist: number };
   readonly canvasCount: number;
