@@ -27,3 +27,13 @@ it('disables the production upgrade at the engine maximum',async()=>{
  render(<App/>);fireEvent.click(screen.getByRole('button',{name:/Continue campaign/}));fireEvent.click(screen.getByRole('button',{name:'Build'}));
  expect((screen.getByRole('button',{name:/Upgrade production/}) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it('launches the 3D assault from the title screen', async () => {
+ localStorage.clear();
+ vi.doMock('./action/ActionGame',()=>({ActionGame:()=> <div>Arena</div>}));
+ vi.resetModules();
+ const {App:Fresh}=await import('./App');
+ render(<Fresh/>);
+ fireEvent.click(screen.getByRole('button',{name:'Launch 3D assault'}));
+ expect(screen.getByText('Arena')).toBeTruthy();
+});
