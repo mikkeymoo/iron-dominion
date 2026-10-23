@@ -1,9 +1,11 @@
-import { archetype, BFLAG, type Archetype } from './catalog.ts';
+import { ARCH, archetype, BFLAG, type Archetype } from './catalog.ts';
+import { DEPOT_START_STOCK } from './robots/constants.ts';
+import { clearJob } from './robots/pool.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
 import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
-import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
+import { AMAX, MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { markDirty, type Sim } from './world.ts';
 
@@ -136,8 +138,8 @@ export function clearBuilding(sim: Sim, slot: number): void {
   }
   w.bArch[slot] = 0; w.bX[slot] = 0; w.bY[slot] = 0; w.bW[slot] = 0; w.bH[slot] = 0;
   w.bRot[slot] = 0; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0; w.bAband[slot] = 0;
-  w.bStock[slot] = 0; w.bAux[slot] = 0;
-  w.jKind[slot] = 0; w.jNeed[slot] = 0; w.jHave[slot] = 0; w.jInbound[slot] = 0; w.jProg[slot] = 0; w.jAccess[slot] = 0;
+  w.bStock[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0;
+  clearJob(w, slot);
   w.bGen[slot] = (w.bGen[slot]! + 1) & 0xffff;
   for (let u = 0; u < UMAX; u++) if (w.uKind[u] === UNDO.BUILDING && w.uArg[u] === slot) { w.uKind[u] = UNDO.NONE; w.uCmd[u] = 0; }
   sim.dirty.buildings.add(slot);
@@ -175,6 +177,7 @@ function placeSite(sim: Sim, a: Archetype, x: number, y: number, rot: number, o:
   const cap = o.journal ? capture(w, cells) : undefined;
   w.bArch[slot] = a.id; w.bX[slot] = x; w.bY[slot] = y; w.bW[slot] = bw; w.bH[slot] = bh;
   w.bRot[slot] = rot; w.bLevel[slot] = o.level; w.bProg[slot] = o.prog; w.bFlags[slot] = o.flags; w.bAband[slot] = 0;
+  w.bZone[slot] = cells.length > 0 ? w.zone[cells[0]!]! : 0;
   for (const i of cells) { w.bId[i] = slot + 1; w.zone[i] = 0; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); }
   sim.dirty.buildings.add(slot);
   w.scalars[S.treasury]! -= o.cost;
@@ -285,6 +288,12 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   if (kind === UNDO.BUILDING) {
     const b = w.uArg[slot]!;
     if (w.bArch[b] === 0 || w.bGen[b] !== w.uGen[slot] || w.bProg[b] !== 0 || w.bLevel[b] !== 0) reject('consumed');
+    // A depot whose starting stock was touched, or that already has robots, cannot be refunded: placing, using and undoing it would print material.
+    if (w.bArch[b] === ARCH.DEPOT && w.bAux[b] === 1) {
+      if (w.bStock[b] !== DEPOT_START_STOCK) reject('consumed');
+      const ref = ((b + 1) | (w.bGen[b]! << 16)) >>> 0;
+      for (let a = 0; a < AMAX; a++) if (w.aKind[a] !== 0 && w.aHome[a] === ref) reject('consumed');
+    }
     clearBuilding(sim, b);
   }
   const refund = w.uCost[slot]!;

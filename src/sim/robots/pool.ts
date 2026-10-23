@@ -1,6 +1,17 @@
 import { ARCH } from '../catalog.ts';
-import { AMAX, MAP, type World } from '../layers.ts';
+import { AMAX, MAP, S, type World } from '../layers.ts';
 import { AST } from './constants.ts';
+
+/** Robot spending accrued this month (paid with the month's budget): `spend` indices. */
+export const SPEND = { UPKEEP: 0, IMPORTS: 1, PURCHASES: 2 } as const;
+/** Treasury minus what the workforce has already accrued but not yet paid. */
+export const available = (w: World): number => w.scalars[S.treasury]! - w.spend[0]! - w.spend[1]! - w.spend[2]!;
+
+/** Zero every job row of a building slot (the one place a job is closed). */
+export function clearJob(w: World, slot: number): void {
+  w.jKind[slot] = 0; w.jNeed[slot] = 0; w.jHave[slot] = 0; w.jInbound[slot] = 0; w.jProg[slot] = 0; w.jAccess[slot] = 0;
+  w.jPrev[slot] = 0; w.jPrevSz[slot] = 0; w.jStuck[slot] = 0;
+}
 
 /** Reference to a building slot that survives slot reuse: (slot + 1) | generation << 16. 0 means none. */
 export const refOf = (w: World, slot: number): number => ((slot + 1) | (w.bGen[slot]! << 16)) >>> 0;

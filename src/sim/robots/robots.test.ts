@@ -3,7 +3,7 @@ import { BFLAG } from '../catalog.ts';
 import { createSim, step } from '../engine.ts';
 import { S } from '../layers.ts';
 import { runTicks } from '../testkit.ts';
-import { AKIND, BUILDERS_PER_DEPOT, HAULERS_PER_DEPOT } from './index.ts';
+import { AKIND, BUILDER_COST, BUILDERS_PER_DEPOT, HAULER_COST, HAULERS_PER_DEPOT } from './index.ts';
 import { agents, depot, finished, flatSim, grown, road, runUntil, tickOf, town, zone } from './testkit.ts';
 
 vi.setConfig({ testTimeout: 120000 });
@@ -67,7 +67,9 @@ describe('growth by robots', () => {
     runTicks(sim, 400);
     expect(agents(sim, AKIND.BUILDER)).toHaveLength(BUILDERS_PER_DEPOT);
     expect(agents(sim, AKIND.HAULER)).toHaveLength(HAULERS_PER_DEPOT);
-    expect(sim.world.scalars[S.treasury]!).toBeLessThan(before);
+    // Robot costs accrue and are paid with the month's budget, so the treasury itself has not moved yet.
+    expect(sim.world.scalars[S.treasury]!).toBe(before);
+    expect(sim.world.spend[2]).toBe(BUILDERS_PER_DEPOT * BUILDER_COST + HAULERS_PER_DEPOT * HAULER_COST);
   });
 
   it('completes several buildings and keeps starting new ones while demand holds', () => {

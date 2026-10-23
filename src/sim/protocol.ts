@@ -2,7 +2,7 @@ import type { Command } from './commands.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export type Speed = 0 | 1 | 2 | 4 | 'max';
 export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float32Array | Float64Array | Int8Array | Int32Array;
@@ -66,6 +66,8 @@ export interface BudgetRecord {
   month: number;
   incomeR: number; incomeC: number; incomeI: number;
   roads: number; services: number; interest: number;
+  /** Robot workforce costs accrued over the month: upkeep, imported building material, newly built robots. */
+  robotUpkeep: number; imports: number; robotPurchases: number;
   income: number; expenses: number; net: number;
   population: number;
   /** Treasury after the month was paid. */

@@ -1,29 +1,33 @@
 import { ARCH, BFLAG, archetype, rciId, type Archetype } from '../catalog.ts';
 import { clearBuilding, reserveBuilding } from '../commands.ts';
-import { abandonedBuildings, growthCandidates, levelUpCandidates, reachAnchors, reachableAccess, zoneDemand } from '../economy/index.ts';
+import {
+  abandonedBuildings, growthCandidates, levelUpCandidates, reachAnchors, reachableAccess, zoneDemand, type Lot,
+} from '../economy/index.ts';
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
-import { BMAX, MAP, ROAD, S, TERRAIN, ZONE, isWaterTerrain } from '../layers.ts';
+import { bytesOf, fnv1a } from '../hash.ts';
+import { BMAX, MAP, ROAD, S, TERRAIN, ZONE, isWaterTerrain, type World } from '../layers.ts';
 import { roadsOf } from '../roads/index.ts';
+import type { RoadNet } from '../roads/graph.ts';
 import type { Sim } from '../world.ts';
 import { markDirty } from '../world.ts';
 import {
-  CANDIDATES, DEPOT_START_STOCK, DEPOT_STOCK_CAP, DEPOT_TRICKLE_CAP, GROWTH_MIN_DEMAND, IMPORT_COST, IMPORT_PERIOD, IMPORT_UNITS,
-  INDUSTRY_STOCK_CAP, JOB, JOB_MAX, JOB_PENALTY, MAX_DEMOLITIONS, MAX_JOBS, PRODUCE_PERIOD, materialFor,
+  CANDIDATES, DEPOT_START_STOCK, DEPOT_STOCK_CAP, DEPOT_TRICKLE_CAP, GROWTH_MIN_DEMAND, GROWTH_PERIOD, IMPORT_COST, IMPORT_PERIOD,
+  IMPORT_UNITS, INDUSTRY_STOCK_CAP, JOB, JOB_MAX, JOB_PENALTY, JOB_STUCK_TICKS, MAX_DEMOLITIONS, MAX_JOBS, PRODUCE_PERIOD, materialFor,
 } from './constants.ts';
+import { SPEND, available, clearJob } from './pool.ts';
 
 /** Drop job rows whose building was freed or reused since the job began. */
 export function sanitizeJobs(sim: Sim): void {
   const w = sim.world;
   for (let s = 0; s < BMAX; s++) {
-    if (w.jKind[s] === 0) continue;
-    if (w.bArch[s] === 0 || w.jGen[s] !== w.bGen[s]) { w.jKind[s] = 0; w.jNeed[s] = 0; w.jHave[s] = 0; w.jInbound[s] = 0; w.jProg[s] = 0; w.jAccess[s] = 0; }
+    if (w.jKind[s] !== 0 && (w.bArch[s] === 0 || w.jGen[s] !== w.bGen[s])) clearJob(w, s);
   }
 }
 
 function openJob(sim: Sim, slot: number, kind: number, need: number, prog: number, access: number): void {
   const w = sim.world;
-  w.jKind[slot] = kind; w.jGen[slot] = w.bGen[slot]!; w.jNeed[slot] = need; w.jHave[slot] = 0; w.jInbound[slot] = 0;
-  w.jProg[slot] = prog; w.jAccess[slot] = access;
+  clearJob(w, slot);
+  w.jKind[slot] = kind; w.jGen[slot] = w.bGen[slot]!; w.jNeed[slot] = need; w.jProg[slot] = prog; w.jAccess[slot] = access;
   sim.dirty.buildings.add(slot);
 }
 
@@ -33,6 +37,24 @@ export function startBuild(sim: Sim, a: Archetype, x: number, y: number, access:
   if (slot < 0) return false;
   openJob(sim, slot, JOB.BUILD, materialFor(a.w * a.h, a.level ?? 1), 0, access);
   return true;
+}
+
+/** Give a lot's tiles back to the zone it was built on (a no-op for a lot that was never zoned). */
+function restoreZone(sim: Sim, x: number, y: number, bw: number, bh: number, zoneByte: number): void {
+  const w = sim.world;
+  if (zoneByte === 0) return;
+  for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) {
+    const i = yy * MAP + xx;
+    if (w.bId[i] === 0 && (w.road[i]! & ROAD.CLASS_MASK) === 0) { w.zone[i] = zoneByte; markDirty(sim, 'geometry', xx, yy); }
+  }
+}
+
+/** Free a building slot and return its lot to the zone it was placed on. */
+export function releaseLot(sim: Sim, slot: number): void {
+  const w = sim.world;
+  const x = w.bX[slot]!, y = w.bY[slot]!, bw = w.bW[slot]!, bh = w.bH[slot]!, zb = w.bZone[slot]!;
+  clearBuilding(sim, slot);
+  restoreZone(sim, x, y, bw, bh, zb);
 }
 
 /** Claim the extra tiles a larger footprint needs: free, same zone byte, no road. All or nothing. */
@@ -64,10 +86,13 @@ export function canLevelUp(sim: Sim, slot: number, nextArch: number): boolean {
 /** Rebuild an operating building as the next level: the new building rises from a foundation inside the old footprint plus any claimed tiles. */
 export function startLevelUp(sim: Sim, slot: number, nextArch: number, access: number): boolean {
   const w = sim.world, next = archetype(nextArch);
-  if (!next || !expandFootprint(sim, slot, next, true)) return false;
+  if (!next) return false;
+  const prevArch = w.bArch[slot]!, prevSize = w.bW[slot]!;
+  if (!expandFootprint(sim, slot, next, true)) return false;
   w.bArch[slot] = next.id; w.bLevel[slot] = next.level ?? 1; w.bProg[slot] = 0;
   w.bFlags[slot] = BFLAG.CONSTRUCTING;
   openJob(sim, slot, JOB.LEVEL, materialFor(next.w * next.h, next.level ?? 1), 0, access);
+  w.jPrev[slot] = prevArch; w.jPrevSz[slot] = prevSize;
   return true;
 }
 
@@ -78,6 +103,30 @@ export function startDemolish(sim: Sim, slot: number, access: number): void {
   openJob(sim, slot, JOB.DEMOLISH, 0, JOB_MAX, access);
 }
 
+/** Cancel a job and put the building back the way it was: a new building is removed (its lot returns to the zone), a level-up reverts, a demolition stops. */
+export function cancelJob(sim: Sim, slot: number): void {
+  const w = sim.world, kind = w.jKind[slot]!;
+  if (kind === JOB.BUILD) { releaseLot(sim, slot); return; }
+  if (kind === JOB.LEVEL && w.jPrev[slot] !== 0) {
+    const prev = archetype(w.jPrev[slot]!), size = w.jPrevSz[slot]!;
+    const x = w.bX[slot]!, y = w.bY[slot]!, bw = w.bW[slot]!;
+    if (prev && bw > size) {
+      for (let yy = y; yy < y + bw; yy++) for (let xx = x; xx < x + bw; xx++) {
+        if (xx < x + size && yy < y + size) continue;
+        const i = yy * MAP + xx;
+        w.bId[i] = 0; w.zone[i] = w.bZone[slot]!;
+        markDirty(sim, 'geometry', xx, yy);
+      }
+      w.bW[slot] = size; w.bH[slot] = size;
+    }
+    if (prev) { w.bArch[slot] = prev.id; w.bLevel[slot] = prev.level ?? 1; }
+  }
+  w.bFlags[slot] = w.bFlags[slot]! & ~(BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING);
+  w.bProg[slot] = 255;
+  clearJob(w, slot);
+  sim.dirty.buildings.add(slot);
+}
+
 /** Mirror job progress into the building table and finish what is done. Runs after the robots have worked this tick. */
 export function settleJobs(sim: Sim): void {
   const w = sim.world;
@@ -86,11 +135,11 @@ export function settleJobs(sim: Sim): void {
     if (kind === 0) continue;
     const top = w.jProg[s]! >> 8;
     if (kind === JOB.DEMOLISH) {
-      if (w.jProg[s] === 0) { clearBuilding(sim, s); continue; }
+      if (w.jProg[s] === 0) { releaseLot(sim, s); continue; }
     } else if (w.jProg[s]! >= JOB_MAX) {
       w.bFlags[s] = w.bFlags[s]! & ~(BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING);
       w.bProg[s] = 255;
-      w.jKind[s] = 0; w.jNeed[s] = 0; w.jHave[s] = 0; w.jInbound[s] = 0; w.jProg[s] = 0; w.jAccess[s] = 0;
+      clearJob(w, s);
       sim.dirty.buildings.add(s);
       continue;
     }
@@ -107,14 +156,62 @@ export function materialSystem(sim: Sim): void {
     if (arch === 0) continue;
     if (arch === ARCH.DEPOT) {
       if (w.bAux[s] === 0) { w.bAux[s] = 1; w.bStock[s] = DEPOT_START_STOCK; }
-      else if (trickle && w.bStock[s]! < DEPOT_TRICKLE_CAP && w.scalars[S.treasury]! >= IMPORT_UNITS * IMPORT_COST) {
+      else if (trickle && w.bStock[s]! < DEPOT_TRICKLE_CAP && available(w) >= IMPORT_UNITS * IMPORT_COST) {
         w.bStock[s] = Math.min(DEPOT_STOCK_CAP, w.bStock[s]! + IMPORT_UNITS);
-        w.scalars[S.treasury]! -= IMPORT_UNITS * IMPORT_COST;
+        w.spend[SPEND.IMPORTS]! += IMPORT_UNITS * IMPORT_COST;
       }
     } else if (produce && zoneOfArch(arch) === ZONE.I && isOperating(w, s)) {
       w.bStock[s] = Math.min(INDUSTRY_STOCK_CAP, w.bStock[s]! + 1 + w.bLevel[s]!);
     }
   }
+}
+
+/**
+ * Sites that are under construction but have no job (debugGrow sites, a save from before jobs existed) get one, so the robots
+ * finish them. Progress already made counts: the material for it is treated as delivered.
+ */
+export function adoptOrphans(sim: Sim, net: RoadNet, anchors: readonly number[] | null): void {
+  const w = sim.world;
+  for (let s = 0; s < BMAX; s++) {
+    if (w.bArch[s] === 0 || w.jKind[s] !== 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) === 0 || zoneOfArch(w.bArch[s]!) === 0) continue;
+    const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
+    if (access < 0) continue;
+    const prog = w.bProg[s]! << 8;
+    if ((w.bFlags[s]! & BFLAG.DEMOLISHING) !== 0) { openJob(sim, s, JOB.DEMOLISH, 0, prog, access); continue; }
+    const need = materialFor(w.bW[s]! * w.bH[s]!, w.bLevel[s]!);
+    openJob(sim, s, JOB.BUILD, need, prog, access);
+    w.jHave[s] = Math.min(need, Math.ceil((need * prog) / JOB_MAX));
+  }
+}
+
+/** Re-find each job's access road as roads change; a job cut off from every depot for JOB_STUCK_TICKS is cancelled. No depot at all just stalls jobs. */
+export function refreshAccess(sim: Sim, net: RoadNet, anchors: readonly number[] | null): void {
+  const w = sim.world;
+  if (anchors === null || anchors.length === 0) return;
+  for (let s = 0; s < BMAX; s++) {
+    if (w.jKind[s] === 0) continue;
+    const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
+    if (access >= 0) { w.jAccess[s] = access; w.jStuck[s] = 0; continue; }
+    w.jStuck[s] = Math.min(0xffff, w.jStuck[s]! + GROWTH_PERIOD);
+    if (w.jStuck[s]! >= JOB_STUCK_TICKS) cancelJob(sim, s);
+  }
+}
+
+/** Full-map candidate scans performed (diagnostic: tests assert a settled city stops rescanning). */
+export const scanStats = { scans: 0 };
+
+interface CandidateCache { key: number; lots: Map<number, Lot[]> }
+const candidateCaches = new WeakMap<World, CandidateCache>();
+
+/** Empty zoned lots per zone, best first. Recomputed only when the road graph, the zone layer or the building ids changed. */
+function candidatesFor(sim: Sim, z: number): Lot[] {
+  const w = sim.world;
+  const key = fnv1a(bytesOf(w.bId), fnv1a(bytesOf(w.zone), w.scalars[S.graphEpoch]!));
+  let c = candidateCaches.get(w);
+  if (!c || c.key !== key) { c = { key, lots: new Map() }; candidateCaches.set(w, c); }
+  let lots = c.lots.get(z);
+  if (!lots) { scanStats.scans++; lots = growthCandidates(sim, z, CANDIDATES); c.lots.set(z, lots); }
+  return lots;
 }
 
 /**
@@ -124,6 +221,8 @@ export function materialSystem(sim: Sim): void {
 export function growthDirector(sim: Sim, builders: number): void {
   const w = sim.world;
   const net = roadsOf(sim), anchors = reachAnchors(sim, net);
+  adoptOrphans(sim, net, anchors);
+  refreshAccess(sim, net, anchors);
   if (anchors === null || anchors.length === 0 || builders === 0) return;
   let jobs = 0, demolitions = 0;
   const perZone = [0, 0, 0, 0];
@@ -143,9 +242,9 @@ export function growthDirector(sim: Sim, builders: number): void {
   // One job per builder keeps the crews together (up to three bots on a site) instead of spreading thin over many foundations.
   if (jobs < Math.min(MAX_JOBS, Math.max(2, builders))) {
     for (const { z } of order) {
-      for (const lot of growthCandidates(sim, z, CANDIDATES)) {
+      for (const lot of candidatesFor(sim, z)) {
         const a = archetype(rciId(z, lot.density, 1));
-        if (a && startBuild(sim, a, lot.x, lot.y, lot.access)) return;
+        if (a && w.bId[lot.y * MAP + lot.x] === 0 && startBuild(sim, a, lot.x, lot.y, lot.access)) return;
       }
     }
     for (const { z } of order) {

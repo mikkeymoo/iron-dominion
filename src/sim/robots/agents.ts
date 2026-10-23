@@ -8,7 +8,7 @@ import {
   MAX_BUILDERS_PER_JOB, DISPATCH_MAX, REASSIGN_PERIOD, SITE_WALK, SPAWN_RESERVE, rateFor,
 } from './constants.ts';
 import { dropPath, startTrip, stepAgent } from './move.ts';
-import { despawnAgent, homeSlot, jobSlot, nearestTileOf, refOf, spawnAgent } from './pool.ts';
+import { SPEND, available, despawnAgent, homeSlot, jobSlot, liveSlot, nearestTileOf, refOf, spawnAgent } from './pool.ts';
 
 const manhattan = (a: number, b: number): number => Math.abs((a & (MAP - 1)) - (b & (MAP - 1))) + Math.abs((a >> 8) - (b >> 8));
 
@@ -44,6 +44,14 @@ function adoptiveDepot(net: RoadNet, w: World, from: number): number {
 
 /** Drop the current task and head for a depot: the home depot, or the nearest connected one when home is gone. */
 function goHome(net: RoadNet, w: World, a: number): void {
+  // Material still on board was reserved for its job: release the reservation and put the units back where they came from.
+  const carried = w.aCarry[a]!;
+  if (carried > 0) {
+    const j = jobSlot(w, a);
+    if (j >= 0) w.jInbound[j] = Math.max(0, w.jInbound[j]! - carried);
+    const src = liveSlot(w, w.aSrc[a]!);
+    if (src >= 0) w.bStock[src] = Math.min(0xffff, w.bStock[src]! + carried);
+  }
   w.aTarget[a] = 0; w.aCarry[a] = 0; w.aSrc[a] = 0;
   const from = roadUnder(net, w, a);
   if (from < 0) { park(w, a, -1); w.aWait[a] = 0; return; }
@@ -115,6 +123,12 @@ export function updateAgent(sim: Sim, net: RoadNet, a: number): void {
     }
     case AST.WORK: work(sim, net, w, a); break;
     case AST.RETURN: {
+      if (w.aTry[a]! >= GIVE_UP_TRIES) {
+        // No way back to the depot: leave it. A robot with no home is free to join another depot or, failing that, to leave.
+        w.aHome[a] = 0;
+        park(w, a, -1);
+        break;
+      }
       if (stepAgent(net, w, a) !== 'arrived') break;
       const home = homeSlot(w, a);
       if (home >= 0) park(w, a, home);
@@ -138,6 +152,7 @@ export function updateAgent(sim: Sim, net: RoadNet, a: number): void {
         const c = w.aCarry[a]!;
         w.jHave[j] = Math.min(0xffff, w.jHave[j]! + c);
         w.jInbound[j] = Math.max(0, w.jInbound[j]! - c);
+        w.aCarry[a] = 0;
       }
       goHome(net, w, a);
       break;
@@ -164,9 +179,9 @@ export function spawnPass(sim: Sim, net: RoadNet): void {
     const kind = b < BUILDERS_PER_DEPOT && (b <= h || h >= HAULERS_PER_DEPOT) ? AKIND.BUILDER : h < HAULERS_PER_DEPOT ? AKIND.HAULER : 0;
     if (kind === 0) continue;
     const cost = kind === AKIND.BUILDER ? BUILDER_COST : HAULER_COST;
-    if (w.scalars[S.treasury]! < cost + SPAWN_RESERVE) continue;
+    if (available(w) < cost + SPAWN_RESERVE) continue;
     if (spawnAgent(w, kind, refOf(w, s), w.bX[s]! + w.bW[s]! / 2, w.bY[s]! + w.bH[s]! / 2) < 0) return;
-    w.scalars[S.treasury]! -= cost;
+    w.spend[SPEND.PURCHASES]! += cost;
   }
 }
 

@@ -8,13 +8,16 @@ import {
   AKIND, DISPATCH_PERIOD, GROWTH_PERIOD, ROBOT_UPKEEP, SPAWN_PERIOD, UPKEEP_PERIOD,
 } from './constants.ts';
 import { growthDirector, materialSystem, sanitizeJobs, settleJobs } from './jobs.ts';
-import { countAgents } from './pool.ts';
+import { SPEND, countAgents } from './pool.ts';
 
 export * from './constants.ts';
 export * from './pool.ts';
 export { startTrip, stepAgent, pathOf } from './move.ts';
 export { dispatch, spawnPass, updateAgent, depotAccess } from './agents.ts';
-export { growthDirector, materialSystem, sanitizeJobs, settleJobs, startBuild, startLevelUp, startDemolish, canLevelUp } from './jobs.ts';
+export {
+  adoptOrphans, canLevelUp, cancelJob, growthDirector, materialSystem, refreshAccess, releaseLot, sanitizeJobs, scanStats, settleJobs, startBuild,
+  startDemolish, startLevelUp,
+} from './jobs.ts';
 
 /**
  * Fixed-order robots system (the growth hook in tick.ts). Every tick: drop stale jobs, move every agent in slot order, settle job
@@ -33,7 +36,7 @@ export function robotsSystem(sim: Sim): void {
   if (tick % UPKEEP_PERIOD === 0) {
     let n = 0;
     for (let a = 0; a < AMAX; a++) if (w.aKind[a] !== 0) n++;
-    w.scalars[S.treasury]! -= n * ROBOT_UPKEEP;
+    w.spend[SPEND.UPKEEP]! += n * ROBOT_UPKEEP;
   }
 }
 

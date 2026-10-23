@@ -50,6 +50,8 @@ export const DISPATCH_PERIOD = 5;
 export const DISPATCH_MAX = 24;
 export const MAX_JOBS = 48;
 export const MAX_DEMOLITIONS = 2;
+/** A job with no road reachable from a depot for this many ticks is cancelled, so it stops using one of the MAX_JOBS slots. */
+export const JOB_STUCK_TICKS = 600;
 /** Demand (Q10) a zone must exceed before a lot is started, and the score penalty per job of that zone already running. */
 export const GROWTH_MIN_DEMAND = 1;
 export const JOB_PENALTY = 150;
