@@ -1,5 +1,5 @@
 import { archetype, BFLAG, type Archetype } from './catalog.ts';
-import { estimate, estimateSite, rectOf } from './estimate.ts';
+import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
 import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { markDirty, type Sim } from './world.ts';
@@ -24,8 +24,6 @@ const NEI = [[0, -1, ROAD.N], [1, 0, ROAD.E], [0, 1, ROAD.S], [-1, 0, ROAD.W]] a
 
 class Reject extends Error {}
 const reject = (reason: string): never => { throw new Reject(reason); };
-
-const isInts = (...v: number[]): boolean => v.every((n) => Number.isInteger(n));
 
 function fixRoad(world: World, x: number, y: number): void {
   if (!inBounds(x, y)) return;
@@ -80,10 +78,6 @@ function journalCommit(sim: Sim, cap: Capture, kind: number, cost: number, arg: 
   return id;
 }
 
-function spend(world: World, cost: number): void {
-  if (cost > world.scalars[S.treasury]!) reject('funds');
-}
-
 /** Validation and cost come from estimate(), the same module the ghost preview runs on the main thread. */
 function checked(sim: Sim, c: CommandBody): ReturnType<typeof estimate> {
   const e = estimate(sim.world, c, sim.world.scalars[S.treasury]);
@@ -114,12 +108,6 @@ function placeRoad(sim: Sim, c: Extract<Command, { type: 'placeRoad' }>): number
   return journalCommit(sim, cap, UNDO.ROAD, cost, 0);
 }
 
-function rect(c: { x0: number; y0: number; x1: number; y1: number }): [number, number, number, number] {
-  const r = rectOf(c);
-  if (typeof r === 'string') reject(r);
-  return r as [number, number, number, number];
-}
-
 function zone(sim: Sim, c: Extract<Command, { type: 'zone' }>): number {
   const w = sim.world;
   const { validTiles: changed, cost } = checked(sim, c);
@@ -146,8 +134,8 @@ function clearBuilding(sim: Sim, slot: number): void {
 
 function bulldoze(sim: Sim, c: Extract<Command, { type: 'bulldoze' }>): void {
   const w = sim.world;
-  const { cost } = checked(sim, c);
-  const [x0, y0, x1, y1] = rect(c);
+  const { cost, rect } = checked(sim, c);
+  const [x0, y0, x1, y1] = rect!;
   const slots = new Set<number>();
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (w.bId[tileIdx(x, y)]) slots.add(w.bId[tileIdx(x, y)]! - 1);
   for (const s of [...slots].sort((a, b) => a - b)) clearBuilding(sim, s);
@@ -166,15 +154,13 @@ interface PlaceOptions { level: number; prog: number; flags: number; /** Treasur
 /** Shared placement for placeBuilding and debugGrow: validate the footprint, pick a slot, write the table and tile layers. */
 function placeSite(sim: Sim, a: Archetype, x: number, y: number, rot: number, o: PlaceOptions): number {
   const w = sim.world;
-  const bw = rot & 1 ? a.h : a.w, bh = rot & 1 ? a.w : a.h;
-  const site = estimateSite(w, a, x, y, rot, o.cost);
+  const { w: bw, h: bh } = footprintOf(a, rot);
+  const site = estimateSite(w, a, x, y, rot, o.cost, w.scalars[S.treasury]);
   if (site.reason) reject(site.reason);
-  if (o.cost > 0) spend(w, o.cost);
   let slot = -1;
   for (let s = 0; s < w.bArch.length; s++) if (w.bArch[s] === 0) { slot = s; break; }
   if (slot < 0) reject('full');
-  const cells: number[] = [];
-  for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) cells.push(tileIdx(xx, yy));
+  const cells = site.validTiles;
   const cap = o.journal ? capture(w, cells) : undefined;
   w.bArch[slot] = a.id; w.bX[slot] = x; w.bY[slot] = y; w.bW[slot] = bw; w.bH[slot] = bh;
   w.bRot[slot] = rot; w.bLevel[slot] = o.level; w.bProg[slot] = o.prog; w.bFlags[slot] = o.flags;
@@ -210,7 +196,9 @@ function debugLevel(sim: Sim, c: Extract<Command, { type: 'debugLevel' }>): void
   const w = sim.world;
   if (!sim.debug) reject('debug-only');
   if (!isInts(c.margin) || c.margin < 0 || c.margin > 16) reject('invalid');
-  const [x0, y0, x1, y1] = rect(c);
+  const r = rectOf(c);
+  if (typeof r === 'string') reject(r);
+  const [x0, y0, x1, y1] = r as [number, number, number, number];
   let sum = 0, n = 0;
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = tileIdx(x, y);
@@ -253,7 +241,7 @@ function settleGround(sim: Sim, rx0: number, ry0: number, rx1: number, ry1: numb
 function terraform(sim: Sim, c: Extract<Command, { type: 'terraform' }>): void {
   const w = sim.world;
   const e = checked(sim, c);
-  const [x0, y0, x1, y1] = rect(c);
+  const [x0, y0, x1, y1] = e.rect!;
   e.validTiles.forEach((i, n) => { w.height[i] = e.heights![n]!; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); });
   w.scalars[S.treasury]! -= e.cost;
   settleGround(sim, x0 - 1, y0 - 1, x1 + 1, y1 + 1);

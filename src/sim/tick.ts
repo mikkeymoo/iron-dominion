@@ -7,7 +7,7 @@ export const TICK_HZ = 10;
 
 type System = (sim: Sim) => void;
 
-function commandsSystem(sim: Sim): void {
+export function commandsSystem(sim: Sim): void {
   const tick = sim.world.scalars[S.tick]!;
   if (sim.queue.length === 0) return;
   const rest = [];

@@ -27,7 +27,19 @@ export interface ToolControllerDeps {
   submit(body: CommandBody): number;
 }
 
-const inMap = (t: Tile): boolean => t.x >= 0 && t.y >= 0 && t.x < MAP && t.y < MAP;
+/** Identity of everything the ghost and cost label show: the command, the estimate's cost, reason and tile lists. */
+function planKey(p: Plan | null): string {
+  if (!p) return '';
+  const e = p.est;
+  let h = 2166136261;
+  for (const list of [e.validTiles, e.invalidTiles]) {
+    for (const i of list) h = Math.imul(h ^ i, 16777619);
+    h = Math.imul(h ^ 0x9e37, 16777619);
+  }
+  return `${JSON.stringify(p.cmd)}|${e.cost}|${e.reason ?? ''}|${e.validTiles.length}|${e.invalidTiles.length}|${h >>> 0}|${p.tile.x},${p.tile.y}`;
+}
+
+const inMap =(t: Tile): boolean => t.x >= 0 && t.y >= 0 && t.x < MAP && t.y < MAP;
 
 /**
  * Tool state and the drag state machine. Pointer input arrives as tile coordinates (picked against the mirror), so the same
@@ -61,13 +73,18 @@ export class ToolController {
     for (const fn of this.listeners) fn();
   }
 
-  private recompute(): void {
+  /** Re-estimate; returns whether the plan the ghost shows actually differs from the previous one. */
+  private recompute(): boolean {
+    const before = planKey(this.plan);
     const t = this.drag ? this.drag.to : this.hoverTile;
-    if (!this.sel || !t || !inMap(t)) { this.plan = null; return; }
-    const cmd = commandFor(this.sel, this.drag ? this.drag.from : t, t, this.rot);
-    const w = this.deps.world;
-    this.plan = { cmd, est: estimate(tileReadOf(w.layers), cmd, w.scalars[S.treasury]), tile: t };
+    if (!this.sel || !t || !inMap(t)) this.plan = null;
+    else {
+      const cmd = commandFor(this.sel, this.drag ? this.drag.from : t, t, this.rot);
+      const w = this.deps.world;
+      this.plan = { cmd, est: estimate(tileReadOf(w.layers), cmd, w.scalars[S.treasury]), tile: t };
+    }
     this.lastKey = this.mirrorKey();
+    return planKey(this.plan) !== before;
   }
 
   private mirrorKey(): string { return `${this.deps.world.tick}|${this.deps.world.scalars[S.treasury]}`; }
@@ -166,7 +183,7 @@ export class ToolController {
 
   /** Re-estimate when the mirror has moved on (a placement landed, treasury changed) so the ghost never shows stale validity. */
   sync(): void {
-    if (this.plan && this.mirrorKey() !== this.lastKey) { this.recompute(); this.changed(); }
+    if (this.plan && this.mirrorKey() !== this.lastKey && this.recompute()) this.changed();
   }
 
   private emit(a: ToolAction): void {

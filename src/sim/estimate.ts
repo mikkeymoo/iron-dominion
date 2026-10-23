@@ -34,13 +34,15 @@ export interface Estimate {
   reason?: string;
   /** Terraform only: the new height of each validTiles entry. */
   heights?: number[];
+  /** Zone, bulldoze and terraform: the normalised inclusive rect [x0, y0, x1, y1] the command acts on. */
+  rect?: [number, number, number, number];
 }
 
 export const MAX_ROAD_CELLS = 600;
 export const MAX_ZONE_TILES = UCELLS;
 export const ZONABLE = (t: number): boolean => t === TERRAIN.SAND || t === TERRAIN.GRASS || t === TERRAIN.FOREST;
 
-const isInts = (...v: number[]): boolean => v.every((n) => Number.isInteger(n));
+export const isInts = (...v: number[]): boolean => v.every((n) => Number.isInteger(n));
 const fail = (reason: string, valid: number[] = [], invalid: number[] = []): Estimate => ({ cost: 0, validTiles: valid, invalidTiles: invalid, reason });
 
 function withFunds(e: Estimate, treasury: number | undefined): Estimate {
@@ -129,7 +131,7 @@ function estimateBulldoze(v: TileRead, c: Extract<CommandBody, { type: 'bulldoze
 export const footprintOf = (a: Archetype, rot: number): { w: number; h: number } => (rot & 1 ? { w: a.h, h: a.w } : { w: a.w, h: a.h });
 
 /** Footprint check shared by placeBuilding and debugGrow: `cost` is 0 for free placement. */
-export function estimateSite(v: TileRead, a: Archetype, x: number, y: number, rot: number, cost: number): Estimate {
+export function estimateSite(v: TileRead, a: Archetype, x: number, y: number, rot: number, cost: number, treasury?: number): Estimate {
   const { w: bw, h: bh } = footprintOf(a, rot);
   const valid: number[] = [], invalid: number[] = [];
   let reason: string | undefined;
@@ -142,15 +144,15 @@ export function estimateSite(v: TileRead, a: Archetype, x: number, y: number, ro
   }
   if (!inBounds(x, y) || !inBounds(x + bw - 1, y + bh - 1)) reason = 'bounds';
   if (reason) return { cost, validTiles: valid, invalidTiles: invalid, reason };
-  return { cost, validTiles: valid, invalidTiles: invalid };
+  return withFunds({ cost, validTiles: valid, invalidTiles: invalid }, treasury);
 }
 
-function estimateBuilding(v: TileRead, c: Extract<CommandBody, { type: 'placeBuilding' }>): Estimate {
+function estimateBuilding(v: TileRead, c: Extract<CommandBody, { type: 'placeBuilding' }>, treasury?: number): Estimate {
   if (!isInts(c.arch, c.x, c.y, c.rot) || c.rot < 0 || c.rot > 3) return fail('invalid');
   const a = archetype(c.arch);
   if (!a) return fail('unknown-archetype');
   if (!a.placeable) return fail('not-placeable');
-  return estimateSite(v, a, c.x, c.y, c.rot, a.cost);
+  return estimateSite(v, a, c.x, c.y, c.rot, a.cost, treasury);
 }
 
 /**
@@ -187,17 +189,24 @@ function estimateTerraform(v: TileRead, c: Extract<CommandBody, { type: 'terrafo
   }
   if (invalid.length > 0) return fail('limit', [], invalid);
 
-  const heightAfter = (i: number): number => next.get(i) ?? v.height[i]!;
+  // A water neighbour presents its surface (bed + depth), not its bed, to the land beside it.
+  const wet = (j: number): boolean => isWaterTerrain(v.terrain[j]!) || v.waterDepth[j]! > 0;
+  const heightAfter = (j: number): number => next.get(j) ?? v.height[j]! + (wet(j) ? v.waterDepth[j]! : 0);
+  const heightNow = (j: number): number => v.height[j]! + (wet(j) ? v.waterDepth[j]! : 0);
+  const flooded: number[] = [];
+  const steep: number[] = [];
   for (const [i, to] of next) {
     const x = i % MAP, y = (i / MAP) | 0;
     for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
       if (!inBounds(x + dx, y + dy)) continue;
       const j = tileIdx(x + dx, y + dy);
-      const was = Math.abs(v.height[i]! - v.height[j]!), now = Math.abs(to - heightAfter(j));
-      if (now > SLOPE_LIMIT && now > was) { invalid.push(i); break; }
+      if (wet(j) && to < v.height[i]! && to < heightNow(j)) { flooded.push(i); break; }
+      const was = Math.abs(v.height[i]! - heightNow(j)), now = Math.abs(to - heightAfter(j));
+      if (now > SLOPE_LIMIT && now > was) { steep.push(i); break; }
     }
   }
-  if (invalid.length > 0) return fail('slope', [], invalid);
+  if (flooded.length > 0) return fail('flood', [], flooded);
+  if (steep.length > 0) return fail('slope', [], steep);
   if (next.size === 0) return fail('noop');
   const valid = [...next.keys()];
   return { cost, validTiles: valid, invalidTiles: [], heights: valid.map((i) => next.get(i)!) };
@@ -207,10 +216,13 @@ function estimateTerraform(v: TileRead, c: Extract<CommandBody, { type: 'terrafo
 export function estimate(v: TileRead, cmd: CommandBody, treasury?: number): Estimate {
   switch (cmd.type) {
     case 'placeRoad': return withFunds(estimateRoad(v, cmd), treasury);
-    case 'zone': return withFunds(estimateZone(v, cmd), treasury);
-    case 'bulldoze': return withFunds(estimateBulldoze(v, cmd), treasury);
-    case 'placeBuilding': return withFunds(estimateBuilding(v, cmd), treasury);
-    case 'terraform': return withFunds(estimateTerraform(v, cmd), treasury);
+    case 'placeBuilding': return estimateBuilding(v, cmd, treasury);
+    case 'zone': case 'bulldoze': case 'terraform': {
+      const e = withFunds(cmd.type === 'zone' ? estimateZone(v, cmd) : cmd.type === 'bulldoze' ? estimateBulldoze(v, cmd) : estimateTerraform(v, cmd), treasury);
+      const r = rectOf(cmd);
+      if (typeof r !== 'string') e.rect = r;
+      return e;
+    }
     default: return fail('not-estimable');
   }
 }

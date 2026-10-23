@@ -28,6 +28,19 @@ describe('undo stack', () => {
     expect(s.top()?.id).toBe(2);
   });
 
+  it('skips an entry while its undo is in flight and offers it again after a transient rejection', () => {
+    const s = new UndoStack();
+    s.push(e(1)); s.push(e(2));
+    s.begin(2);
+    expect(s.top()?.id).toBe(1);
+    s.begin(1);
+    expect(s.canUndo).toBe(false);
+    s.rejected(1, 'superseded');
+    expect(s.top()?.id).toBe(1);
+    s.undone(2);
+    expect(s.size).toBe(1);
+  });
+
   it('keeps an entry after a transient rejection', () => {
     const s = new UndoStack();
     s.push(e(4));

@@ -1,6 +1,6 @@
 // Turns the mirror's building table into packed instance data. Only dirty slots are rewritten (plus slots whose near/far
 // class flips when the fine-detail set moves). Pure of three: buildings.ts uploads what these packers hold.
-import { BFLAG } from '../sim/catalog.ts';
+import { BFLAG, isRci } from '../sim/catalog.ts';
 import { BMAX, ROAD } from '../sim/layers.ts';
 import { chunkIdx } from '../sim/tiles.ts';
 import { builtFraction, craneScale, craneVisible, scaffoldLifts, stageOf } from './kit/construction.ts';
@@ -147,7 +147,8 @@ export class BuildingInstances {
     const p = progressOf(b.flags, b.prog);
     const cx = b.x + b.w / 2, cz = b.y + b.h / 2;
     const gy = this.d.ground(cx, cz);
-    const rot = facingRot(m, b.x, b.y, b.w, b.h);
+    // A player-placed service keeps the rotation the player chose (the ghost shows it); grown RCI buildings face the road.
+    const rot = isRci(b.arch) ? facingRot(m, b.x, b.y, b.w, b.h) : b.rot * (Math.PI / 2);
     const hsh = hash32(b.x, b.y, b.arch);
     const lit = (hsh & 1023) / 1023;
     const v = 1 + ((((hsh >>> 10) & 255) / 255) - 0.5) * 2 * TINT_VAR;

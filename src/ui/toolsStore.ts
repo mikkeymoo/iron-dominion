@@ -17,6 +17,7 @@ const REASONS: Record<string, string> = {
   'too-large': 'That area is too big. Try a smaller one.',
   noop: 'Nothing would change there.',
   slope: 'That would make the ground too steep.',
+  flood: 'Digging that low would flood it from the water next to it.',
   limit: 'The land cannot go any higher or lower than that.',
   consumed: 'Cannot undo that, the area has changed since.',
   'not-undoable': 'That can no longer be undone.',
@@ -63,7 +64,6 @@ export class ToolsRuntime {
   floats: FloatText[] = [];
   lastEvent: SimEvent | null = null;
   private readonly pending = new Map<number, Pending>();
-  private readonly undoing = new Set<number>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private readonly listeners = new Set<() => void>();
   private seq = 1;
@@ -110,7 +110,6 @@ export class ToolsRuntime {
       this.pending.delete(e.cmd);
       this.lastEvent = e;
       changed = true;
-      if (p.kind === 'undo') this.undoing.delete(p.target!);
       if (e.type === 'rejected') {
         if (p.kind === 'undo') this.undo.rejected(p.target!, e.reason);
         this.toast(reasonText(e.reason));
@@ -127,17 +126,27 @@ export class ToolsRuntime {
 
   /** Undo the newest undoable action. Returns the command id, or 0 when there is nothing to undo. */
   undoLast(): number {
-    const open = this.undo.entries().filter((e) => !this.undoing.has(e.id));
-    const top = open[open.length - 1];
+    const top = this.undo.top();
     if (!top) return 0;
     const id = this.deps.submit({ type: 'undo', target: top.id });
-    this.undoing.add(top.id);
+    this.undo.begin(top.id);
     this.pending.set(id, { kind: 'undo', cost: 0, label: `undo ${top.label}`, target: top.id, at: { ...this.controller.screen } });
     this.notify();
     return id;
   }
 
-  get canUndo(): boolean { return this.undo.entries().some((e) => !this.undoing.has(e.id)); }
+  get canUndo(): boolean { return this.undo.canUndo; }
+
+  /** The sim state was replaced (snapshot loaded): journal ids and in-flight commands from before mean nothing now. */
+  reset(): void {
+    this.undo.clear();
+    this.pending.clear();
+    this.lastEvent = null;
+    this.floats = [];
+    this.toasts = [];
+    this.controller.cancel();
+    this.notify();
+  }
 
   apply(a: KeyAction): void {
     switch (a.kind) {

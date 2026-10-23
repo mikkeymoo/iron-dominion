@@ -372,6 +372,26 @@ async function buildToolChecksDesktop(open) {
   await page.keyboard.press('Control+z');
   const undoneByKey = await until(page, () => window.__iron.tools.undoDepth === 1, null, 10000);
   add('Ctrl+Z undoes the newest undoable action (the road)', undoneByKey ? null : `undo depth ${await page.evaluate(() => window.__iron.tools.undoDepth)}`);
+
+  // Building while paused: the command runs at once, the building appears, and the tick does not advance.
+  await page.locator('button[title="Pause (0)"]').click();
+  await page.waitForTimeout(600);
+  const tickPaused = await tickOf(page);
+  const instBefore = await page.evaluate(() => window.__iron.render.buildings.instances);
+  const moneyPaused = await page.evaluate(() => window.__iron.tools.treasury);
+  const pausedId = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    t.select('service', { name: 'depot' });
+    const at = t.tileFor('depot', { x: s.x + 11, y: s.y + 2 });
+    return t.dragTiles(at, at);
+  }, site);
+  const pausedOk = pausedId > 0 && await until(page, (id) => { const e = window.__iron.tools.lastEvent; return !!e && e.cmd === id && e.type === 'accepted'; }, pausedId, 10000);
+  add('a depot placed while paused is accepted', pausedOk ? null : `command ${pausedId}, lastEvent ${JSON.stringify(await page.evaluate(() => window.__iron.tools.lastEvent))}`);
+  add('the paused depot appears in the render', await until(page, (n) => window.__iron.render.buildings.instances > n, instBefore, 10000) ? null : 'instances did not increase');
+  add('the paused depot is paid for', await waitMoney(moneyPaused - DEPOT_COST) ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}`);
+  await page.waitForTimeout(500);
+  add('the tick did not advance while paused', (await tickOf(page)) === tickPaused ? null : `tick ${tickPaused} -> ${await tickOf(page)}`);
+  await page.locator('button[title="1x (1)"]').click();
   await page.close();
   return out;
 }

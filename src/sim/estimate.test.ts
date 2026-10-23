@@ -219,6 +219,28 @@ describe('terraform', () => {
     expect(estimate(flat.world, { type: 'terraform', mode: 'raise', x0: 150, y0: 150, x1: 150, y1: 150 }).reason).toBe('slope');
   });
 
+  it('judges slopes against a water neighbour\'s surface and refuses to dig below it', () => {
+    const sim = fresh();
+    // Lake tiles x 40..51, y 40..51 have bed 160ish and depth 16, so the surface is about 176. Land at x=52 is beside it.
+    const lakeBed = at(sim, 51, 45), surface = lakeBed + 16;
+    const i = tileIdx(52, 45);
+    sim.world.height[i] = surface + 2;
+    sim.world.height[tileIdx(52, 44)] = surface + 2;
+    sim.world.height[tileIdx(52, 46)] = surface + 2;
+    sim.world.height[tileIdx(53, 45)] = surface + 2;
+    const lower = estimate(sim.world, { type: 'terraform', mode: 'lower', x0: 52, y0: 45, x1: 52, y1: 45 });
+    expect(lower.reason, 'surface+2 -> surface-2 would sit under the water next door').toBe('flood');
+    expect(run(sim, { type: 'terraform', mode: 'lower', x0: 52, y0: 45, x1: 52, y1: 45 }).reason).toBe('flood');
+    expect(at(sim, 52, 45)).toBe(surface + 2);
+    expect(estimate(sim.world, { type: 'terraform', mode: 'raise', x0: 52, y0: 45, x1: 52, y1: 45 }).reason).toBeUndefined();
+    // Slope is measured to the surface (176), not the bed (160): a tile 14 above the surface is a 14 step, steeper than the limit.
+    sim.world.height[i] = surface + 10;
+    sim.world.height[tileIdx(52, 44)] = surface + 10;
+    sim.world.height[tileIdx(52, 46)] = surface + 10;
+    sim.world.height[tileIdx(53, 45)] = surface + 10;
+    expect(estimate(sim.world, { type: 'terraform', mode: 'raise', x0: 52, y0: 45, x1: 52, y1: 45 }).reason).toBe('slope');
+  });
+
   it('keeps land inside the height range', () => {
     const sim = fresh();
     const i = tileIdx(150, 150);

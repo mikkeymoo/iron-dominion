@@ -96,6 +96,25 @@ describe('tools runtime events', () => {
     expect(rt.toasts).toEqual([]);
   });
 
+  it('forgets the undo stack, pending commands and tool when a snapshot replaces the sim', () => {
+    const { rt } = setup();
+    rt.controller.select({ tool: 'zone', zone: 1, density: 0 });
+    const a = rt.controller.dragTiles({ x: 10, y: 10 }, { x: 12, y: 12 });
+    rt.handleEvents([{ type: 'accepted', cmd: a, tick: 1, journal: 5 }]);
+    const b = rt.controller.dragTiles({ x: 20, y: 10 }, { x: 22, y: 12 });
+    const u = rt.undoLast();
+    expect(u).toBeGreaterThan(0);
+    rt.reset();
+    expect(rt.canUndo).toBe(false);
+    expect(rt.undo.size).toBe(0);
+    expect(rt.controller.sel).toBeNull();
+    // Late events for pre-load commands change nothing.
+    rt.handleEvents([{ type: 'accepted', cmd: b, tick: 2, journal: 9 }, { type: 'accepted', cmd: u, tick: 2 }]);
+    expect(rt.undo.size).toBe(0);
+    expect(rt.lastEvent).toBeNull();
+    expect(rt.floats).toEqual([]);
+  });
+
   it('exposes the debug API the smoke test drives', () => {
     const { rt, sent } = setup();
     const d = rt.debug;

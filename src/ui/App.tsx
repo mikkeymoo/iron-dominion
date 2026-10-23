@@ -79,6 +79,7 @@ export function App() {
   async function loadInto(s: Session, id: string): Promise<Awaited<ReturnType<Session['service']['load']>>> {
     const r = await s.service.load(id);
     if (r.ok) {
+      s.tools.reset();
       s.lifecycle.cacheSnapshot(r.value.snapshot);
       s.lifecycle.holdForResume();
     }

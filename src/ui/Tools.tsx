@@ -1,5 +1,6 @@
 import { useEffect, useReducer } from 'react';
 import { ROAD_COST } from '../sim/catalog.ts';
+import { isEditableTarget } from '../render/editable.ts';
 import {
   DENSITY_LABELS, ROAD_NAMES, SERVICES, TERRAFORM_MODES, ZONE_LABELS, keyAction, type ToolId, type ToolSel,
 } from '../render/tools/toolSpec.ts';
@@ -16,11 +17,6 @@ const CATEGORIES: { id: ToolId; label: string; key: string; start: ToolSel }[] =
 const SERVICE_LABELS: Record<string, string> = { depot: 'Depot', powerPlant: 'Power plant', waterPump: 'Water pump', fireStation: 'Fire station' };
 const MODE_LABELS = { raise: 'Raise', lower: 'Lower', level: 'Level' } as const;
 
-const editable = (t: EventTarget | null): boolean => {
-  const el = t as HTMLElement | null;
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
-};
-
 const money = (n: number): string => `$${Math.round(n).toLocaleString('en-US')}`;
 
 export function Tools({ runtime }: { runtime: ToolsRuntime }) {
@@ -29,7 +25,7 @@ export function Tools({ runtime }: { runtime: ToolsRuntime }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (editable(e.target)) return;
+      if (isEditableTarget(e.target)) return;
       const a = keyAction(e, runtime.controller.sel);
       if (!a) return;
       e.preventDefault();

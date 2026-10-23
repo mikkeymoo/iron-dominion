@@ -1,4 +1,5 @@
 import type { CameraRig } from './camera.ts';
+import { isEditableTarget } from './editable.ts';
 import { PointerControl } from './pointerControl.ts';
 import type { ToolInput } from './tools/pointer.ts';
 
@@ -45,6 +46,7 @@ export function bindCameraInput(host: InputHost): CameraInput {
     if (toolPtr && kind === 'touch') {
       // A second finger means the player is steering the camera, not drawing: drop the tool drag and give both fingers to the rig.
       tool?.cancelDrag();
+      tool?.leave();
       control.down(toolPtr.id, toolPtr.x, toolPtr.y, 'touch');
       toolPtr = null;
     }
@@ -52,10 +54,7 @@ export function bindCameraInput(host: InputHost): CameraInput {
   };
   const onMove = (e: PointerEvent): void => {
     const p = local(e);
-    if (toolPtr) {
-      if (e.pointerId === toolPtr.id) { toolPtr.x = p.x; toolPtr.y = p.y; tool?.move(p.x, p.y); }
-      return;
-    }
+    if (toolPtr && e.pointerId === toolPtr.id) { toolPtr.x = p.x; toolPtr.y = p.y; tool?.move(p.x, p.y); return; }
     if (tool?.active() && e.pointerType === 'mouse' && e.buttons === 0) tool.move(p.x, p.y);
     control.move(e.pointerId, p.x, p.y);
   };
@@ -76,8 +75,7 @@ export function bindCameraInput(host: InputHost): CameraInput {
   };
 
   const keyOk = (e: KeyboardEvent): boolean => {
-    const t = e.target as HTMLElement | null;
-    return !(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) && !e.ctrlKey && !e.metaKey && !e.altKey;
+    return !isEditableTarget(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey;
   };
   const onKeyDown = (e: KeyboardEvent): void => { if (keyOk(e)) rig.setKey(e.code, true); };
   const onKeyUp = (e: KeyboardEvent): void => rig.setKey(e.code, false);

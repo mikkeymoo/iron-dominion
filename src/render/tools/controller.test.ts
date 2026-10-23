@@ -113,6 +113,23 @@ describe('tool controller', () => {
     expect(c.plan?.est.reason).toBe('blocked');
   });
 
+  it('does not bump the version when the mirror moves but the estimate is the same', () => {
+    const { c, world, w } = setup();
+    c.select({ tool: 'service', arch: ARCH.DEPOT });
+    c.move({ x: 30, y: 30 });
+    const v = c.version;
+    world.tick = 1;
+    c.sync();
+    world.tick = 2;
+    w.scalars[S.treasury] = 90000;
+    c.sync();
+    expect(c.version).toBe(v);
+    w.road[tileIdx(30, 30)] = 1;
+    world.tick = 3;
+    c.sync();
+    expect(c.version).toBeGreaterThan(v);
+  });
+
   it('routes pixel input through the same path as dragTiles', () => {
     const { c, sent } = setup();
     const picks = new Map([['0,0', { x: 40, y: 40 }], ['9,9', { x: 44, y: 41 }]]);
