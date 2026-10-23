@@ -1,0 +1,5 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0b1116; color: #e6edf3; }
+html, body, #root { margin: 0; height: 100%; overflow: hidden; }
+.title { height: 100%; display: grid; place-content: center; text-align: center; }
+.title h1 { font-size: clamp(2rem, 8vw, 4rem); margin: 0; letter-spacing: 0.08em; }
+.title .status { opacity: 0.6; font-size: 0.85rem; }
