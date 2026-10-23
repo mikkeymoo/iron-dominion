@@ -5,10 +5,14 @@ import { createSim, snapshot } from '../sim/engine.ts';
 import { PROTOCOL_VERSION } from '../sim/protocol.ts';
 import { createPlatformDb, openIdbAdapter, type PlatformDb, type StoreAdapter } from './db.ts';
 import { CONTAINER_VERSION, browserCodec, buildSave, inspectSnapshot, parseSave, type SaveMeta } from './save.ts';
-import { createPlatformService } from './service.ts';
+import { createPlatformService, type PlatformService } from './service.ts';
 
 const META: SaveMeta = { name: 'Testville', population: 120, treasury: 4200, day: 9 };
 const snap = (seed = 7): Uint8Array => snapshot(createSim(seed));
+const save = async (svc: PlatformService) => {
+  const r = await svc.writeSnapshot(snap(), { create: true });
+  return r.ok ? { ok: true as const, value: { slot: r.slot!, tick: r.tick!, hash: r.hash! } } : r;
+};
 const same = (a: Uint8Array, b: Uint8Array): boolean => a.byteLength === b.byteLength && a.every((v, i) => v === b[i]);
 
 describe('save container', () => {
@@ -72,7 +76,7 @@ describe('import never replaces a valid save', () => {
     const db = createPlatformDb(await openIdbAdapter(new IDBFactory()));
     let n = 0;
     const svc = createPlatformService({
-      getDb: () => db, stats: () => ({ population: 1, treasury: 2, day: 3 }), now: () => 1000 + n, newId: () => `id${++n}`,
+      getDb: () => db, now: () => 1000 + n, newId: () => `id${++n}`,
       sim: { requestSnapshot: async () => snap(), loadSnapshot: () => undefined, pause: () => undefined, requestHash: () => undefined },
     });
     return { db, svc };
@@ -81,7 +85,7 @@ describe('import never replaces a valid save', () => {
   it('stores a good import as a new slot and leaves existing slots alone', async () => {
     const { db, svc } = await setup();
     svc.startNew('First');
-    const saved = await svc.save();
+    const saved = await save(svc);
     expect(saved.ok).toBe(true);
     const before = await db.getSave((saved as { value: { slot: { id: string } } }).value.slot.id);
     const imp = await svc.importBytes(await buildSave(snap(9), { ...META, name: 'Imported' }, 5));
@@ -95,7 +99,7 @@ describe('import never replaces a valid save', () => {
   it('refuses a bad import with a reason and changes nothing', async () => {
     const { db, svc } = await setup();
     svc.startNew('Keeper');
-    await svc.save();
+    await save(svc);
     const file = await buildSave(snap(), META, 1);
     file[file.byteLength - 5] ^= 0xff;
     const imp = await svc.importBytes(file);
@@ -108,7 +112,7 @@ describe('import never replaces a valid save', () => {
   it('load of a damaged stored slot fails without touching the running sim', async () => {
     const { db, svc } = await setup();
     svc.startNew('Doomed');
-    const saved = await svc.save();
+    const saved = await save(svc);
     if (!saved.ok) throw new Error('save failed');
     const id = saved.value.slot.id;
     const raw = await db.getSave(id);
@@ -118,7 +122,7 @@ describe('import never replaces a valid save', () => {
     await db.putSlot(saved.value.slot, broken);
     let loaded = 0;
     const svc2 = createPlatformService({
-      getDb: () => db, stats: () => ({ population: 0, treasury: 0, day: 0 }),
+      getDb: () => db,
       sim: { requestSnapshot: async () => snap(), loadSnapshot: () => { loaded++; }, pause: () => undefined, requestHash: () => undefined },
     });
     expect(await svc2.load(id)).toMatchObject({ ok: false, reason: 'corrupt' });
@@ -127,7 +131,7 @@ describe('import never replaces a valid save', () => {
 
   it('save() reports the hash and tick of the stored snapshot', async () => {
     const { svc } = await setup();
-    const r = await svc.save();
+    const r = await save(svc);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(inspectSnapshot(snap()).hash).toBe(r.value.hash);
@@ -145,14 +149,14 @@ describe('quota failure', () => {
     };
     const db: PlatformDb = createPlatformDb(adapter);
     const svc = createPlatformService({
-      getDb: () => db, stats: () => ({ population: 5, treasury: 6, day: 7 }), newId: () => 'q1',
+      getDb: () => db, newId: () => 'q1',
       sim: { requestSnapshot: async () => snap(), loadSnapshot: () => undefined, pause: () => undefined, requestHash: () => undefined },
     });
     svc.startNew('Quota');
-    const first = await svc.save();
+    const first = await save(svc);
     expect(first.ok).toBe(true);
     full = true;
-    const second = await svc.save();
+    const second = await save(svc);
     expect(second).toMatchObject({ ok: false, reason: 'quota' });
     const kept = await db.getSave('q1');
     expect(kept.ok).toBe(true);

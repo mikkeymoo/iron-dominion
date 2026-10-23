@@ -125,10 +125,11 @@ export async function parseSave(bytes: Uint8Array, codec: Codec = browserCodec):
   return { ok: true, value: { meta, created, snapshot } };
 }
 
-/** Tick and world hash of a snapshot, via the same decoder the worker uses. For the debug hook and tests. */
-export function inspectSnapshot(snapshot: Uint8Array): { tick: number; hash: number } {
+/** Tick, world hash and headline stats of a snapshot, read through the decoder the worker uses (throws SnapshotError). */
+export function inspectSnapshot(snapshot: Uint8Array): { tick: number; hash: number; population: number; treasury: number; day: number } {
   const world = decodeSnapshot(snapshot);
-  return { tick: world.scalars[S.tick]!, hash: hashWorld(world) };
+  const sc = world.scalars;
+  return { tick: sc[S.tick]!, hash: hashWorld(world), population: sc[S.population]!, treasury: sc[S.treasury]!, day: sc[S.day]! };
 }
 
 export function saveFileName(name: string): string {

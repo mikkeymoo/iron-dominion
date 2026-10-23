@@ -33,6 +33,11 @@ interface Props {
   onExport(): void;
   onSetting<K extends keyof Settings>(key: K, value: Settings[K]): void;
   onQuit(): void;
+  /** Set when leaving could not save: the player picks what happens to the city. */
+  quitPrompt: string | null;
+  onQuitSaveAs(name: string): void;
+  onQuitDiscard(): void;
+  onQuitCancel(): void;
 }
 
 const clock = (f: number): string => {
@@ -45,11 +50,12 @@ const editable = (t: EventTarget | null): boolean => {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 };
 
-export function Hud({ lifecycle, stats, settings, notice, onSave, onSaveAs, onExport, onSetting, onQuit }: Props) {
+export function Hud({ lifecycle, stats, settings, notice, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings'>('main');
   const [name, setName] = useState('');
+  const [quitName, setQuitName] = useState('');
   const lastRunning = useRef<Speed>(1);
 
   useEffect(() => {
@@ -119,15 +125,27 @@ export function Hud({ lifecycle, stats, settings, notice, onSave, onSaveAs, onEx
                 </select>
               </label>
               <p className="hint">Takes effect the next time a city starts.</p>
-              <label className="check"><input type="checkbox" checked={settings.disasters} onChange={(e) => onSetting('disasters', e.target.checked)} />Disasters</label>
-              <label className="check"><input type="checkbox" checked={!settings.audio.muted} onChange={(e) => onSetting('audio', { ...settings.audio, muted: !e.target.checked })} />Sound</label>
               <button type="button" className="tb row" onClick={() => setPanel('main')}>Back</button>
             </div>
           )}
         </div>
       )}
 
-      {lc.awaitingResume && (
+      {quitPrompt !== null && (
+        <div className="resume" role="alertdialog" aria-label="Leave without saving?">
+          <h2>Leave this city?</h2>
+          <p>{quitPrompt}</p>
+          <form className="newcity" onSubmit={(e) => { e.preventDefault(); onQuitSaveAs(quitName); }}>
+            <label>Save as<input value={quitName} maxLength={40} placeholder="Untitled city" onChange={(e) => setQuitName(e.target.value)} /></label>
+            <button type="submit" className="primary">Save as</button>
+          </form>
+          <button type="button" className="primary" onClick={onExport}>Export to file</button>
+          <button type="button" className="primary danger" onClick={onQuitDiscard}>Quit without saving</button>
+          <button type="button" className="primary" onClick={onQuitCancel}>Cancel</button>
+        </div>
+      )}
+
+      {lc.awaitingResume && quitPrompt === null && (
         <div className="resume" role="dialog" aria-label="Paused">
           <h2>Paused</h2>
           <p>The city waits for you.</p>

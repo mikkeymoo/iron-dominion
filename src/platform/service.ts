@@ -10,13 +10,10 @@ export interface SimLink {
   requestHash(): void;
 }
 
-export interface LiveStats { population: number; treasury: number; day: number }
-
 export interface ServiceDeps {
   /** Undefined when IndexedDB could not be opened; every storage call then reports 'unavailable'. */
   getDb(): PlatformDb | undefined;
   sim: SimLink;
-  stats(): LiveStats;
   now?(): number;
   newId?(): string;
   codec?: Codec;
@@ -25,21 +22,25 @@ export interface ServiceDeps {
 
 export interface CurrentSlot { id: string; name: string; created: number }
 export interface SaveInfo { slot: SlotMeta; tick: number; hash: number }
-export type LoadFailure = { ok: false; reason: string; kind: 'storage' | 'format' };
+export interface WriteOptions {
+  /** Store under a new slot with this name (Save as). */
+  asName?: string;
+  /** Create a slot when the session has none (manual Save); autosave and hide leave an unsaved session alone. */
+  create?: boolean;
+}
 
 export interface PlatformService {
   readonly current: CurrentSlot | null;
   /** Names the unsaved session; nothing is stored until the first save. */
   startNew(name: string): void;
-  adopt(slot: CurrentSlot | null): void;
   slots(): Promise<Outcome<SlotMeta[]>>;
-  /** Fresh snapshot into the current slot (or a new one when `asName` is given). */
-  save(opt?: { asName?: string }): Promise<Outcome<SaveInfo>>;
-  /** Used by the lifecycle: writes an already-taken snapshot; skipped when the session has no slot. */
-  writeSnapshot(snapshot: Uint8Array): Promise<WriteOutcome>;
+  /**
+   * The only path that stores a snapshot. Callers go through the lifecycle so writes are serialized.
+   * Metadata comes from the snapshot's own scalars, never from live stats.
+   */
+  writeSnapshot(snapshot: Uint8Array, opt?: WriteOptions): Promise<WriteOutcome>;
   /** Validates the slot fully, then hands it to the sim. The running city is untouched on any failure. */
   load(slotId: string): Promise<Outcome<{ slot: SlotMeta; snapshot: Uint8Array }>>;
-  remove(slotId: string): Promise<Outcome<true>>;
   exportCurrent(): Promise<Outcome<true>>;
   /** Validates the bytes, then stores them as a new slot. Never overwrites an existing slot. */
   importBytes(bytes: Uint8Array): Promise<Outcome<SlotMeta>>;
@@ -49,6 +50,8 @@ export interface PlatformService {
 
 const randomId = (): string => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const unavailable = (): Outcome<never> => fail('unavailable', 'saving is not available in this browser');
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const cleanName = (n: string): string => n.trim().slice(0, 40) || 'Untitled city';
 
 export function createPlatformService(deps: ServiceDeps): PlatformService {
   const now = deps.now ?? Date.now;
@@ -56,53 +59,36 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
   const codec = deps.codec ?? browserCodec;
   let current: CurrentSlot | null = null;
 
-  const metaFor = (name: string): SaveMeta => {
-    const m: SaveMeta = { name, ...deps.stats() };
-    const t = deps.thumbnail?.();
-    if (t) m.thumbnail = t;
-    return m;
-  };
-
-  async function store(slot: CurrentSlot, snapshot: Uint8Array): Promise<Outcome<SlotMeta>> {
-    const d = deps.getDb();
-    if (!d) return unavailable();
-    try {
-      const meta = metaFor(slot.name);
-      const bytes = await buildSave(snapshot, meta, slot.created, codec);
-      return await d.putSlot({ id: slot.id, created: slot.created, updated: now(), byteSize: bytes.byteLength, ...meta }, bytes);
-    } catch (e) {
-      return fail('unavailable', e instanceof Error ? e.message : String(e));
-    }
-  }
-
   const svc: PlatformService = {
     get current() { return current; },
     lastSaveHash: undefined,
     lastSaveTick: undefined,
-    startNew(name) { current = { id: newId(), name: name.trim().slice(0, 40) || 'Untitled city', created: now() }; },
-    adopt(slot) { current = slot; },
+    startNew(name) { current = { id: newId(), name: cleanName(name), created: now() }; },
     slots: async () => deps.getDb()?.listSlots() ?? unavailable(),
-    async save(opt = {}) {
-      const d = deps.getDb();
-      if (!d) return unavailable();
+    async writeSnapshot(snapshot, opt = {}) {
       let slot = current;
-      if (opt.asName !== undefined || !slot) {
-        slot = { id: newId(), name: (opt.asName ?? slot?.name ?? 'Untitled city').trim().slice(0, 40) || 'Untitled city', created: now() };
+      if (opt.asName !== undefined) slot = { id: newId(), name: cleanName(opt.asName), created: now() };
+      else if (!slot) {
+        if (!opt.create) return { ok: true, skipped: true };
+        slot = { id: newId(), name: 'Untitled city', created: now() };
       }
-      let snapshot: Uint8Array;
-      try { snapshot = await deps.sim.requestSnapshot(); } catch (e) { return fail('unavailable', e instanceof Error ? e.message : String(e)); }
-      const r = await store(slot, snapshot);
-      if (!r.ok) return r;
-      current = slot;
-      const info = inspectSnapshot(snapshot);
-      svc.lastSaveHash = info.hash;
-      svc.lastSaveTick = info.tick;
-      return ok({ slot: r.value, tick: info.tick, hash: info.hash });
-    },
-    async writeSnapshot(snapshot) {
-      if (!current) return { ok: true, skipped: true };
-      const r = await store(current, snapshot);
-      return r.ok ? { ok: true } : { ok: false, reason: r.reason, message: r.message };
+      const d = deps.getDb();
+      if (!d) return { ok: false, reason: 'unavailable', message: 'saving is not available in this browser' };
+      try {
+        const info = inspectSnapshot(snapshot);
+        const meta: SaveMeta = { name: slot.name, population: info.population, treasury: info.treasury, day: info.day };
+        const thumb = deps.thumbnail?.();
+        if (thumb) meta.thumbnail = thumb;
+        const bytes = await buildSave(snapshot, meta, slot.created, codec);
+        const r = await d.putSlot({ id: slot.id, created: slot.created, updated: now(), byteSize: bytes.byteLength, ...meta }, bytes);
+        if (!r.ok) return { ok: false, reason: r.reason, message: r.message };
+        current = slot;
+        svc.lastSaveHash = info.hash;
+        svc.lastSaveTick = info.tick;
+        return { ok: true, slot: r.value, tick: info.tick, hash: info.hash };
+      } catch (e) {
+        return { ok: false, reason: 'unavailable', message: messageOf(e) };
+      }
     },
     async load(slotId) {
       const d = deps.getDb();
@@ -121,19 +107,17 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
       current = { id: meta.value.id, name: meta.value.name, created: meta.value.created };
       return ok({ slot: meta.value, snapshot: parsed.value.snapshot });
     },
-    remove: async (slotId) => {
-      const d = deps.getDb();
-      if (!d) return unavailable();
-      const r = await d.deleteSlot(slotId);
-      if (r.ok && current?.id === slotId) current = null;
-      return r;
-    },
     async exportCurrent() {
-      let snapshot: Uint8Array;
-      try { snapshot = await deps.sim.requestSnapshot(); } catch (e) { return fail('unavailable', e instanceof Error ? e.message : String(e)); }
-      const name = current?.name ?? 'city';
-      downloadSave(await buildSave(snapshot, metaFor(name), current?.created ?? now(), codec), name);
-      return ok(true as const);
+      try {
+        const snapshot = await deps.sim.requestSnapshot();
+        const info = inspectSnapshot(snapshot);
+        const name = current?.name ?? 'city';
+        const meta: SaveMeta = { name, population: info.population, treasury: info.treasury, day: info.day };
+        downloadSave(await buildSave(snapshot, meta, current?.created ?? now(), codec), name);
+        return ok(true as const);
+      } catch (e) {
+        return fail('unavailable', messageOf(e));
+      }
     },
     async importBytes(bytes) {
       const d = deps.getDb();
@@ -141,8 +125,7 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
       const parsed = await parseSave(bytes, codec);
       if (!parsed.ok) return fail('corrupt', parsed.reason);
       const t = now();
-      const slot: CurrentSlot = { id: newId(), name: parsed.value.meta.name, created: t };
-      return d.putSlot({ id: slot.id, created: t, updated: t, byteSize: bytes.byteLength, ...parsed.value.meta }, bytes.slice());
+      return d.putSlot({ id: newId(), created: t, updated: t, byteSize: bytes.byteLength, ...parsed.value.meta }, bytes.slice());
     },
   };
   return svc;

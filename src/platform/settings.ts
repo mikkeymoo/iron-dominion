@@ -1,7 +1,8 @@
+import { STORAGE_KEY, TIERS, isTier, type Tier } from '../render/tier.ts';
 import type { PlatformDb } from './db.ts';
 
-export type TierOverride = 'auto' | 'low' | 'mid' | 'high' | 'ultra';
-export const TIER_OVERRIDES: readonly TierOverride[] = ['auto', 'low', 'mid', 'high', 'ultra'];
+export type TierOverride = 'auto' | Tier;
+export const TIER_OVERRIDES: readonly TierOverride[] = ['auto', ...TIERS];
 
 export interface Settings {
   tier: TierOverride;
@@ -17,10 +18,9 @@ export const DEFAULT_SETTINGS: Settings = {
   disasters: true,
 };
 
-/** The renderer reads its override synchronously from this key at startup; the settings store is the source of truth. */
-export const LEGACY_TIER_KEY = 'iron.tier';
+export const isTierOverride = (v: unknown): v is TierOverride => v === 'auto' || isTier(v);
 
-export const isTierOverride = (v: unknown): v is TierOverride => typeof v === 'string' && (TIER_OVERRIDES as readonly string[]).includes(v);
+/** The renderer reads its override synchronously from `STORAGE_KEY` (iron.tier) at startup; the settings store is the source of truth. */
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -42,8 +42,8 @@ function sanitize(raw: Record<string, unknown>): Settings {
 export function mirrorTierToStorage(tier: TierOverride, storage: StorageLike | undefined): void {
   try {
     if (!storage) return;
-    if (tier === 'auto') storage.removeItem(LEGACY_TIER_KEY);
-    else storage.setItem(LEGACY_TIER_KEY, tier);
+    if (tier === 'auto') storage.removeItem(STORAGE_KEY);
+    else storage.setItem(STORAGE_KEY, tier);
   } catch { /* storage denied: the override applies on the next successful write */ }
 }
 
@@ -59,7 +59,7 @@ export async function loadSettings(db: PlatformDb | undefined, storage: StorageL
   }
   if (!isTierOverride(raw.tier)) {
     let legacy: string | null = null;
-    try { legacy = storage?.getItem(LEGACY_TIER_KEY) ?? null; } catch { /* ignore */ }
+    try { legacy = storage?.getItem(STORAGE_KEY) ?? null; } catch { /* ignore */ }
     if (isTierOverride(legacy) && legacy !== 'auto') {
       raw = { ...raw, tier: legacy };
       if (db) await db.setSetting('tier', legacy);

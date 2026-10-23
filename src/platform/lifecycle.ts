@@ -1,5 +1,5 @@
 import type { Speed } from '../sim/protocol.ts';
-import type { FailReason } from './db.ts';
+import type { FailReason, SlotMeta } from './db.ts';
 
 export const AUTOSAVE_MS = 60_000;
 export const TICK_MS = 1000;
@@ -7,7 +7,8 @@ export const TICK_MS = 1000;
 const MAX_CREDIT_MS = 5000;
 
 export type WriteWhy = 'autosave' | 'hide' | 'manual';
-export type WriteOutcome = { ok: true; skipped?: boolean } | { ok: false; reason: FailReason; message?: string };
+export interface WriteOptions { asName?: string; create?: boolean }
+export type WriteOutcome = { ok: true; skipped?: boolean; slot?: SlotMeta; tick?: number; hash?: number } | { ok: false; reason: FailReason; message?: string };
 
 export interface LifecycleDeps {
   now(): number;
@@ -15,8 +16,10 @@ export interface LifecycleDeps {
   resumeSim(): void;
   setSimSpeed(speed: Speed): void;
   requestSnapshot(): Promise<Uint8Array>;
+  /** False for an unsaved session: autosave and the hide path then skip the snapshot request entirely. */
+  hasSlot(): boolean;
   /** Must not throw; storage failures come back as { ok: false }. */
-  write(snapshot: Uint8Array, why: WriteWhy): Promise<WriteOutcome>;
+  write(snapshot: Uint8Array, why: WriteWhy, opt?: WriteOptions): Promise<WriteOutcome>;
 }
 
 export interface LifecycleState {
@@ -44,7 +47,8 @@ export interface Lifecycle {
   cacheSnapshot(data: Uint8Array | null): void;
   /** Hold the sim paused behind the Resume overlay (loaded saves start this way). */
   holdForResume(): void;
-  saveNow(why?: WriteWhy): Promise<WriteOutcome>;
+  /** Every manual, Save as and autosave write goes through here, one at a time; a missing slot is created. */
+  saveNow(why?: WriteWhy, asName?: string): Promise<WriteOutcome>;
   subscribe(fn: (s: Readonly<LifecycleState>) => void): () => void;
 }
 
@@ -57,6 +61,7 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
   let cached: Uint8Array | null = null;
   let lastTick = deps.now();
   let tail: Promise<unknown> | null = null;
+  let pending = 0;
   const listeners = new Set<(st: Readonly<LifecycleState>) => void>();
   const emit = (): void => { for (const l of listeners) l({ ...s }); };
 
@@ -77,23 +82,30 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
 
   const record = (out: WriteOutcome): WriteOutcome => {
     if (out.ok) { if (!out.skipped) { s.lastSavedAt = deps.now(); s.activeMs = 0; } s.lastError = null; } else s.lastError = out.reason;
-    s.saving = false;
+    pending--;
+    s.saving = pending > 0;
     emit();
     return out;
   };
 
-  const safeWrite = async (data: Uint8Array, why: WriteWhy): Promise<WriteOutcome> => {
-    try { return await deps.write(data, why); } catch (e) { return { ok: false, reason: 'unavailable', message: e instanceof Error ? e.message : String(e) }; }
+  const begin = (): void => { pending++; s.saving = true; emit(); };
+
+  const safeWrite = async (data: Uint8Array, why: WriteWhy, opt?: WriteOptions): Promise<WriteOutcome> => {
+    try { return await deps.write(data, why, opt); } catch (e) { return { ok: false, reason: 'unavailable', message: e instanceof Error ? e.message : String(e) }; }
   };
 
-  const writeFresh = (why: WriteWhy): Promise<WriteOutcome> => enqueue(async () => {
-    s.saving = true;
-    emit();
-    let data: Uint8Array;
-    try { data = await deps.requestSnapshot(); } catch (e) { return record({ ok: false, reason: 'unavailable', message: e instanceof Error ? e.message : String(e) }); }
-    cached = data;
-    return record(await safeWrite(data, why));
-  });
+  const skipped = (): WriteOutcome => ({ ok: true, skipped: true });
+
+  const writeFresh = (why: WriteWhy, asName?: string): Promise<WriteOutcome> => {
+    if (why !== 'manual' && !deps.hasSlot()) return Promise.resolve(skipped());
+    begin();
+    return enqueue(async () => {
+      let data: Uint8Array;
+      try { data = await deps.requestSnapshot(); } catch (e) { return record({ ok: false, reason: 'unavailable', message: e instanceof Error ? e.message : String(e) }); }
+      cached = data;
+      return record(await safeWrite(data, why, { asName, create: why === 'manual' }));
+    });
+  };
 
   return {
     state: s,
@@ -103,7 +115,7 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
       lastTick = t;
       if (!active() || dt <= 0) return;
       s.activeMs += Math.min(dt, MAX_CREDIT_MS);
-      if (s.activeMs >= autosaveMs && !s.saving) {
+      if (s.activeMs >= autosaveMs && pending === 0) {
         s.activeMs = 0;
         void writeFresh('autosave');
       }
@@ -113,8 +125,9 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
       s.visible = false;
       s.awaitingResume = true;
       deps.pauseSim();
-      if (cached) {
+      if (cached && deps.hasSlot()) {
         const data = cached;
+        begin();
         void enqueue(async () => record(await safeWrite(data, 'hide')));
       }
       void writeFresh('hide');
@@ -144,7 +157,7 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
       deps.pauseSim();
       emit();
     },
-    saveNow: (why = 'manual') => writeFresh(why),
+    saveNow: (why = 'manual', asName) => writeFresh(why, asName),
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
   };
 }

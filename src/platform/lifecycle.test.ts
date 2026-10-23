@@ -6,20 +6,23 @@ function harness(opt: { writeResult?: () => WriteOutcome } = {}) {
   let clock = 0;
   const log: string[] = [];
   const writes: { data: Uint8Array; why: WriteWhy }[] = [];
+  let slot = true;
+  let snapshots = 0;
   let fresh: Uint8Array = new Uint8Array([9]);
   const deps: LifecycleDeps = {
     now: () => clock,
     pauseSim: () => log.push('pause'),
     resumeSim: () => log.push('resume'),
     setSimSpeed: (s: Speed) => log.push(`speed:${s}`),
-    requestSnapshot: async () => fresh,
+    requestSnapshot: async () => { snapshots++; return fresh; },
+    hasSlot: () => slot,
     write: async (data, why) => { writes.push({ data, why }); return opt.writeResult?.() ?? { ok: true }; },
   };
   const lc = createLifecycle(deps, { autosaveMs: 60_000 });
   const advance = (ms: number): void => { for (let i = 0; i < ms / 1000; i++) { clock += 1000; lc.tick(); } };
   const flush = async (): Promise<void> => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
   const jump = (ms: number): void => { clock += ms; lc.tick(); };
-  return { lc, log, writes, advance, jump, flush, setFresh: (b: Uint8Array) => { fresh = b; } };
+  return { lc, log, writes, setSlot: (v: boolean) => { slot = v; }, snapshots: () => snapshots, advance, jump, flush, setFresh: (b: Uint8Array) => { fresh = b; } };
 }
 
 describe('hide and resume', () => {
@@ -161,6 +164,7 @@ describe('storage failure', () => {
     const lc = createLifecycle({
       now: () => clock, pauseSim: () => undefined, resumeSim: () => undefined, setSimSpeed: () => undefined,
       requestSnapshot: async () => { throw new Error('worker gone'); },
+      hasSlot: () => true,
       write: async () => { throw new Error('boom'); },
     }, { autosaveMs: 2000 });
     clock += 1000; lc.tick(); clock += 1000; lc.tick();

@@ -1,7 +1,8 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { describe, expect, it } from 'vitest';
 import { createPlatformDb, openIdbAdapter, openPlatformDb, requestPersistence, type SlotMeta } from './db.ts';
-import { DEFAULT_SETTINGS, LEGACY_TIER_KEY, loadSettings, saveSetting } from './settings.ts';
+import { STORAGE_KEY } from '../render/tier.ts';
+import { DEFAULT_SETTINGS, loadSettings, saveSetting } from './settings.ts';
 
 const slot = (id: string, updated: number, name = id): SlotMeta => ({ id, name, created: 1, updated, population: 10, treasury: 20, day: 3, byteSize: 0 });
 const fresh = async () => createPlatformDb(await openIdbAdapter(new IDBFactory()));
@@ -70,28 +71,28 @@ describe('open and persistence', () => {
 describe('settings and tier migration', () => {
   it('migrates the legacy iron.tier key into the settings store once', async () => {
     const db = await fresh();
-    const storage = memoryStorage({ [LEGACY_TIER_KEY]: 'high' });
+    const storage = memoryStorage({ [STORAGE_KEY]: 'high' });
     const s = await loadSettings(db, storage);
     expect(s.tier).toBe('high');
     expect(await db.getSetting('tier')).toEqual({ ok: true, value: 'high' });
-    storage.m.delete(LEGACY_TIER_KEY);
+    storage.m.delete(STORAGE_KEY);
     const again = await loadSettings(db, storage);
     expect(again.tier).toBe('high');
-    expect(storage.m.get(LEGACY_TIER_KEY)).toBe('high');
+    expect(storage.m.get(STORAGE_KEY)).toBe('high');
   });
 
   it('prefers the stored setting over a stale legacy key and removes the key on auto', async () => {
     const db = await fresh();
     await db.setSetting('tier', 'auto');
-    const storage = memoryStorage({ [LEGACY_TIER_KEY]: 'low' });
+    const storage = memoryStorage({ [STORAGE_KEY]: 'low' });
     const s = await loadSettings(db, storage);
     expect(s.tier).toBe('auto');
-    expect(storage.m.has(LEGACY_TIER_KEY)).toBe(false);
+    expect(storage.m.has(STORAGE_KEY)).toBe(false);
   });
 
   it('ignores an invalid legacy value and falls back to defaults', async () => {
     const db = await fresh();
-    const s = await loadSettings(db, memoryStorage({ [LEGACY_TIER_KEY]: 'banana' }));
+    const s = await loadSettings(db, memoryStorage({ [STORAGE_KEY]: 'banana' }));
     expect(s).toEqual(DEFAULT_SETTINGS);
   });
 
@@ -99,7 +100,7 @@ describe('settings and tier migration', () => {
     const db = await fresh();
     const storage = memoryStorage();
     expect(await saveSetting(db, storage, 'tier', 'ultra')).toBe(true);
-    expect(storage.m.get(LEGACY_TIER_KEY)).toBe('ultra');
+    expect(storage.m.get(STORAGE_KEY)).toBe('ultra');
     expect((await loadSettings(db, memoryStorage())).tier).toBe('ultra');
   });
 
@@ -108,6 +109,6 @@ describe('settings and tier migration', () => {
     await db.setSetting('audio', { muted: 'x', volume: 9 });
     const s = await loadSettings(db, undefined);
     expect(s.audio).toEqual({ muted: false, volume: 1 });
-    expect((await loadSettings(undefined, memoryStorage({ [LEGACY_TIER_KEY]: 'mid' }))).tier).toBe('mid');
+    expect((await loadSettings(undefined, memoryStorage({ [STORAGE_KEY]: 'mid' }))).tier).toBe('mid');
   });
 });

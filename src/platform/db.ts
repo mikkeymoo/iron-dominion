@@ -40,9 +40,9 @@ export class AdapterError extends Error {
 
 function reasonOf(e: unknown): FailReason {
   if (e instanceof AdapterError) return e.reason;
-  const name = typeof e === 'object' && e !== null && 'name' in e ? String((e as { name: unknown }).name) : '';
-  // A transaction aborted by the browser is almost always a quota eviction.
-  if (name === 'QuotaExceededError' || name === 'AbortError') return 'quota';
+  const o = typeof e === 'object' && e !== null ? (e as { name?: unknown; code?: unknown }) : {};
+  // Only a genuine quota error counts. An abort with no cause (or a synthetic one) is not evidence of a full disk.
+  if (o.name === 'QuotaExceededError' || o.code === 22) return 'quota';
   return 'unavailable';
 }
 
@@ -55,8 +55,8 @@ function request<T>(r: IDBRequest<T>): Promise<T> {
 function finished(tx: IDBTransaction): Promise<void> {
   return new Promise((res, rej) => {
     tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error ?? new DOMException('transaction failed', 'AbortError'));
-    tx.onabort = () => rej(tx.error ?? new DOMException('transaction aborted', 'AbortError'));
+    tx.onerror = () => rej(tx.error ?? new AdapterError('unavailable', 'transaction failed'));
+    tx.onabort = () => rej(tx.error ?? new AdapterError('unavailable', 'transaction aborted'));
   });
 }
 
@@ -65,31 +65,41 @@ export function openIdbAdapter(factory: IDBFactory | null = typeof indexedDB ===
   if (!factory) return Promise.reject(new AdapterError('unavailable', 'IndexedDB is not available'));
   return new Promise((res, rej) => {
     let req: IDBOpenDBRequest;
-    try { req = factory.open(DB_NAME, DB_VERSION); } catch (e) { rej(new AdapterError('unavailable', messageOf(e))); return; }
+    let settled = false;
+    const reject = (e: AdapterError): void => { if (!settled) { settled = true; rej(e); } };
+    try { req = factory.open(DB_NAME, DB_VERSION); } catch (e) { reject(new AdapterError('unavailable', messageOf(e))); return; }
     req.onupgradeneeded = () => {
       for (const s of STORES) if (!req.result.objectStoreNames.contains(s)) req.result.createObjectStore(s);
     };
-    req.onblocked = () => rej(new AdapterError('blocked', 'another tab is holding an older version of the database'));
-    req.onerror = () => rej(new AdapterError('unavailable', req.error?.message ?? 'open failed'));
+    req.onblocked = () => reject(new AdapterError('blocked', 'another tab is holding an older version of the database'));
+    req.onerror = () => reject(new AdapterError('unavailable', req.error?.message ?? 'open failed'));
     req.onsuccess = () => {
       const db = req.result;
-      db.onversionchange = () => db.close();
+      // The open can finish after we gave up on it (blocked, then the other tab let go). Nobody owns that connection.
+      if (settled) { db.close(); return; }
+      settled = true;
+      let closed = false;
+      const live = (): IDBDatabase => {
+        if (closed) throw new AdapterError('blocked', 'the database was closed because another tab is upgrading it; reload the page');
+        return db;
+      };
+      db.onversionchange = () => { closed = true; db.close(); };
       res({
-        get: (store, key) => request(db.transaction(store, 'readonly').objectStore(store).get(key)),
-        getAll: (store) => request(db.transaction(store, 'readonly').objectStore(store).getAll()),
+        get: (store, key) => request(live().transaction(store, 'readonly').objectStore(store).get(key)),
+        getAll: (store) => request(live().transaction(store, 'readonly').objectStore(store).getAll()),
         async putMany(ops) {
-          const tx = db.transaction([...new Set(ops.map((o) => o.store))], 'readwrite');
+          const tx = live().transaction([...new Set(ops.map((o) => o.store))], 'readwrite');
           const done = finished(tx);
           for (const o of ops) tx.objectStore(o.store).put(o.value, o.key);
           await done;
         },
         async deleteMany(ops) {
-          const tx = db.transaction([...new Set(ops.map((o) => o.store))], 'readwrite');
+          const tx = live().transaction([...new Set(ops.map((o) => o.store))], 'readwrite');
           const done = finished(tx);
           for (const o of ops) tx.objectStore(o.store).delete(o.key);
           await done;
         },
-        close: () => db.close(),
+        close: () => { closed = true; db.close(); },
       });
     };
   });

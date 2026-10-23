@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSetting, type Settings } from '../p
 import { readFileBytes } from '../platform/save.ts';
 import { GameView } from './GameView';
 import { failText, type HudStats } from './Hud';
-import { openSession, type Session } from './session.ts';
+import { openSession, saveSession, type Session } from './session.ts';
 import { Title } from './Title';
 import './app.css';
 
@@ -27,6 +27,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [titleMessage, setTitleMessage] = useState('');
   const [notice, setNotice] = useState('');
+  const [quitPrompt, setQuitPrompt] = useState<string | null>(null);
   const db = useRef<PlatformDb | undefined>(undefined);
   const current = useRef<Session | null>(null);
   const iron = useRef<IronDebug | null>(null);
@@ -44,7 +45,7 @@ export function App() {
     if (dbg) {
       dbg.sim = { tick: 0 };
       dbg.platform = {
-        save: () => s.service.save(),
+        save: () => saveSession(s),
         load: (id) => loadInto(s, id),
         slots: () => s.service.slots(),
         get lastSaveHash() { return s.service.lastSaveHash; },
@@ -165,13 +166,13 @@ export function App() {
   const onSave = useCallback((): void => {
     const s = current.current;
     if (!s) return;
-    void s.service.save().then((r) => flashNotice(r.ok ? 'Saved' : failText(r.reason, r.message)));
+    void saveSession(s).then((r) => flashNotice(r.ok ? 'Saved' : failText(r.reason, r.message)));
   }, []);
 
   const onSaveAs = useCallback((name: string): void => {
     const s = current.current;
     if (!s) return;
-    void s.service.save({ asName: name }).then((r) => flashNotice(r.ok ? `Saved as "${r.value.slot.name}"` : failText(r.reason, r.message)));
+    void saveSession(s, name).then((r) => flashNotice(r.ok ? `Saved as "${r.value.slot.name}"` : failText(r.reason, r.message)));
   }, []);
 
   const onExport = useCallback((): void => {
@@ -185,23 +186,42 @@ export function App() {
     void saveSetting(db.current, typeof localStorage === 'undefined' ? undefined : localStorage, key, value);
   }, []);
 
+  const leave = useCallback(async (): Promise<void> => {
+    setQuitPrompt(null);
+    await refreshSlots();
+    const q = query();
+    attach(open(q.has('seed') ? Number(q.get('seed')) : 1));
+    setView('title');
+  }, [open, attach, refreshSlots]);
+
+  // Leaving never discards silently: a failed or impossible save opens the quit dialog instead.
   const onQuit = useCallback((): void => {
     void (async () => {
       const s = current.current;
-      if (s?.service.current) await s.lifecycle.saveNow('manual');
-      await refreshSlots();
-      const q = query();
-      const idle = open(q.has('seed') ? Number(q.get('seed')) : 1);
-      attach(idle);
-      setView('title');
+      if (!s) { await leave(); return; }
+      if (!s.service.current) { setQuitPrompt('This city has not been saved.'); return; }
+      const out = await s.lifecycle.saveNow('manual');
+      if (out.ok) await leave();
+      else setQuitPrompt(`Saving failed: ${failText(out.reason, out.message)}`);
     })();
-  }, [open, attach, refreshSlots]);
+  }, [leave]);
+
+  const onQuitSaveAs = useCallback((name: string): void => {
+    void (async () => {
+      const s = current.current;
+      if (!s) return;
+      const r = await saveSession(s, name);
+      if (r.ok) await leave();
+      else setQuitPrompt(`Saving failed: ${failText(r.reason, r.message)}`);
+    })();
+  }, [leave]);
 
   if (view === 'game' && live && platformReady) {
     return (
       <GameView
         client={live.client} mirror={live.mirror} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
-        tick={hud.tick} worker={worker} onExit={onQuit} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
+        tick={hud.tick} worker={worker} onExit={onQuit}
+        quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
       />
     );
   }

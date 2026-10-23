@@ -17,6 +17,10 @@ interface Props {
   tick: number;
   worker: 'loading' | 'ready' | 'failed';
   onExit: () => void;
+  quitPrompt: string | null;
+  onQuitSaveAs(name: string): void;
+  onQuitDiscard(): void;
+  onQuitCancel(): void;
   onSave(): void;
   onSaveAs(name: string): void;
   onExport(): void;
@@ -25,7 +29,7 @@ interface Props {
 
 type Phase = 'starting' | 'running' | 'failed';
 
-export function GameView({ client, mirror, lifecycle, stats, settings, notice, tick, worker, onExit, onSave, onSaveAs, onExport, onSetting }: Props) {
+export function GameView({ client, mirror, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>('starting');
   const [error, setError] = useState('');
@@ -81,7 +85,7 @@ export function GameView({ client, mirror, lifecycle, stats, settings, notice, t
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} />
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
         <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
         {panel && perf && (
           <dl className="perf" data-testid="perf">
