@@ -6,7 +6,7 @@ import { MAP, S, TERRAIN } from '../../sim/layers.ts';
 import { tileIdx } from '../../sim/tiles.ts';
 import { MAX_GHOST_TILES, overlayIndices, writeTileQuad } from './ghostGeometry.ts';
 import {
-  buildingAnchor, commandFor, ghostTints, keyAction, roadDragPath, selectionFrom, SERVICES, type ToolSel,
+  buildingAnchor, commandFor, ghostTints, keyAction, PLACEABLE, roadDragPath, selectionFrom, SERVICES, UTILITY_BUILDINGS, type ToolSel,
 } from './toolSpec.ts';
 
 const cells = (p: { ax: number; ay: number; bx: number; by: number }): [number, number][] => roadPath(p).map((i) => [i % MAP, (i / MAP) | 0]);
@@ -71,7 +71,25 @@ describe('commands from drags', () => {
     expect(selectionFrom('terraform', { mode: 'level' })).toEqual({ tool: 'terraform', mode: 'level' });
     expect(selectionFrom('zone', { zone: 9 })).toBeNull();
     expect(selectionFrom('teleport')).toBeNull();
-    expect(SERVICES.map((s) => s.name)).toEqual(['depot', 'powerPlant', 'waterPump', 'fireStation']);
+    expect(SERVICES.map((s) => s.name)).toEqual(['depot', 'fireStation']);
+    expect(UTILITY_BUILDINGS.map((s) => s.name)).toEqual(['powerPlant', 'waterPump', 'solarFarm', 'waterTower', 'fusionReactor']);
+    expect(PLACEABLE.map((s) => s.name)).toEqual(['depot', 'powerPlant', 'waterPump', 'fireStation', 'solarFarm', 'waterTower', 'fusionReactor']);
+    expect(selectionFrom('service', { name: 'solarFarm' })).toEqual({ tool: 'service', arch: ARCH.SOLAR_FARM });
+  });
+
+  it('maps a power-line or pipe drag to placeLine along the road-style path', () => {
+    expect(selectionFrom('line', { kind: 'power' })).toEqual({ tool: 'line', kind: 'power' });
+    expect(selectionFrom('line', { kind: 'water' })).toEqual({ tool: 'line', kind: 'water' });
+    expect(selectionFrom('line')).toEqual({ tool: 'line', kind: 'power' });
+    expect(selectionFrom('line', { kind: 'steam' })).toBeNull();
+    expect(commandFor({ tool: 'line', kind: 'water' }, { x: 5, y: 5 }, { x: 20, y: 6 }, 0)).toEqual({ type: 'placeLine', kind: 'water', ax: 5, ay: 5, bx: 20, by: 5 });
+    expect(commandFor({ tool: 'line', kind: 'power' }, { x: 5, y: 5 }, { x: 15, y: 25 }, 0)).toEqual({ type: 'placeLine', kind: 'power', ...roadDragPath({ x: 5, y: 5 }, { x: 15, y: 25 }) });
+  });
+
+  it('bulldoze digs up pipes only while the underground view is on', () => {
+    const from = { x: 1, y: 2 }, to = { x: 4, y: 6 };
+    expect(commandFor({ tool: 'bulldoze' }, from, to, 0)).toEqual({ type: 'bulldoze', x0: 1, y0: 2, x1: 4, y1: 6 });
+    expect(commandFor({ tool: 'bulldoze' }, from, to, 0, true)).toEqual({ type: 'bulldoze', x0: 1, y0: 2, x1: 4, y1: 6, under: true });
   });
 });
 
@@ -84,6 +102,11 @@ describe('keyboard map', () => {
     expect(keyAction(k('z'), null)).toEqual({ kind: 'select', sel: { tool: 'zone', zone: 1, density: 0 } });
     expect(keyAction(k('t'), null)).toEqual({ kind: 'select', sel: { tool: 'terraform', mode: 'raise' } });
     expect(keyAction(k('B'), null)).toEqual({ kind: 'select', sel: { tool: 'bulldoze' } });
+  });
+
+  it('selects the power line with L and the water pipe with P', () => {
+    expect(keyAction(k('l'), null)).toEqual({ kind: 'select', sel: { tool: 'line', kind: 'power' } });
+    expect(keyAction(k('P'), { tool: 'road', cls: 2 })).toEqual({ kind: 'select', sel: { tool: 'line', kind: 'water' } });
   });
 
   it('R rotates while placing a building and cycles road class on the road tool', () => {

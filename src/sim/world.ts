@@ -2,6 +2,7 @@ import { REGISTRY, type World } from './layers.ts';
 import { chunkIdx } from './tiles.ts';
 import type { Command } from './commands.ts';
 import type { RoadNet } from './roads/graph.ts';
+import type { UtilStats } from './utilities/solve.ts';
 
 export type SimEvent =
   | { type: 'accepted'; cmd: number; tick: number; /** Undo handle, present when the command is undoable. */ journal?: number }
@@ -30,6 +31,8 @@ export interface Sim {
   debug?: boolean;
   /** Road graph derived from world.road; rebuilt on load, never hashed or saved. */
   roads?: RoadNet;
+  /** Totals of the last utilities solve for the HUD; derived, never hashed or saved, empty until the first solve after a load. */
+  utils?: UtilStats;
 }
 
 export function allocWorld(): World {

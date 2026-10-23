@@ -2,6 +2,7 @@ import { BUILD_HASH } from '../sim/buildinfo.ts';
 import { createSimClient, type ClientState, type SimClient } from '../sim/client.ts';
 import type { Stats } from '../sim/protocol.ts';
 import { RenderMirror } from '../render/mirror.ts';
+import { ViewState } from '../render/viewState.ts';
 import { createLifecycle, type Lifecycle } from '../platform/lifecycle.ts';
 import { createPlatformService, type PlatformService, type SaveInfo } from '../platform/service.ts';
 import { fail, ok, type Outcome, type PlatformDb } from '../platform/db.ts';
@@ -15,6 +16,8 @@ export interface Session {
   client: SimClient;
   mirror: RenderMirror;
   tools: ToolsRuntime;
+  /** Overlay mode and underground view for this city. */
+  view: ViewState;
   service: PlatformService;
   lifecycle: Lifecycle;
   seed: number;
@@ -33,8 +36,9 @@ export interface SessionOptions {
 
 export function openSession(o: SessionOptions): Session {
   const mirror = new RenderMirror();
+  const view = new ViewState();
   const w = new Worker(new URL(`./sim-worker.js?v=${BUILD_HASH}`, document.baseURI));
-  const tools = new ToolsRuntime({ world: mirror, submit: (body) => client.command(body) });
+  const tools = new ToolsRuntime({ world: mirror, submit: (body) => client.command(body), view });
   const client: SimClient = createSimClient(w, {
     seed: o.seed,
     debug: o.debug,
@@ -61,7 +65,7 @@ export function openSession(o: SessionOptions): Session {
     hasSlot: () => service.current !== null,
     write: (data, _why, opt) => service.writeSnapshot(data, opt),
   }, { initialSpeed: o.haltAt !== undefined ? 'max' : 1 });
-  return { client, mirror, tools, service, lifecycle, seed: o.seed, dispose: () => { tools.dispose(); client.terminate(); } };
+  return { client, mirror, tools, view, service, lifecycle, seed: o.seed, dispose: () => { tools.dispose(); client.terminate(); } };
 }
 
 /** Manual Save (or Save as, with a name) through the lifecycle's single write queue. */

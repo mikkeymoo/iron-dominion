@@ -23,6 +23,7 @@ export class RenderMirror {
   private dirtyGeometry = new Set<number>();
   private dirtyOverlay = new Set<number>();
   private dirtyBuildings = new Set<number>();
+  private dirtyLines = new Set<number>();
 
   constructor() {
     for (const l of renderInfos) this.layers[l.name] = new l.ctor(l.length) as Typed;
@@ -50,7 +51,7 @@ export class RenderMirror {
         this.terrainVersion++;
         this.roadVersion++;
         for (let c = 0; c < CHUNKS * CHUNKS; c++) this.terrainDirty.add(c);
-        for (let c = 0; c < CHUNKS * CHUNKS; c++) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); }
+        for (let c = 0; c < CHUNKS * CHUNKS; c++) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); this.dirtyLines.add(c); }
         for (let b = 0; b < before.length; b++) if (before[b] || this.table.bArch[b]) this.dirtyBuildings.add(b);
         return true;
       }
@@ -61,8 +62,13 @@ export class RenderMirror {
           for (const c of m.chunks) this.terrainDirty.add(c);
         }
         if ('road' in m.layers) this.roadVersion++;
-        for (const c of m.chunks) this.dirtyGeometry.add(c);
-        for (const b of m.buildings) { writeBuilding(this.table, b); this.dirtyBuildings.add(b.slot); }
+        for (const c of m.chunks) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); }
+        for (const b of m.buildings) {
+          // An outage flag flips what the power and water overlays paint on the footprint, so those overlay chunks repaint.
+          if (this.table.bFlags[b.slot] !== b.flags || !this.table.bArch[b.slot]) this.markOverlayFootprint(b.x, b.y, b.w, b.h);
+          writeBuilding(this.table, b);
+          this.dirtyBuildings.add(b.slot);
+        }
         this.tick = m.tick;
         return true;
       case 'overlayPatch':
@@ -102,8 +108,10 @@ export class RenderMirror {
       const info = renderInfos.find((l) => l.name === name);
       if (!info || !isTileLayer(info)) continue;
       const watch = name === 'height' || name === 'road';
+      const lines = name === 'ugPower' || name === 'ugWater';
       chunks.forEach((chunk, n) => {
         if (watch && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK)) groundChanged.add(chunk);
+        if (lines && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK)) this.dirtyLines.add(chunk);
         copyChunkIn(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
       });
     }
@@ -137,6 +145,14 @@ export class RenderMirror {
     }
   }
 
+  private markOverlayFootprint(x: number, y: number, w: number, h: number): void {
+    for (const [px, py] of [[x, y], [x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1]] as const) {
+      if (px >= 0 && py >= 0 && px < MAP && py < MAP) this.dirtyOverlay.add(chunkIdx(px, py));
+    }
+  }
+
+  /** Chunks whose power-line or pipe tiles changed since the last call (everything after a resync). */
+  takeDirtyLines(): number[] { const r = [...this.dirtyLines].sort((a, b) => a - b); this.dirtyLines.clear(); return r; }
   takeDirtyGeometry(): number[] { const r = [...this.dirtyGeometry].sort((a, b) => a - b); this.dirtyGeometry.clear(); return r; }
   takeDirtyOverlay(): number[] { const r = [...this.dirtyOverlay].sort((a, b) => a - b); this.dirtyOverlay.clear(); return r; }
   takeDirtyBuildings(): number[] { const r = [...this.dirtyBuildings].sort((a, b) => a - b); this.dirtyBuildings.clear(); return r; }

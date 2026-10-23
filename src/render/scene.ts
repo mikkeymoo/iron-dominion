@@ -3,8 +3,12 @@ import { CAMERA, type Pose } from './camera.ts';
 import type { RenderMirror } from './mirror.ts';
 import { BuildingsView } from './buildings.ts';
 import { Fx } from './fx/index.ts';
+import { LinesView } from './lines.ts';
+import { OutageIcons } from './outageIcons.ts';
+import { OverlayView } from './overlay.ts';
 import { TerrainView } from './terrain.ts';
 import { TIER_TABLE, type Tier } from './tier.ts';
+import type { ViewState } from './viewState.ts';
 
 /** Everything that lives in the three scene for one renderer. Rebuilt from the mirror after device loss. */
 export class WorldScene {
@@ -13,6 +17,11 @@ export class WorldScene {
   readonly fx: Fx;
   readonly terrain: TerrainView;
   readonly buildings: BuildingsView;
+  readonly lines: LinesView;
+  readonly icons: OutageIcons;
+  readonly overlay: OverlayView;
+  private viewVersion = -1;
+  private under = false;
 
   constructor(private readonly renderer: WebGPURenderer, mirror: RenderMirror, search: string, tier: Tier) {
     this.fx = new Fx(renderer, this.scene, this.camera, mirror, search, tier);
@@ -20,8 +29,33 @@ export class WorldScene {
     this.scene.add(this.terrain.group);
     this.buildings = new BuildingsView(mirror, this.terrain);
     this.scene.add(this.buildings.group);
+    this.lines = new LinesView(mirror);
+    this.scene.add(this.lines.group);
+    this.icons = new OutageIcons();
+    this.scene.add(this.icons.mesh);
+    this.overlay = new OverlayView(mirror, this.terrain.slots);
     this.fx.attach(this.terrain, this.buildings);
     renderer.setClearColor(0xb4d4f0, 1);
+  }
+
+  get underground(): boolean { return this.under; }
+
+  /**
+   * Per-frame utilities visuals: apply the view mode (overlay choice, underground cutaway), repaint the overlay texture from the
+   * mirror, rebuild pylons, cables and pipes that changed, and refresh the outage icons.
+   */
+  updateUtilities(view: ViewState | undefined, nowSec: number, cameraDist: number): void {
+    if (view && view.version !== this.viewVersion) {
+      this.viewVersion = view.version;
+      this.under = view.underground;
+      this.terrain.setCutaway(this.under);
+      this.lines.setUnderground(this.under);
+      this.buildings.group.visible = !this.under;
+      this.icons.setVisible(!this.under);
+    }
+    this.overlay.update(view?.effectiveOverlay ?? 'none');
+    this.lines.update(nowSec);
+    this.icons.update(this.buildings.outages.values(), nowSec, cameraDist);
   }
 
   setAspect(aspect: number): void {
@@ -56,6 +90,8 @@ export class WorldScene {
 
   dispose(): void {
     this.fx.dispose();
+    this.icons.dispose();
+    this.lines.dispose();
     this.buildings.dispose();
     this.terrain.dispose();
   }

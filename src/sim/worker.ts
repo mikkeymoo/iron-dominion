@@ -4,6 +4,7 @@ import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
 import { queryPath } from './roads/index.ts';
+import { utilStats } from './utilities/index.ts';
 import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
 import type { Sim } from './world.ts';
 
@@ -80,6 +81,7 @@ function flush(now: number, force = false): void {
       treasury: s[S.treasury]!, population: s[S.population]!, dayFrac: s[S.dayFrac]!, day: s[S.day]!,
       weather: s[S.weather]!, weatherIntensity: s[S.weatherIntensity]!, graphEpoch: s[S.graphEpoch]!,
       ...econStats(sim.world),
+      ...utilStats(sim),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);

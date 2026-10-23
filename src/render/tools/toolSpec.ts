@@ -5,22 +5,31 @@ import { footprintOf, type Estimate } from '../../sim/estimate.ts';
 // Tool definitions, the drag-to-command mapping, the keyboard map and ghost tints. DOM-free and three-free so each piece is unit-tested.
 
 export type Tile = { x: number; y: number };
-export type ToolId = 'bulldoze' | 'road' | 'zone' | 'service' | 'terraform';
+export type ToolId = 'bulldoze' | 'road' | 'zone' | 'service' | 'terraform' | 'line';
 export type TerraformMode = 'raise' | 'lower' | 'level';
+export type LineKind = 'power' | 'water';
 
 export type ToolSel =
   | { tool: 'bulldoze' }
   | { tool: 'road'; cls: 1 | 2 | 3 }
   | { tool: 'zone'; zone: 1 | 2 | 3; density: 0 | 1 | 2 }
+  /** Any placeable building: services and utility buildings alike. */
   | { tool: 'service'; arch: number }
-  | { tool: 'terraform'; mode: TerraformMode };
+  | { tool: 'terraform'; mode: TerraformMode }
+  /** Drag a power line (overhead) or a water pipe (underground) along the same L-shaped path as a road. */
+  | { tool: 'line'; kind: LineKind };
 
 export const ROAD_NAMES = ['', 'street', 'avenue', 'highway'] as const;
 export const ZONE_LABELS = ['', 'Residential', 'Commercial', 'Industrial'] as const;
 export const DENSITY_LABELS = ['Low', 'Medium', 'High'] as const;
 export const TERRAFORM_MODES: readonly TerraformMode[] = ['raise', 'lower', 'level'];
-/** Services the player can place: every placeable catalog entry, in catalog order. */
-export const SERVICES = CATALOG.filter((a) => a.placeable);
+/** Every building the player can place, in catalog order (the `service` tool selects from this list). */
+export const PLACEABLE = CATALOG.filter((a) => a.placeable);
+/** Placeable buildings that are not utilities: the Services group in the tool sheet. */
+export const SERVICES = PLACEABLE.filter((a) => !a.utility);
+/** Power plants, solar farms, pumps and towers (and the locked fusion reactor): the Utilities group. */
+export const UTILITY_BUILDINGS = PLACEABLE.filter((a) => a.utility);
+export const LINE_NAMES: Record<LineKind, string> = { power: 'Power line', water: 'Water pipe' };
 
 /** A drag within this many tiles of a straight line snaps to the line. */
 export const AXIS_SNAP = 2;
@@ -46,12 +55,16 @@ export function buildingAnchor(arch: number, rot: number, tile: Tile): Tile {
   return { x: tile.x - ((w - 1) >> 1), y: tile.y - ((h - 1) >> 1) };
 }
 
-/** The sim command a drag from `from` to `to` issues. */
-export function commandFor(sel: ToolSel, from: Tile, to: Tile, rot: number): CommandBody {
+/**
+ * The sim command a drag from `from` to `to` issues. With `under` (the underground view is on) bulldoze digs up pipes only;
+ * the flag is left off the command otherwise so a surface bulldoze keeps its old shape.
+ */
+export function commandFor(sel: ToolSel, from: Tile, to: Tile, rot: number, under = false): CommandBody {
   switch (sel.tool) {
     case 'road': return { type: 'placeRoad', ...roadDragPath(from, to), cls: sel.cls };
+    case 'line': return { type: 'placeLine', kind: sel.kind, ...roadDragPath(from, to) };
     case 'zone': return { type: 'zone', x0: from.x, y0: from.y, x1: to.x, y1: to.y, zone: sel.zone, density: sel.density };
-    case 'bulldoze': return { type: 'bulldoze', x0: from.x, y0: from.y, x1: to.x, y1: to.y };
+    case 'bulldoze': return under ? { type: 'bulldoze', x0: from.x, y0: from.y, x1: to.x, y1: to.y, under: true } : { type: 'bulldoze', x0: from.x, y0: from.y, x1: to.x, y1: to.y };
     case 'terraform': return { type: 'terraform', mode: sel.mode, x0: from.x, y0: from.y, x1: to.x, y1: to.y };
     case 'service': {
       const at = buildingAnchor(sel.arch, rot, to);
@@ -71,9 +84,10 @@ export function selectionFrom(tool: string, opts: Record<string, unknown> = {}):
       return zone >= 1 && zone <= 3 && density >= 0 && density <= 2 ? { tool, zone: zone as 1 | 2 | 3, density: density as 0 | 1 | 2 } : null;
     }
     case 'terraform': { const m = String(opts.mode ?? 'raise') as TerraformMode; return TERRAFORM_MODES.includes(m) ? { tool, mode: m } : null; }
+    case 'line': { const k = String(opts.kind ?? 'power'); return k === 'power' || k === 'water' ? { tool, kind: k } : null; }
     case 'service': {
-      const named = typeof opts.name === 'string' ? SERVICES.find((s) => s.name === opts.name) : undefined;
-      const a = named ?? SERVICES.find((s) => s.id === num('arch')) ?? SERVICES.find((s) => s.id === ARCH.DEPOT);
+      const named = typeof opts.name === 'string' ? PLACEABLE.find((s) => s.name === opts.name) : undefined;
+      const a = named ?? PLACEABLE.find((s) => s.id === num('arch')) ?? PLACEABLE.find((s) => s.id === ARCH.DEPOT);
       return a ? { tool, arch: a.id } : null;
     }
     default: return null;
@@ -87,7 +101,7 @@ const next = <T,>(list: readonly T[], cur: T): T => list[(list.indexOf(cur) + 1)
 
 /**
  * B bulldoze, R road (rotate while placing a building, cycles street/avenue/highway while on road), Z zone (cycles
- * R/C/I, Shift+Z cycles density), T terraform (cycles raise/lower/level), Ctrl/Cmd+Z undo, Escape cancel.
+ * R/C/I, Shift+Z cycles density), T terraform (cycles raise/lower/level), L power line, P water pipe, Ctrl/Cmd+Z undo, Escape cancel.
  */
 export function keyAction(e: KeyLike, cur: ToolSel | null): KeyAction | null {
   const k = e.key.toLowerCase();
@@ -106,6 +120,8 @@ export function keyAction(e: KeyLike, cur: ToolSel | null): KeyAction | null {
         : { kind: 'select', sel: { tool: 'zone', zone: next([1, 2, 3] as const, cur.zone), density: cur.density } };
     }
     case 't': return { kind: 'select', sel: { tool: 'terraform', mode: cur?.tool === 'terraform' ? next(TERRAFORM_MODES, cur.mode) : 'raise' } };
+    case 'l': return { kind: 'select', sel: { tool: 'line', kind: 'power' } };
+    case 'p': return { kind: 'select', sel: { tool: 'line', kind: 'water' } };
     default: return null;
   }
 }

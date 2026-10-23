@@ -36,8 +36,11 @@ export const SPEC = {
   road: L(Uint16Array, TILES, true, 'geometry'),
   // Building id per tile: building slot + 1, 0 = none.
   bId: L(Uint16Array, TILES, true, 'geometry'),
-  ugPower: L(Uint8Array, TILES, true, 'overlay'),
-  ugWater: L(Uint8Array, TILES, true, 'overlay'),
+  // 1 = a power line (overhead, drawn as pylons and cables) / a water pipe (underground) on the tile. They travel with the
+  // geometry patch, not the 1 Hz overlay one: the ghost estimate and the pylons must see an edit at once.
+  ugPower: L(Uint8Array, TILES, true, 'geometry'),
+  ugWater: L(Uint8Array, TILES, true, 'geometry'),
+  // Written by the utilities solve: 0 not served, 1 served, 2 served by a network that is browned out (supply < demand).
   powerOn: L(Uint8Array, TILES, true, 'overlay'),
   waterOn: L(Uint8Array, TILES, true, 'overlay'),
   landValue: L(Uint8Array, TILES, true, 'overlay'),
@@ -90,6 +93,9 @@ export const SPEC = {
   jPostRoad: L(Uint16Array, UMAX * UCELLS, false, 'none'),
   jPrevZone: L(Uint8Array, UMAX * UCELLS, false, 'none'),
   jPostZone: L(Uint8Array, UMAX * UCELLS, false, 'none'),
+  // Power line (bit 0) and pipe (bit 1) presence before and after a placeLine command.
+  jPrevUg: L(Uint8Array, UMAX * UCELLS, false, 'none'),
+  jPostUg: L(Uint8Array, UMAX * UCELLS, false, 'none'),
 
   scalars: L(Float64Array, 32, false, 'none'),
   rng: L(Uint32Array, 4, false, 'none'),
@@ -144,6 +150,8 @@ export const S = {
   jobsC: 22, jobsI: 23, employed: 24, unemployment: 25,
   // Budget months completed so far, consecutive months ending with a negative treasury, and the pollution sum of the last pass.
   month: 26, lowMonths: 27, pollTotal: 28,
+  // Bit 0: power is modelled (the city has a producer or a power line); bit 1: water is (a source or a pipe). Set by utilities/solve.ts.
+  grid: 31,
 } as const;
 
 export const WEATHER = { CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;

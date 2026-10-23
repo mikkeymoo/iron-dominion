@@ -95,6 +95,18 @@ export class TerrainView {
     this.rebuildZoneTint();
   }
 
+  /**
+   * Underground view: the ground turns translucent and cool-tinted so the pipes beneath it show through. The opaque pipes
+   * draw first, then the ground blends over them. Depth writes stay on, so a hill still hides what is behind it.
+   */
+  setCutaway(on: boolean): void {
+    this.slots.cutawayAlpha.value = on ? 0.5 : 1;
+    this.terrainMat.transparent = on;
+    this.terrainMat.needsUpdate = true;
+  }
+
+  get cutaway(): boolean { return this.terrainMat.transparent; }
+
   setShadows(on: boolean): void {
     if (on === this.shadows) return;
     this.shadows = on;

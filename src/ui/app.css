@@ -70,6 +70,16 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .demand-track { position: relative; width: 12px; height: 30px; overflow: hidden; background: rgba(230, 237, 243, 0.12); border-radius: 3px; }
 .demand-track::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(230, 237, 243, 0.55); }
 .demand-fill { position: absolute; left: 0; right: 0; }
+.util { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 0 4px; font-size: 0.72rem; }
+.util-bar { display: grid; grid-template-columns: auto 52px auto; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.util-track { height: 8px; overflow: hidden; background: rgba(230, 237, 243, 0.14); border-radius: 4px; }
+.util-fill { height: 100%; background: #3fb950; transition: width 0.4s; }
+.util-bar.warn .util-fill { background: #e3a008; }
+.util-bar.bad .util-fill { background: #f85149; }
+.util-bar.warn .util-num { color: #f2c879; }
+.util-bar.bad .util-num { color: #ff9b91; }
+.util-warn { flex-basis: 100%; color: #ffb3ab; font-weight: 600; }
+.view-row { padding-top: 2px; border-top: 1px solid rgba(230, 237, 243, 0.12); }
 .net { font-weight: 600; color: #7ee787; }
 .net.neg, .budget td.neg { color: #ff9b91; }
 .tb.coin { font-size: 1.15rem; }

@@ -117,6 +117,12 @@ export interface Stats {
   weatherIntensity: number;
   /** Road graph epoch: bumps once per tick in which roads changed. */
   graphEpoch: number;
+  /** Totals of the last utilities solve: MW produced and drawn, ML of water produced and drawn. All zero until the first solve. */
+  power: { supply: number; demand: number };
+  water: { supply: number; demand: number };
+  /** Finished consumers currently without power or water (0 while that network is not modelled). */
+  unpowered: number;
+  unwatered: number;
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }

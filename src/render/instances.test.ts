@@ -110,6 +110,32 @@ describe('BuildingInstances over a synthetic mirror', () => {
     expect(d.site.has(0)).toBe(false);
   });
 
+  it('darkens a finished building without power and lists an outage icon; a building still under construction shows neither', () => {
+    const { mirror, d } = setup(ALL);
+    const w = (slot: number): number => d.near.batches.get(d.near.keyOf(slot)!)!.state[d.near.indexOf(slot) * STATE_STRIDE + 3]!;
+    patch(mirror, [rec(0, A, 10, 10, 1), rec(1, A, 14, 10, 1, { flags: BFLAG.UNPOWERED }), rec(2, A, 18, 10, 1, { flags: BFLAG.UNWATERED }), rec(3, A, 22, 10, 1, { flags: BFLAG.UNPOWERED | BFLAG.UNWATERED }), rec(4, A, 26, 10, 1, { flags: BFLAG.CONSTRUCTING | BFLAG.UNPOWERED, prog: 100 })]);
+    d.sync();
+    expect([0, 1, 2, 3, 4].map(w)).toEqual([0, 1, 0, 1, 0]);
+    expect([...d.outages.keys()]).toEqual([1, 2, 3]);
+    expect(d.outages.get(1)).toMatchObject({ power: true, water: false });
+    expect(d.outages.get(2)).toMatchObject({ power: false, water: true });
+    expect(d.outages.get(3)).toMatchObject({ power: true, water: true });
+    expect(d.outages.get(1)!.y).toBeGreaterThan(1.5);
+    const v = d.outageVersion;
+    patch(mirror, [rec(1, A, 14, 10, 1)]);
+    d.sync();
+    expect(w(1)).toBe(0);
+    expect(d.outages.has(1)).toBe(false);
+    expect(d.outageVersion).toBeGreaterThan(v);
+    const v2 = d.outageVersion;
+    patch(mirror, [rec(2, A, 18, 10, 1, { flags: BFLAG.UNWATERED })]);
+    d.sync();
+    expect(d.outageVersion, 'rewriting an unchanged record does not bump the version').toBe(v2);
+    patch(mirror, [rec(3, 0, 0, 0, 0)]);
+    d.sync();
+    expect(d.outages.has(3)).toBe(false);
+  });
+
   it('removes a freed slot and compacts without disturbing the others', () => {
     const { mirror, d } = setup(ALL);
     patch(mirror, [rec(0, A, 10, 10, 1), rec(1, A, 11, 10, 1), rec(2, A, 12, 10, 1), rec(3, A, 13, 10, 1)]);

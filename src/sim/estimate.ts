@@ -1,6 +1,6 @@
 import {
-  archetype, BRIDGE_EXTRA, BULLDOZE_COST, HEIGHT_MAX, HEIGHT_MIN, MAX_TERRAFORM_TILES, ROAD_COST, TERRAFORM_COST, TERRAFORM_STEP,
-  ZONE_COST, type Archetype,
+  archetype, BRIDGE_EXTRA, BULLDOZE_COST, HEIGHT_MAX, HEIGHT_MIN, MAX_TERRAFORM_TILES, PIPE_COST, POWER_LINE_COST, ROAD_COST,
+  TERRAFORM_COST, TERRAFORM_STEP, ZONE_COST, type Archetype,
 } from './catalog.ts';
 import type { CommandBody } from './commands.ts';
 import { MAP, ROAD, SLOPE_LIMIT, TERRAIN, UCELLS, isWaterTerrain } from './layers.ts';
@@ -17,11 +17,14 @@ export interface TileRead {
   road: ArrayLike<number>;
   zone: ArrayLike<number>;
   bId: ArrayLike<number>;
+  /** Power line and pipe presence. Optional so a hand-built read without utilities still works (treated as all clear). */
+  ugPower?: ArrayLike<number>;
+  ugWater?: ArrayLike<number>;
 }
 
 export const tileReadOf = (layers: Record<string, ArrayLike<number>>): TileRead => ({
   terrain: layers.terrain!, height: layers.height!, waterDepth: layers.waterDepth!,
-  road: layers.road!, zone: layers.zone!, bId: layers.bId!,
+  road: layers.road!, zone: layers.zone!, bId: layers.bId!, ugPower: layers.ugPower, ugWater: layers.ugWater,
 });
 
 export interface Estimate {
@@ -87,6 +90,29 @@ function estimateRoad(v: TileRead, c: Extract<CommandBody, { type: 'placeRoad' }
   return { cost, validTiles: valid, invalidTiles: invalid };
 }
 
+/**
+ * A power line or water pipe along the same L-shaped path as a road. Neither can cross water; a power line also cannot stand on
+ * a building (a pipe runs underneath one). Tiles that already carry this kind are skipped and cost nothing, so validTiles lists
+ * only the tiles the command would change.
+ */
+function estimateLine(v: TileRead, c: Extract<CommandBody, { type: 'placeLine' }>): Estimate {
+  if (!isInts(c.ax, c.ay, c.bx, c.by) || (c.kind !== 'power' && c.kind !== 'water')) return fail('invalid');
+  if (!inBounds(c.ax, c.ay) || !inBounds(c.bx, c.by)) return fail('bounds');
+  const path = roadPath(c);
+  if (path.length > MAX_ROAD_CELLS) return fail('too-large');
+  const power = c.kind === 'power', layer = power ? v.ugPower : v.ugWater;
+  const valid: number[] = [], invalid: number[] = [];
+  let reason: string | undefined;
+  for (const i of path) {
+    if (isWaterTerrain(v.terrain[i]!) || v.waterDepth[i]! > 0) { reason ??= 'terrain'; invalid.push(i); continue; }
+    if (power && v.bId[i]) { reason ??= 'blocked'; invalid.push(i); continue; }
+    if (!layer?.[i]) valid.push(i);
+  }
+  if (reason) return fail(reason, valid, invalid);
+  if (valid.length === 0) return fail('noop');
+  return { cost: valid.length * (power ? POWER_LINE_COST : PIPE_COST), validTiles: valid, invalidTiles: invalid };
+}
+
 function estimateZone(v: TileRead, c: Extract<CommandBody, { type: 'zone' }>): Estimate {
   if (!isInts(c.zone, c.density)) return fail('invalid');
   if (c.zone < 1 || c.zone > 3 || c.density < 0 || c.density > 2) return fail('invalid');
@@ -115,13 +141,21 @@ function estimateBulldoze(v: TileRead, c: Extract<CommandBody, { type: 'bulldoze
   const slots = new Set<number>();
   const valid: number[] = [];
   let cost = 0;
+  // Underground mode touches pipes only; the surface mode clears buildings, roads, zones and power lines.
+  if (c.under) {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = tileIdx(x, y);
+      if (v.ugWater?.[i]) { cost += BULLDOZE_COST; valid.push(i); }
+    }
+    return cost === 0 ? fail('noop') : { cost, validTiles: valid, invalidTiles: [] };
+  }
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = tileIdx(x, y);
     if (v.bId[i]) {
       if (!slots.has(v.bId[i]! - 1)) cost += BULLDOZE_COST;
       slots.add(v.bId[i]! - 1);
       valid.push(i);
-    } else if (v.road[i] || v.zone[i]) { cost += BULLDOZE_COST; valid.push(i); }
+    } else if (v.road[i] || v.zone[i] || v.ugPower?.[i]) { cost += BULLDOZE_COST; valid.push(i); }
   }
   if (cost === 0) return fail('noop');
   return { cost, validTiles: valid, invalidTiles: [] };
@@ -139,7 +173,7 @@ export function estimateSite(v: TileRead, a: Archetype, x: number, y: number, ro
     if (!inBounds(xx, yy)) { reason ??= 'bounds'; continue; }
     const i = tileIdx(xx, yy);
     if (isWaterTerrain(v.terrain[i]!)) { reason ??= 'terrain'; invalid.push(i); }
-    else if (v.road[i] || v.bId[i]) { reason ??= 'blocked'; invalid.push(i); }
+    else if (v.road[i] || v.bId[i] || v.ugPower?.[i]) { reason ??= 'blocked'; invalid.push(i); }
     else valid.push(i);
   }
   if (!inBounds(x, y) || !inBounds(x + bw - 1, y + bh - 1)) reason = 'bounds';
@@ -152,6 +186,7 @@ function estimateBuilding(v: TileRead, c: Extract<CommandBody, { type: 'placeBui
   const a = archetype(c.arch);
   if (!a) return fail('unknown-archetype');
   if (!a.placeable) return fail('not-placeable');
+  if (a.locked) return fail('locked');
   return estimateSite(v, a, c.x, c.y, c.rot, a.cost, treasury);
 }
 
@@ -217,6 +252,7 @@ export function estimate(v: TileRead, cmd: CommandBody, treasury?: number): Esti
   switch (cmd.type) {
     case 'placeRoad': return withFunds(estimateRoad(v, cmd), treasury);
     case 'placeBuilding': return estimateBuilding(v, cmd, treasury);
+    case 'placeLine': return withFunds(estimateLine(v, cmd), treasury);
     case 'zone': case 'bulldoze': case 'terraform': {
       const e = withFunds(cmd.type === 'zone' ? estimateZone(v, cmd) : cmd.type === 'bulldoze' ? estimateBulldoze(v, cmd) : estimateTerraform(v, cmd), treasury);
       const r = rectOf(cmd);

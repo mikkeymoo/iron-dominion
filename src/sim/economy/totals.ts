@@ -16,9 +16,12 @@ export const zoneOfArch = (arch: number): number => ZONE_OF[arch] ?? 0;
 /** Residents (R) or jobs (C, I) a finished building of this archetype provides. */
 export const occupancyOf = (arch: number): number => OCCUPANCY[arch] ?? 0;
 
-/** A slot that houses people or offers jobs: an RCI building that is neither under construction nor abandoned. */
+/**
+ * A slot that houses people or offers jobs: an RCI building that is not under construction, abandoned or without power.
+ * Water does not gate it: a building the water network misses still holds its people but loses land value and cannot grow.
+ */
 export const isOperating = (world: World, slot: number): boolean =>
-  ZONE_OF[world.bArch[slot]!] !== 0 && (world.bFlags[slot]! & (BFLAG.CONSTRUCTING | BFLAG.ABANDONED)) === 0;
+  ZONE_OF[world.bArch[slot]!] !== 0 && (world.bFlags[slot]! & (BFLAG.CONSTRUCTING | BFLAG.ABANDONED | BFLAG.UNPOWERED)) === 0;
 
 /** Mean (floored) of a tile layer under a building's footprint. */
 export function footprintMean(world: World, layer: Uint8Array, slot: number): number {

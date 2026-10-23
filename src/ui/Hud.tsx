@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LoanInfo, Speed } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
+import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
@@ -34,6 +35,12 @@ export interface HudStats {
   lastNet: number;
   loans: LoanInfo[];
   debtMonths: number;
+  /** MW and ML produced and drawn at the last utilities solve. */
+  power: { supply: number; demand: number };
+  water: { supply: number; demand: number };
+  /** Finished buildings without power or water. */
+  unpowered: number;
+  unwatered: number;
 }
 
 interface Props {
@@ -109,6 +116,7 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
           </span>
         </div>
         <DemandBars demand={stats.rciDemand} />
+        <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} />
         <button type="button" className="tb coin" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" title="Budget" onClick={onBudget}>$</button>
         <button type="button" className="tb wide" onClick={onSave} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>
         <button type="button" className="tb wide" aria-expanded={menu} aria-haspopup="dialog" onClick={() => (menu ? closeMenu() : setMenu(true))}>Menu</button>

@@ -47,6 +47,8 @@ export function createTerrainMaterial(): { material: MeshStandardNodeMaterial; s
 
   let c = vertexColor().rgb;
   c = mix(c, zone.rgb, zone.a);
+  // Underground view (cutawayAlpha < 1): cool, darker ground so the glowing pipes and the coverage tint carry the picture.
+  c = mix(c, vec3(0.05, 0.1, 0.17), cutawayAlpha.oneMinus().mul(1.1));
   c = mix(c, overlay.rgb, overlay.a.mul(overlayOpacity).mul(step(0.5, overlayMode)));
   c = mix(c, selectionTint.rgb, inRect.mul(selectionTint.a));
 

@@ -14,6 +14,7 @@ import { TIER_TABLE, createGovernor, readStoredTier, resolveTier, type Governor,
 import type { ToolController } from './tools/controller.ts';
 import { GhostView } from './tools/ghostView.ts';
 import { createToolInput } from './tools/pointer.ts';
+import { isOverlayMode, type ViewState } from './viewState.ts';
 
 export interface GameDeps {
   host: HTMLElement;
@@ -22,6 +23,8 @@ export interface GameDeps {
   search: string;
   /** Build tools: when set, an active tool takes one-finger / left-button drags and the ghost preview is drawn. */
   tools?: ToolController;
+  /** Overlay mode and underground view, set by the HUD. Without it the terrain shows no overlay and the surface view. */
+  view?: ViewState;
   /** Called when the renderer cannot be recovered after a device loss. */
   onFatal: (message: string) => void;
 }
@@ -159,8 +162,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
         showcaseCamera = c;
       } else console.warn('[showcase] no flat land window found');
     }
-    mirror.takeDirtyOverlay();
     world.buildings.update();
+    world.updateUtilities(deps.view, now / 1000, rig.state.dist);
     if (deps.tools && ghost) { deps.tools.sync(); ghost.update(deps.tools); }
 
     world.render();
@@ -243,6 +246,18 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     },
     get fx() { return world.fx.debug; },
     get ghostTiles() { return ghost?.painted ?? 0; },
+    get overlay() { return { mode: world.overlay.mode, checksum: world.overlay.checksum, uploads: world.overlay.uploads }; },
+    get underground() {
+      const l = world.lines.stats;
+      return { on: world.underground, cutaway: world.terrain.cutaway, pipeSegments: l.pipeSegments, pipeDraws: l.pipeDraws, buildingsHidden: !world.buildings.group.visible };
+    },
+    get lines() {
+      const l = world.lines.stats;
+      return { pylons: l.pylons, spans: l.spans, pipeSegments: l.pipeSegments, drawCalls: l.cableDraws };
+    },
+    get outageIcons() { return world.icons.icons; },
+    setOverlay(mode) { if (!deps.view || !isOverlayMode(mode)) return false; deps.view.setOverlay(mode); return true; },
+    setUnderground(on) { deps.view?.setUnderground(on); },
     get canvasCount() { return host.querySelectorAll('canvas').length; },
     get camera() {
       const s = rig.state, p = rig.pose();
