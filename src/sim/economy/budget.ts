@@ -4,14 +4,14 @@ import type { BudgetRecord, LoanInfo } from '../protocol.ts';
 import type { Sim } from '../world.ts';
 import { taxRate } from './demand.ts';
 import {
-  BANKRUPT_MONTHS, BRIDGE_UPKEEP, HEAD_BASE, HEAD_LV, LOAN_BP, LOAN_TIERS, ROAD_UPKEEP,
+  BANKRUPT_MONTHS, BRIDGE_UPKEEP, HEAD_BASE, HEAD_LV, LOAN_BP, LOAN_TIERS, MONTH_TICKS, ROAD_UPKEEP,
 } from './tables.ts';
 import { footprintMean, isOperating, occupancyOf, countTotals, zoneOfArch } from './totals.ts';
 
 /** Field offsets inside one record of the `budget` ring. Field 0 is the completed month number plus one; 0 marks an empty slot. */
 export const BUDGET_FIELD = {
   month: 0, incomeR: 1, incomeC: 2, incomeI: 3, roads: 4, services: 5, interest: 6,
-  income: 7, expenses: 8, net: 9, population: 10, treasury: 11,
+  income: 7, expenses: 8, net: 9, population: 10, treasury: 11, robotUpkeep: 12, imports: 13, robotPurchases: 14,
 } as const;
 if (Object.keys(BUDGET_FIELD).length !== BUDGET_FIELDS) throw new Error('BUDGET_FIELD does not match BUDGET_FIELDS');
 
@@ -19,7 +19,8 @@ const UPKEEP = new Int32Array(256);
 for (const a of CATALOG) if (!isRci(a.id)) UPKEEP[a.id] = a.upkeep ?? 0;
 
 const EMPTY: BudgetRecord = {
-  month: -1, incomeR: 0, incomeC: 0, incomeI: 0, roads: 0, services: 0, interest: 0, income: 0, expenses: 0, net: 0, population: 0, treasury: 0,
+  month: -1, incomeR: 0, incomeC: 0, incomeI: 0, roads: 0, services: 0, interest: 0, robotUpkeep: 0, imports: 0, robotPurchases: 0,
+  income: 0, expenses: 0, net: 0, population: 0, treasury: 0,
 };
 
 /**
@@ -52,11 +53,27 @@ export function computeBudget(world: World, month: number): BudgetRecord {
   }
   let interest = 0;
   for (let l = 0; l < MAX_LOANS; l++) interest += Math.floor((world.loanAmt[l]! * world.loanBp[l]!) / 10000);
-  const income = inc[0]! + inc[1]! + inc[2]!, expenses = roads + services + interest;
+  const robotUpkeep = world.spend[0]!, imports = world.spend[1]!, robotPurchases = world.spend[2]!;
+  const income = inc[0]! + inc[1]! + inc[2]!, expenses = roads + services + interest + robotUpkeep + imports + robotPurchases;
   return {
-    month, incomeR: inc[0]!, incomeC: inc[1]!, incomeI: inc[2]!, roads, services, interest, income, expenses,
+    month, incomeR: inc[0]!, incomeC: inc[1]!, incomeI: inc[2]!, roads, services, interest, robotUpkeep, imports, robotPurchases, income, expenses,
     net: income - expenses, population: t.population, treasury: world.scalars[S.treasury]! + income - expenses,
   };
+}
+
+/**
+ * A city founded mid-day closes its first month at the first midnight, having run only part of a month: income and the
+ * standing charges (roads, services, interest) scale by the ticks elapsed. Robot costs are real spending and are not scaled.
+ * `elapsed` is 0 when the record is closed by hand (tests), which counts as a full month.
+ */
+function prorate(r: BudgetRecord, elapsed: number, treasuryBefore: number): BudgetRecord {
+  if (elapsed <= 0 || elapsed >= MONTH_TICKS) return r;
+  const k = (v: number): number => Math.floor((v * elapsed) / MONTH_TICKS);
+  const incomeR = k(r.incomeR), incomeC = k(r.incomeC), incomeI = k(r.incomeI);
+  const roads = k(r.roads), services = k(r.services), interest = k(r.interest);
+  const income = incomeR + incomeC + incomeI;
+  const expenses = roads + services + interest + r.robotUpkeep + r.imports + r.robotPurchases;
+  return { ...r, incomeR, incomeC, incomeI, roads, services, interest, income, expenses, net: income - expenses, treasury: treasuryBefore + income - expenses };
 }
 
 function writeRecord(world: World, r: BudgetRecord): void {
@@ -67,14 +84,16 @@ function writeRecord(world: World, r: BudgetRecord): void {
   f[base + BUDGET_FIELD.roads] = r.roads; f[base + BUDGET_FIELD.services] = r.services; f[base + BUDGET_FIELD.interest] = r.interest;
   f[base + BUDGET_FIELD.income] = r.income; f[base + BUDGET_FIELD.expenses] = r.expenses; f[base + BUDGET_FIELD.net] = r.net;
   f[base + BUDGET_FIELD.population] = r.population; f[base + BUDGET_FIELD.treasury] = r.treasury;
+  f[base + BUDGET_FIELD.robotUpkeep] = r.robotUpkeep; f[base + BUDGET_FIELD.imports] = r.imports; f[base + BUDGET_FIELD.robotPurchases] = r.robotPurchases;
 }
 
 /** Close the month in progress: pay it into the treasury, store the record, count consecutive negative months. */
 export function closeMonth(sim: Sim): BudgetRecord {
   const w = sim.world, sc = w.scalars, month = sc[S.month]!;
-  const r = computeBudget(w, month);
+  const r = prorate(computeBudget(w, month), w.spend[3]!, sc[S.treasury]!);
   sc[S.treasury] = r.treasury;
   writeRecord(w, r);
+  w.spend.fill(0);
   sc[S.month] = month + 1;
   sc[S.lowMonths] = r.treasury < 0 ? sc[S.lowMonths]! + 1 : 0;
   // Once per crossing: a long stay in debt does not repeat the warning until the treasury recovers and sinks again.
@@ -92,6 +111,7 @@ export function budgetHistory(world: World): BudgetRecord[] {
     out.push({
       month: f[b + F.month]! - 1, incomeR: f[b + F.incomeR]!, incomeC: f[b + F.incomeC]!, incomeI: f[b + F.incomeI]!,
       roads: f[b + F.roads]!, services: f[b + F.services]!, interest: f[b + F.interest]!, income: f[b + F.income]!,
+      robotUpkeep: f[b + F.robotUpkeep]!, imports: f[b + F.imports]!, robotPurchases: f[b + F.robotPurchases]!,
       expenses: f[b + F.expenses]!, net: f[b + F.net]!, population: f[b + F.population]!, treasury: f[b + F.treasury]!,
     });
   }

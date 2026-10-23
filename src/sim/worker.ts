@@ -4,6 +4,7 @@ import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
 import { queryPath } from './roads/index.ts';
+import { workforceOf } from './robots/index.ts';
 import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
 import type { Sim } from './world.ts';
 
@@ -79,6 +80,7 @@ function flush(now: number, force = false): void {
       type: 'stats', tick: tickOf(sim), tickMs, skippedSends, halted,
       treasury: s[S.treasury]!, population: s[S.population]!, dayFrac: s[S.dayFrac]!, day: s[S.day]!,
       weather: s[S.weather]!, weatherIntensity: s[S.weatherIntensity]!, graphEpoch: s[S.graphEpoch]!,
+      workforce: workforceOf(sim.world),
       ...econStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }

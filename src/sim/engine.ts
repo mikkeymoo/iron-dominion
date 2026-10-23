@@ -1,6 +1,6 @@
 import type { Command } from './commands.ts';
 import { hashWorld } from './hash.ts';
-import { AMAX, CHUNK, REGISTRY, S, isTileLayer, type World } from './layers.ts';
+import { AMAX, CHUNK, DAY_TICKS, REGISTRY, S, isTileLayer, type World } from './layers.ts';
 import type { ChunkPatch, EventsMsg, FromWorker, OverlayPatch, ResyncMsg, Typed } from './protocol.ts';
 import { DEFAULT_TAX } from './economy/tables.ts';
 import { RoadNet } from './roads/graph.ts';
@@ -13,6 +13,7 @@ import { copyChunkOut, readBuilding } from './tiles.ts';
 import { allocWorld, newDirty, type Sim } from './world.ts';
 
 export const START_TREASURY = 50000;
+export const START_DAYFRAC = 0.3;
 
 export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   const world = allocWorld();
@@ -21,6 +22,9 @@ export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   s[S.treasury] = START_TREASURY;
   s[S.taxR] = DEFAULT_TAX; s[S.taxC] = DEFAULT_TAX; s[S.taxI] = DEFAULT_TAX;
   s[S.nextAgentId] = 1;
+  // A new city opens at 07:00 so the first robots build in morning light.
+  s[S.dayFrac] = START_DAYFRAC;
+  s[S.tickOfDay] = Math.round(START_DAYFRAC * DAY_TICKS);
   seedRng(world.rng, seed);
   generateTerrain(world, seed);
   return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true, roads: RoadNet.build(world) };
@@ -110,11 +114,13 @@ export function packAgents(sim: Sim, pos: Float32Array, ids: Uint32Array, view?:
   const w = sim.world;
   let n = 0;
   for (let s = 0; s < AMAX; s++) {
-    if (w.aKind[s] === 0) continue;
+    // Robots waiting inside a depot are not drawn, so they are not sent.
+    if (w.aKind[s] === 0 || w.aState[s] === 0) continue;
     const x = w.aX[s]!, y = w.aY[s]!;
     if (view && (x < view.x0 || x > view.x1 || y < view.y0 || y > view.y1)) continue;
     pos[n * 3] = x; pos[n * 3 + 1] = y; pos[n * 3 + 2] = w.aHead[s]!;
-    ids[n * 2] = (s | (w.aGen[s]! << 16)) >>> 0; ids[n * 2 + 1] = w.aKind[s]!;
+    ids[n * 2] = (s | (w.aGen[s]! << 16)) >>> 0;
+    ids[n * 2 + 1] = w.aKind[s]! | (w.aState[s]! << 8) | (w.aCarry[s]! > 0 && w.aState[s] === 5 ? 1 << 16 : 0);
     n++;
   }
   return n;

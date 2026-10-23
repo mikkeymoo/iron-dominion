@@ -2,7 +2,7 @@ import type { Command } from './commands.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export type Speed = 0 | 1 | 2 | 4 | 'max';
 export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float32Array | Float64Array | Int8Array | Int32Array;
@@ -55,7 +55,7 @@ export interface AgentsMsg {
   count: number;
   /** x, y, heading per agent. */
   pos: Float32Array;
-  /** Per agent two words: slot | generation << 16, kind. */
+  /** Per agent two words: slot | generation << 16, and kind | state << 8 | carrying << 16 (see AKIND and AST in sim/robots/constants.ts). */
   ids: Uint32Array;
 }
 export interface AgentsReturn { type: 'agentsReturn'; pos: Float32Array; ids: Uint32Array }
@@ -66,6 +66,8 @@ export interface BudgetRecord {
   month: number;
   incomeR: number; incomeC: number; incomeI: number;
   roads: number; services: number; interest: number;
+  /** Robot workforce costs accrued over the month: upkeep, imported building material, newly built robots. */
+  robotUpkeep: number; imports: number; robotPurchases: number;
   income: number; expenses: number; net: number;
   population: number;
   /** Treasury after the month was paid. */
@@ -88,8 +90,17 @@ export interface BudgetMsg {
   /** [R, C, I] tax percent. */
   taxRates: [number, number, number];
 }
+/** Robot workforce numbers for the HUD. `active` robots are out of their depot. */
+export interface Workforce {
+  builders: number; haulers: number; activeBuilders: number; activeHaulers: number;
+  /** Construction, level-up and demolition jobs in progress. */
+  jobs: number;
+  /** Material units held by depots and industry. */
+  stock: number;
+}
 export interface Stats {
   type: 'stats';
+  workforce: Workforce;
   tick: number;
   hash?: number;
   tickMs: number;

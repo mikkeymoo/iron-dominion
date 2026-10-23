@@ -39,6 +39,8 @@ export const BFLAG = {
   CONSTRUCTING: 1,
   /** Set by the economy when a completed RCI building has sat in very low desirability with negative demand; U7 decays or demolishes it. */
   ABANDONED: 2,
+  /** Set with CONSTRUCTING while robots tear a building down: bProg runs from 255 down to 0, then the slot is freed. */
+  DEMOLISHING: 4,
 } as const;
 
 const rciArchetypes = (): Archetype[] => {

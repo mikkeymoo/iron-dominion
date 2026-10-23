@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SimClient } from '../sim/client.ts';
 import { startGame, type Game, type PerfSnapshot } from '../render/game.ts';
+import type { AgentStore } from '../render/agentStore.ts';
 import type { RenderMirror } from '../render/mirror.ts';
 import type { Lifecycle } from '../platform/lifecycle.ts';
 import { bindLifecycleDom } from '../platform/lifecycle.ts';
@@ -13,6 +14,7 @@ import type { ToolsRuntime } from './toolsStore.ts';
 interface Props {
   client: SimClient;
   mirror: RenderMirror;
+  agents: AgentStore;
   tools: ToolsRuntime;
   lifecycle: Lifecycle;
   stats: HudStats;
@@ -33,13 +35,14 @@ interface Props {
 
 type Phase = 'starting' | 'running' | 'failed';
 
-export function GameView({ client, mirror, tools, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting }: Props) {
+export function GameView({ client, mirror, agents, tools, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>('starting');
   const [error, setError] = useState('');
   const [perf, setPerf] = useState<PerfSnapshot | null>(null);
   const [panel, setPanel] = useState(true);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [following, setFollowing] = useState(false);
   const game = useRef<Game | null>(null);
 
   useEffect(() => {
@@ -47,7 +50,7 @@ export function GameView({ client, mirror, tools, lifecycle, stats, settings, no
     const el = host.current;
     if (!el) return;
     const fail = (message: string): void => { setError(message); setPhase('failed'); };
-    startGame({ host: el, mirror, client, tools: tools.controller, search: window.location.search, onFatal: fail })
+    startGame({ host: el, mirror, client, agents, tools: tools.controller, search: window.location.search, onFatal: fail })
       .then((g) => {
         if (cancelled) { g.dispose(); return; }
         game.current = g;
@@ -61,11 +64,11 @@ export function GameView({ client, mirror, tools, lifecycle, stats, settings, no
       game.current = null;
       if (window.__iron) delete window.__iron.render;
     };
-  }, [client, mirror, tools]);
+  }, [client, mirror, agents, tools]);
 
   useEffect(() => {
     if (phase !== 'running') return;
-    const id = window.setInterval(() => { const g = game.current; if (g) setPerf(g.perf()); }, 250);
+    const id = window.setInterval(() => { const g = game.current; if (g) { setPerf(g.perf()); setFollowing(g.debug.following); } }, 250);
     return () => window.clearInterval(id);
   }, [phase]);
 
@@ -90,7 +93,7 @@ export function GameView({ client, mirror, tools, lifecycle, stats, settings, no
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
         {phase === 'running' && <Tools runtime={tools} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setBudgetOpen(false)} />}
         <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
