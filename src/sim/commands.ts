@@ -1,4 +1,6 @@
 import { archetype, BFLAG, type Archetype } from './catalog.ts';
+import { repayLoan, takeLoan } from './economy/budget.ts';
+import { TAX_MAX } from './economy/tables.ts';
 import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
 import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { inBounds, tileIdx } from './tiles.ts';
@@ -13,7 +15,12 @@ export type CommandBody =
   | { type: 'terraform'; mode: 'raise' | 'lower' | 'level'; x0: number; y0: number; x1: number; y1: number }
   | { type: 'debugGrow'; x: number; y: number; archetype: number; progress: number }
   | { type: 'debugLevel'; x0: number; y0: number; x1: number; y1: number; margin: number }
-  | { type: 'setTax'; rate: number }
+  /** Whole percent 0..TAX_MAX for one zone (1 R, 2 C, 3 I), or for all three when `zone` is omitted. */
+  | { type: 'setTax'; rate: number; zone?: number }
+  /** Borrow LOAN_TIERS[tier]; at most MAX_LOANS at once. */
+  | { type: 'takeLoan'; tier: number }
+  /** Repay the whole principal of the loan in `slot` from the treasury. */
+  | { type: 'repayLoan'; slot: number }
   | { type: 'undo'; target: number };
 
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
@@ -126,7 +133,7 @@ function clearBuilding(sim: Sim, slot: number): void {
     markDirty(sim, 'geometry', xx, yy);
   }
   w.bArch[slot] = 0; w.bX[slot] = 0; w.bY[slot] = 0; w.bW[slot] = 0; w.bH[slot] = 0;
-  w.bRot[slot] = 0; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0;
+  w.bRot[slot] = 0; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0; w.bAband[slot] = 0;
   w.bGen[slot] = (w.bGen[slot]! + 1) & 0xffff;
   for (let u = 0; u < UMAX; u++) if (w.uKind[u] === UNDO.BUILDING && w.uArg[u] === slot) { w.uKind[u] = UNDO.NONE; w.uCmd[u] = 0; }
   sim.dirty.buildings.add(slot);
@@ -163,7 +170,7 @@ function placeSite(sim: Sim, a: Archetype, x: number, y: number, rot: number, o:
   const cells = site.validTiles;
   const cap = o.journal ? capture(w, cells) : undefined;
   w.bArch[slot] = a.id; w.bX[slot] = x; w.bY[slot] = y; w.bW[slot] = bw; w.bH[slot] = bh;
-  w.bRot[slot] = rot; w.bLevel[slot] = o.level; w.bProg[slot] = o.prog; w.bFlags[slot] = o.flags;
+  w.bRot[slot] = rot; w.bLevel[slot] = o.level; w.bProg[slot] = o.prog; w.bFlags[slot] = o.flags; w.bAband[slot] = 0;
   for (const i of cells) { w.bId[i] = slot + 1; w.zone[i] = 0; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); }
   sim.dirty.buildings.add(slot);
   w.scalars[S.treasury]! -= o.cost;
@@ -275,9 +282,18 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   return 0;
 }
 
+const TAX_SCALAR = [S.taxR, S.taxC, S.taxI] as const;
+
 function setTax(sim: Sim, c: Extract<Command, { type: 'setTax' }>): void {
-  if (!isInts(c.rate) || c.rate < 0 || c.rate > 30) reject('bounds');
-  sim.world.scalars[S.tax] = c.rate;
+  if (!isInts(c.rate) || (c.zone !== undefined && !isInts(c.zone))) reject('invalid');
+  if (c.rate < 0 || c.rate > TAX_MAX) reject('bounds');
+  if (c.zone !== undefined && (c.zone < 1 || c.zone > 3)) reject('bounds');
+  for (const z of c.zone === undefined ? [1, 2, 3] : [c.zone!]) sim.world.scalars[TAX_SCALAR[z - 1]!] = c.rate;
+}
+
+function loan(sim: Sim, c: Extract<Command, { type: 'takeLoan' | 'repayLoan' }>): void {
+  const why = c.type === 'takeLoan' ? takeLoan(sim.world, c.tier) : repayLoan(sim.world, c.slot);
+  if (why) reject(why);
 }
 
 /** Validate and execute one command. Never throws: failures become `rejected` events with state unchanged. */
@@ -295,6 +311,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'debugGrow': debugGrow(sim, cmd); break;
       case 'debugLevel': debugLevel(sim, cmd); break;
       case 'setTax': setTax(sim, cmd); break;
+      case 'takeLoan': case 'repayLoan': loan(sim, cmd); break;
       case 'undo': undo(sim, cmd); break;
       default: reject('unknown-command');
     }

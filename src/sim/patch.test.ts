@@ -27,7 +27,8 @@ describe('ChunkPatch and mirror', () => {
     const { x, y } = findLandWindow(sim.world, 16);
     apply(sim, { id: 1, tick: 0, type: 'placeRoad', ax: x, ay: y, bx: x + 3, by: y, cls: 1 });
     step(sim);
-    const out = collectOutgoing(sim);
+    // The economy rewrites landValue as the tick runs; overlay patches carry it to the mirror.
+    const out = collectOutgoing(sim, { overlay: true });
     const patch = out.find((m) => m.type === 'chunkPatch') as ChunkPatch;
     expect(patch).toBeDefined();
     const expected = new Set<number>();
@@ -48,7 +49,7 @@ describe('ChunkPatch and mirror', () => {
 
     apply(sim, { id: 2, tick: 0, type: 'placeBuilding', arch: ARCH.FIRE_STATION, x: x + 6, y: y + 6, rot: 0 });
     step(sim);
-    for (const m of collectOutgoing(sim)) mirror.apply(m);
+    for (const m of collectOutgoing(sim, { overlay: true })) mirror.apply(m);
     const slot = mirror.buildingAt(x + 6, y + 6);
     expect(slot).toBeGreaterThanOrEqual(0);
     expect(mirror.building(slot)?.arch).toBe(ARCH.FIRE_STATION);

@@ -1,5 +1,6 @@
 import { execute } from './commands.ts';
 import { DAY_TICKS, MAP, S, WEATHER } from './layers.ts';
+import { economySystem } from './economy/index.ts';
 import { roadsSystem } from './roads/index.ts';
 import { nextFloat, nextInt } from './rng.ts';
 import type { Sim } from './world.ts';
@@ -51,7 +52,6 @@ function clockWeather(sim: Sim): void {
 
 // Named no-op hooks reserve each future system's slot in the fixed order.
 const growth: System = () => {};
-const economy: System = () => {};
 const utilities: System = () => {};
 const traffic: System = () => {};
 const services: System = () => {};
@@ -63,7 +63,7 @@ export const SYSTEMS: readonly { name: string; run: System }[] = [
   { name: 'roads', run: roadsSystem },
   { name: 'clockWeather', run: clockWeather },
   { name: 'growth', run: growth },
-  { name: 'economy', run: economy },
+  { name: 'economy', run: economySystem },
   { name: 'utilities', run: utilities },
   { name: 'traffic', run: traffic },
   { name: 'services', run: services },

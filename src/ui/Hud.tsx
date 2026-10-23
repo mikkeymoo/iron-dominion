@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Speed } from '../sim/protocol.ts';
+import type { LoanInfo, Speed } from '../sim/protocol.ts';
+import { DemandBars } from './DemandBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
@@ -22,13 +23,26 @@ export const failText = (reason: FailReason, message?: string): string => {
   }
 };
 
-export interface HudStats { tick: number; day: number; dayFrac: number; treasury: number; population: number }
+export interface HudStats {
+  tick: number; day: number; dayFrac: number; treasury: number; population: number;
+  /** [R, C, I] demand in [-1, 1]. */
+  rciDemand: [number, number, number];
+  /** [R, C, I] tax percent. */
+  taxRates: [number, number, number];
+  month: number;
+  /** Net of the last closed budget month; 0 before the first closes. */
+  lastNet: number;
+  loans: LoanInfo[];
+  debtMonths: number;
+}
 
 interface Props {
   lifecycle: Lifecycle;
   stats: HudStats;
   settings: Settings;
   notice: string;
+  budgetOpen: boolean;
+  onBudget(): void;
   onSave(): void;
   onSaveAs(name: string): void;
   onExport(): void;
@@ -47,7 +61,7 @@ const clock = (f: number): string => {
 };
 
 
-export function Hud({ lifecycle, stats, settings, notice, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
+export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings'>('main');
@@ -90,7 +104,12 @@ export function Hud({ lifecycle, stats, settings, notice, onSave, onSaveAs, onEx
           <span>Day {stats.day} {clock(stats.dayFrac)}</span>
           <span>${Math.round(stats.treasury).toLocaleString('en-US')}</span>
           <span>Pop {Math.round(stats.population).toLocaleString('en-US')}</span>
+          <span className={stats.lastNet < 0 ? 'net neg' : 'net'} data-testid="monthly-net" title="Net of the last budget month">
+            {stats.lastNet < 0 ? '-' : '+'}${Math.abs(Math.round(stats.lastNet)).toLocaleString('en-US')}/mo
+          </span>
         </div>
+        <DemandBars demand={stats.rciDemand} />
+        <button type="button" className="tb coin" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" title="Budget" onClick={onBudget}>$</button>
         <button type="button" className="tb wide" onClick={onSave} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>
         <button type="button" className="tb wide" aria-expanded={menu} aria-haspopup="dialog" onClick={() => (menu ? closeMenu() : setMenu(true))}>Menu</button>
         <span className="notice" role="status" aria-live="polite" data-testid="notice">{notice || (lc.lastError ? failText(lc.lastError) : '')}</span>

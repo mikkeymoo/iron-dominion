@@ -5,6 +5,7 @@ import type { RenderMirror } from '../render/mirror.ts';
 import type { Lifecycle } from '../platform/lifecycle.ts';
 import { bindLifecycleDom } from '../platform/lifecycle.ts';
 import type { Settings } from '../platform/settings.ts';
+import { Budget } from './Budget';
 import { Hud, type HudStats } from './Hud';
 import { Tools } from './Tools';
 import type { ToolsRuntime } from './toolsStore.ts';
@@ -38,6 +39,7 @@ export function GameView({ client, mirror, tools, lifecycle, stats, settings, no
   const [error, setError] = useState('');
   const [perf, setPerf] = useState<PerfSnapshot | null>(null);
   const [panel, setPanel] = useState(true);
+  const [budgetOpen, setBudgetOpen] = useState(false);
   const game = useRef<Game | null>(null);
 
   useEffect(() => {
@@ -88,8 +90,9 @@ export function GameView({ client, mirror, tools, lifecycle, stats, settings, no
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
         {phase === 'running' && <Tools runtime={tools} />}
+        {budgetOpen && <Budget client={client} stats={stats} onClose={() => setBudgetOpen(false)} />}
         <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
         {panel && perf && (
           <dl className="perf" data-testid="perf">

@@ -10,6 +10,10 @@ export const BMAX = 8192;
 export const AMAX = 4096;
 export const UMAX = 16;
 export const UCELLS = 4096;
+export const MAX_LOANS = 3;
+export const BUDGET_MONTHS = 12;
+/** Doubles per monthly budget record in the `budget` ring; see BUDGET_FIELD in economy/budget.ts. */
+export const BUDGET_FIELDS = 12;
 
 export type DirtyClass = 'geometry' | 'overlay' | 'none';
 export type TypedCtor =
@@ -55,6 +59,14 @@ export const SPEC = {
   bFlags: L(Uint8Array, BMAX, true, 'geometry'),
   // Bumped each time the slot is freed, so a stale reference (undo journal) cannot match a reused slot.
   bGen: L(Uint16Array, BMAX, false, 'none'),
+  // Abandonment counter per slot (economy/lots.ts): checks spent in low desirability with negative demand.
+  bAband: L(Uint8Array, BMAX, false, 'none'),
+
+  // Loans: principal and monthly interest in basis points, fixed when taken. Principal 0 = free slot.
+  loanAmt: L(Uint32Array, MAX_LOANS, false, 'none'),
+  loanBp: L(Uint16Array, MAX_LOANS, false, 'none'),
+  // Ring of the last BUDGET_MONTHS monthly reports, slot = month % BUDGET_MONTHS, BUDGET_FIELDS doubles each.
+  budget: L(Float64Array, BUDGET_MONTHS * BUDGET_FIELDS, false, 'none'),
 
   // Agent pools: stable slot id + generation; slot is free when aKind = 0. Sent through the Agents message.
   aKind: L(Uint8Array, AMAX, false, 'none'),
@@ -122,10 +134,16 @@ export const SLOPE_LIMIT = HEIGHT_SCALE * 0.75;
 
 export const S = {
   tick: 0, tickOfDay: 1, dayFrac: 2, day: 3, weather: 4, weatherIntensity: 5, weatherTimer: 6,
-  treasury: 7, demandR: 8, demandC: 9, demandI: 10, population: 11, tax: 12,
+  // demandR/C/I are exact multiples of 1/1024 in [-1, 1]; taxR/C/I are whole percent 0..20.
+  treasury: 7, demandR: 8, demandC: 9, demandI: 10, population: 11, taxR: 12,
   journalNext: 13, nextAgentId: 14, undoNext: 15, seed: 16, lightningCount: 17, weatherTarget: 18,
   // Bumped once per tick in which the road graph changed (see roads/index.ts). Cached paths compare against it.
   graphEpoch: 19,
+  taxC: 20, taxI: 21,
+  // Totals from completed, non-abandoned RCI buildings (economy/totals.ts). unemployment is a 0..1 fraction of the labour force.
+  jobsC: 22, jobsI: 23, employed: 24, unemployment: 25,
+  // Budget months completed so far, consecutive months ending with a negative treasury, and the pollution sum of the last pass.
+  month: 26, lowMonths: 27, pollTotal: 28,
 } as const;
 
 export const WEATHER = { CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;

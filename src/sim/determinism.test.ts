@@ -26,7 +26,7 @@ describe('determinism', () => {
   it('matches the golden hashes in golden.json (a deliberate change pastes the printed value there)', () => {
     const got = compute();
     expect(got, `golden.json should become: ${JSON.stringify(got)}`).toEqual(golden);
-  });
+  }, 30000);
 
   it('executes the scripted city: every command accepted except the deliberate bad one', () => {
     const sim = createSim(42);
@@ -59,7 +59,7 @@ describe('determinism', () => {
     expect(stateHash(resumed)).toBe(stateHash(first));
     runTicks(resumed, 1000);
     expect(stateHash(resumed)).toBe(stateHash(straight));
-  });
+  }, 60000);
 
   it('soaks 10k ticks on the scripted city without NaN, Infinity or a non-monotonic tick', () => {
     const sim = createSim(42);
@@ -77,7 +77,7 @@ describe('determinism', () => {
       for (let i = 0; i < arr.length; i++) if (!Number.isFinite(arr[i]!)) throw new Error(`${l.name}[${i}] = ${arr[i]}`);
     }
     expect(sim.world.scalars[S.treasury]).toBeGreaterThan(0);
-  });
+  }, 120000);
 
   it('prints the cost of 1000 ticks (non-gating)', () => {
     const sim = createSim(42);

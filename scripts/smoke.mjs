@@ -480,6 +480,92 @@ async function roadGraphChecks(open) {
 }
 // ---- end U7a block ----
 
+// ---- U8 economy checks (desktop, webgl2 low, sim debug mode) ----
+// A small road-side city of completed buildings (4 R, 2 C, 2 I) runs at max speed through several budget months. Catalog ids:
+// R low L1 = 16, C low L1 = 25, I low L1 = 34. Residents 24, jobs 20 against a labour force of 12, so R demand starts near +0.24.
+async function economyChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`economy: ${name}`, problem]);
+  const page = await open(`${BUILD_QUERY}&debug=1`);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  if (!up) { add('debug session boots with __iron.economy', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
+  const site = await page.evaluate(() => window.__iron.tools.findSite(24));
+  if (!site) { add('a flat 24x24 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
+  const sx = site.x, sy = site.y, roadY = sy + 8;
+  const accepted = (id) => until(page, (i) => window.__iron.tools.lastEvent?.cmd === i && window.__iron.tools.lastEvent.type === 'accepted', id);
+  const drag = (tool, opts, from, to) => page.evaluate(({ tool, opts, from, to }) => { const t = window.__iron.tools; t.select(tool, opts); return t.dragTiles(from, to); }, { tool, opts, from, to });
+
+  const roadId = await drag('road', { cls: 1 }, { x: sx + 1, y: roadY }, { x: sx + 20, y: roadY });
+  add('a street is laid through the tools', roadId > 0 && await accepted(roadId) ? null : `command ${roadId}`);
+  const zones = [[1, sx + 2, sy + 4, sx + 9, sy + 7], [2, sx + 2, sy + 10, sx + 6, sy + 12], [3, sx + 10, sy + 10, sx + 14, sy + 12]];
+  let zoneOk = true;
+  for (const [zone, x0, y0, x1, y1] of zones) {
+    const id = await drag('zone', { zone, density: 0 }, { x: x0, y: y0 }, { x: x1, y: y1 });
+    zoneOk = zoneOk && id > 0 && await accepted(id);
+  }
+  add('R, C and I zones are painted through the tools', zoneOk ? null : 'a zone drag was not accepted');
+
+  const grow = (x, y, archetype) => page.evaluate((b) => window.__iron.economy.command({ type: 'debugGrow', ...b, progress: 1 }), { x, y, archetype });
+  for (const dx of [2, 4, 6, 8]) await grow(sx + dx, sy + 7, 16);
+  for (const dx of [3, 5]) await grow(sx + dx, sy + 9, 25);
+  for (const dx of [10, 12]) await grow(sx + dx, sy + 9, 34);
+  const grown = await until(page, () => (window.__iron.economy.stats?.population ?? 0) === 24 && (window.__iron.economy.stats?.jobsC ?? 0) === 8 && (window.__iron.economy.stats?.jobsI ?? 0) === 12, null, 15000);
+  add('completed R, C and I buildings give population 24 and 8 + 12 jobs', grown ? null : JSON.stringify(await page.evaluate(() => { const s = window.__iron.economy.stats; return s && { population: s.population, jobsC: s.jobsC, jobsI: s.jobsI }; })));
+
+  const settled = await until(page, () => { const s = window.__iron.economy.stats; return !!s && s.rciDemand[0] > 0.15 && s.rciDemand[0] < 0.3; }, null, 30000);
+  const before = await page.evaluate(() => window.__iron.economy.stats?.rciDemand ?? null);
+  add('R demand settles near +0.24 with jobs available', settled ? null : `rciDemand ${JSON.stringify(before)}`);
+  const bars = await page.evaluate(() => ['R', 'C', 'I'].map((k) => Number(document.querySelector(`[data-testid="demand-${k}"]`)?.getAttribute('data-demand'))));
+  add('the top bar shows three demand bars in [-1, 1]', bars.length === 3 && bars.every((v) => Number.isFinite(v) && v >= -1 && v <= 1) ? null : JSON.stringify(bars));
+
+  await page.locator('.speeds button', { hasText: 'Max' }).click();
+  const monthsRan = await until(page, () => (window.__iron.economy.stats?.month ?? 0) >= 3, null, 120000);
+  const m = await page.evaluate(() => ({ month: window.__iron.economy.stats?.month, tick: window.__iron.economy.stats?.tick, treasury: window.__iron.economy.stats?.treasury }));
+  add('the budget month advances at max speed', monthsRan ? null : `month ${m.month} at tick ${m.tick}`);
+  if (!monthsRan) { await page.close(); return out; }
+
+  const all = await page.evaluate(() => window.__iron.economy.samples.map((s) => ({ month: s.month, treasury: s.treasury, net: s.lastMonth.net, demand: s.rciDemand, population: s.population })));
+  add('population is above zero', all.some((s) => s.population > 0) ? null : 'population never rose');
+  add('every sampled demand stays within [-1, 1]', all.every((s) => s.demand.every((d) => d >= -1 && d <= 1)) ? null : 'a demand left the range');
+  let pair = null;
+  for (let i = 1; i < all.length && !pair; i++) if (all[i].month === all[i - 1].month + 1 && all[i - 1].month >= 0) pair = [all[i - 1], all[i]];
+  add('treasury moved by exactly the closed month net across a month boundary', pair && pair[1].treasury - pair[0].treasury === pair[1].net ? null : `pair ${JSON.stringify(pair)}`);
+  const budget = await page.evaluate(() => window.__iron.economy.requestBudget());
+  const rec = pair && budget.history.find((r) => r.month === pair[0].month);
+  add('requestBudget history carries that same month net', rec && rec.net === pair[1].net && rec.treasury === pair[1].treasury ? null : `record ${JSON.stringify(rec)}, pair ${JSON.stringify(pair)}`);
+  add('the budget has income and expenses, and the projected month is present', budget.history.length >= 2 && budget.history[0].income > 0 && budget.history[0].roads > 0 && budget.current.expenses > 0 ? null : JSON.stringify(budget.history[0]));
+  add('the top bar shows the monthly net', (await page.locator('[data-testid="monthly-net"]').textContent())?.includes('/mo') ? null : 'monthly net missing');
+
+  const coin = page.getByRole('button', { name: 'Budget', exact: true });
+  const coinBox = await coin.boundingBox();
+  add('the budget button is a 44px touch target', coinBox && coinBox.width >= 44 && coinBox.height >= 44 ? null : JSON.stringify(coinBox));
+  await coin.click();
+  const open2 = await until(page, () => !!document.querySelector('[data-testid="budget"]') && document.querySelectorAll('[data-testid="budget-row"]').length === 12, null, 10000);
+  add('the Budget panel opens with a 12-row month table', open2 ? null : 'panel or rows missing');
+  const filled = await until(page, () => [...document.querySelectorAll('[data-testid="budget-row"]')].filter((r) => r.querySelector('td')?.textContent !== '-').length >= 2, null, 10000);
+  add('the table lists the closed months', filled ? null : 'fewer than two filled rows');
+  add('the chart is labelled for assistive tech', /Income and expenses/.test((await page.locator('[data-testid="budget-chart"]').getAttribute('aria-label')) ?? '') ? null : 'chart aria-label missing');
+  const slider = page.locator('[data-testid="tax-R"]');
+  const sliderBox = await slider.boundingBox();
+  add('the tax slider is at least 44px tall', sliderBox && sliderBox.height >= 44 ? null : JSON.stringify(sliderBox));
+
+  const m0 = await page.evaluate(() => window.__iron.economy.stats.month);
+  const dBefore = await page.evaluate(() => window.__iron.economy.stats.rciDemand[0]);
+  await slider.focus();
+  await page.keyboard.press('End');
+  const taxed = await until(page, () => window.__iron.economy.stats?.taxRates[0] === 20, null, 10000);
+  add('the R tax slider sets the rate to 20% in the sim', taxed ? null : `taxRates ${JSON.stringify(await page.evaluate(() => window.__iron.economy.stats?.taxRates))}`);
+  const next = await until(page, (mm) => (window.__iron.economy.stats?.month ?? 0) >= mm + 2, m0, 120000);
+  const dAfter = await page.evaluate(() => window.__iron.economy.stats.rciDemand[0]);
+  add('R demand decreases over the next months after the tax rise', next && dAfter < dBefore - 0.1 ? null : `before ${dBefore}, after ${dAfter}, month ${m0} -> ${await page.evaluate(() => window.__iron.economy.stats.month)}`);
+  add('the month projection reflects the new rate', (await page.evaluate(() => window.__iron.economy.requestBudget())).taxRates[0] === 20 ? null : 'taxRates not 20');
+  await page.keyboard.press('Escape');
+  add('Escape closes the Budget panel', await until(page, () => !document.querySelector('[data-testid="budget"]'), null, 5000) ? null : 'panel still open');
+  await page.close();
+  return out;
+}
+// ---- end U8 block ----
+
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true }, { backend: 'webgpu', showcaseTier: 'high' }],
   phone: [{ backend: 'webgl2' }],
@@ -527,6 +613,7 @@ try {
     }
     const buildChecks = vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
     if (vp.name === 'desktop') buildChecks.push(...await roadGraphChecks(open));
+    if (vp.name === 'desktop') buildChecks.push(...await economyChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

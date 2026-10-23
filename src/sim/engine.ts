@@ -19,7 +19,7 @@ export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   const s = world.scalars;
   s[S.seed] = seed >>> 0;
   s[S.treasury] = START_TREASURY;
-  s[S.tax] = DEFAULT_TAX;
+  s[S.taxR] = DEFAULT_TAX; s[S.taxC] = DEFAULT_TAX; s[S.taxI] = DEFAULT_TAX;
   s[S.nextAgentId] = 1;
   seedRng(world.rng, seed);
   generateTerrain(world, seed);
