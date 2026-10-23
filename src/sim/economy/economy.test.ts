@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, rciId } from '../catalog.ts';
 import { execute, type Command, type CommandBody } from '../commands.ts';
 import { createSim, restore, snapshot, stateHash } from '../engine.ts';
-import { bytesOf, hashWorld } from '../hash.ts';
+import { bytesOf, fnv1a, hashWorld } from '../hash.ts';
+import { PROTOCOL_VERSION } from '../protocol.ts';
 import { BUDGET_FIELDS, BUDGET_MONTHS, MAP, MAX_LOANS, REGISTRY, ROAD, S, TERRAIN, ZONE } from '../layers.ts';
 import { setRoad, setRoads } from '../roads/testkit.ts';
 import { runTicks } from '../testkit.ts';
@@ -14,6 +15,8 @@ import {
 
 // These tests tick the whole sim thousands of times; jsdom plus a loaded machine makes 5 s too tight.
 vi.setConfig({ testTimeout: 60000 });
+// Yield a macrotask between tests so the runner's RPC replies are not starved by a minute of synchronous ticking.
+afterEach(() => new Promise<void>((r) => { setTimeout(r, 0); }));
 
 let nextId = 1;
 function run(sim: Sim, body: CommandBody): { ok: boolean; reason?: string } {
@@ -232,11 +235,37 @@ describe('monthly budget', () => {
     closeMonth(sim);
     expect(seen()).toMatchObject([{ type: 'bankruptcy', months: 3 }]);
     closeMonth(sim);
-    expect(seen()).toHaveLength(2);
+    expect(seen(), 'a longer stay in debt does not repeat the warning').toHaveLength(1);
     w.scalars[S.treasury] = 5000;
     closeMonth(sim);
     expect(w.scalars[S.lowMonths]).toBe(0);
+    w.scalars[S.treasury] = -1;
+    closeMonth(sim); closeMonth(sim);
+    expect(seen()).toHaveLength(1);
+    closeMonth(sim);
     expect(seen()).toHaveLength(2);
+  });
+
+  it('jumps the month counter when the clock is far ahead, without paying the missed months', () => {
+    const sim = syntheticCity();
+    const w = sim.world;
+    const before = w.scalars[S.treasury]!;
+    w.scalars[S.day] = 5;
+    runTicks(sim, 1);
+    expect(w.scalars[S.month]).toBe(5);
+    expect(w.scalars[S.treasury]).toBe(before);
+    expect(budgetHistory(w)).toEqual([]);
+    w.scalars[S.day] = 6;
+    runTicks(sim, 1);
+    expect(w.scalars[S.month]).toBe(6);
+    expect(budgetHistory(w)).toHaveLength(1);
+  });
+
+  it('rejects a snapshot written under the previous protocol version', () => {
+    const buf = snapshot(flatSim());
+    new DataView(buf.buffer).setUint16(6, PROTOCOL_VERSION - 1, true);
+    new DataView(buf.buffer).setUint32(buf.length - 4, fnv1a(buf.subarray(0, buf.length - 4)), true);
+    expect(() => restore(buf)).toThrow(/protocol version/);
   });
 });
 
@@ -397,6 +426,14 @@ describe('lot desirability', () => {
     const sim = lotCity();
     expect(run(sim, { type: 'bulldoze', x0: 50, y0: 50, x1: 51, y1: 51 }).ok).toBe(true);
     expect(growthCandidates(sim, ZONE.R, 10).some((l) => l.x === 105)).toBe(true);
+  });
+
+  it('reaches nothing when depots exist but none borders a road', () => {
+    const sim = lotCity();
+    expect(run(sim, { type: 'bulldoze', x0: 50, y0: 50, x1: 51, y1: 51 }).ok).toBe(true);
+    expect(run(sim, { type: 'placeBuilding', arch: ARCH.DEPOT, x: 200, y: 200, rot: 0 }).ok).toBe(true);
+    expect(growthCandidates(sim, ZONE.R, 10)).toEqual([]);
+    expect(lotScore(sim, 45, 53, ZONE.R)).toBeNull();
   });
 
   it('scores a lot from demand, land value, pollution and access, or null without a reachable road', () => {

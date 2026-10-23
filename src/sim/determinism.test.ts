@@ -61,11 +61,13 @@ describe('determinism', () => {
     expect(stateHash(resumed)).toBe(stateHash(straight));
   }, 60000);
 
-  it('soaks 10k ticks on the scripted city without NaN, Infinity or a non-monotonic tick', () => {
+  it('soaks 10k ticks on the scripted city without NaN, Infinity or a non-monotonic tick', async () => {
     const sim = createSim(42);
     for (const c of scriptedCity(sim.world)) sim.queue.push(c);
     let prev = 0;
     for (let i = 0; i < 10000; i++) {
+      // Yield now and then so vitest's worker heartbeat is not starved by a 30 s synchronous loop.
+      if (i % 500 === 0) await new Promise((r) => setTimeout(r, 0));
       runTicks(sim, 1);
       const t = sim.world.scalars[S.tick]!;
       expect(t).toBe(prev + 1);

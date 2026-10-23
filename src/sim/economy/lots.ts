@@ -23,21 +23,24 @@ export interface LevelUp { slot: number; x: number; y: number; arch: number; nex
 
 /**
  * Road tiles robots start from: the access tile of every depot. A lot counts as reachable when one of its bordering road
- * tiles is connected to one of these. With no depot there is no start point, so any bordering road qualifies.
+ * tiles is connected to one of these. Returns null when the city has no depot at all (any bordering road then qualifies);
+ * an empty array means depots exist but none touches a road, so nothing is reachable.
  */
-export function reachAnchors(sim: Sim, net: RoadNet = roadsOf(sim)): number[] {
+export function reachAnchors(sim: Sim, net: RoadNet = roadsOf(sim)): number[] | null {
   const w = sim.world, out: number[] = [];
+  let depots = 0;
   for (let s = 0; s < BMAX; s++) {
     if (w.bArch[s] !== ARCH.DEPOT) continue;
+    depots++;
     const t = lotAccess(net, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
     if (t >= 0) out.push(t);
   }
-  return out;
+  return depots === 0 ? null : out;
 }
 
-/** Bordering road tile of the lot that is reachable from an anchor (any bordering road when there are no anchors), or -1. */
-export function reachableAccess(net: RoadNet, anchors: readonly number[], x: number, y: number, w: number, h: number): number {
-  if (anchors.length === 0) return lotAccess(net, x, y, w, h);
+/** Bordering road tile of the lot that is reachable from an anchor (any bordering road when `anchors` is null), or -1. */
+export function reachableAccess(net: RoadNet, anchors: readonly number[] | null, x: number, y: number, w: number, h: number): number {
+  if (anchors === null) return lotAccess(net, x, y, w, h);
   for (const a of anchors) {
     const t = lotAccess(net, x, y, w, h, a);
     if (t >= 0) return t;
@@ -62,7 +65,7 @@ function lotScoreAt(world: World, x: number, y: number, bw: number, bh: number, 
  * from the zone's smoothed demand (Q10), land value, pollution and the class of the access road: R weighs land value up
  * and pollution hard, C likes avenues, I prefers cheap land and ignores pollution.
  */
-export function lotScore(sim: Sim, x: number, y: number, zone: number, w = 1, h = 1, anchors: readonly number[] = reachAnchors(sim)): number | null {
+export function lotScore(sim: Sim, x: number, y: number, zone: number, w = 1, h = 1, anchors: readonly number[] | null = reachAnchors(sim)): number | null {
   if (zone < 1 || zone > 3 || x < 0 || y < 0 || x + w > MAP || y + h > MAP) return null;
   const access = reachableAccess(roadsOf(sim), anchors, x, y, w, h);
   return access < 0 ? null : lotScoreAt(sim.world, x, y, w, h, zone, access);

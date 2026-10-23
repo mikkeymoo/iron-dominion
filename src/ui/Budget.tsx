@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LOAN_BP, LOAN_TIERS, TAX_MAX } from '../sim/economy/tables.ts';
+import { BANKRUPT_MONTHS, LOAN_BP, LOAN_TIERS, TAX_MAX } from '../sim/economy/tables.ts';
 import { MAX_LOANS } from '../sim/layers.ts';
 import type { SimClient } from '../sim/client.ts';
+import type { CommandBody } from '../sim/commands.ts';
 import type { BudgetMsg, BudgetRecord, LoanInfo } from '../sim/protocol.ts';
+import type { SimEvent } from '../sim/world.ts';
+import { reasonText } from './toolsStore.ts';
+
+const PENDING_MS = 3000;
 
 const money = (n: number): string => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`;
 const ZONE_LABELS = ['Residential', 'Commercial', 'Industrial'] as const;
@@ -18,6 +23,8 @@ export interface BudgetStats {
 
 interface Props {
   client: Pick<SimClient, 'command' | 'requestBudget'>;
+  /** Source of accepted/rejected command events (the session's ToolsRuntime). */
+  events: { onCommandEvent(fn: (e: SimEvent) => void): () => void };
   stats: BudgetStats;
   onClose(): void;
 }
@@ -46,15 +53,52 @@ function Chart({ history }: { history: readonly BudgetRecord[] }) {
   );
 }
 
-export function Budget({ client, stats, onClose }: Props) {
+export function Budget({ client, events, stats, onClose }: Props) {
   const [data, setData] = useState<BudgetMsg | null>(null);
   const [error, setError] = useState('');
   const [pending, setPending] = useState<Partial<Record<0 | 1 | 2, number>>>({});
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  const [notice, setNotice] = useState('');
+  const asked = useRef(0);
+  const applied = useRef(0);
+  const sent = useRef(new Map<number, number | undefined>());
+  const timers = useRef(new Set<number>());
+
+  // A reply older than one already shown (they can cross on the wire) is dropped.
   const refresh = useCallback((): void => {
-    client.requestBudget().then((m) => { setData(m); setError(''); }, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    const seq = ++asked.current;
+    client.requestBudget().then((m) => {
+      if (seq < applied.current) return;
+      applied.current = seq;
+      setData(m);
+      setError('');
+    }, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, [client]);
+
+  const send = (body: CommandBody, zone?: number): void => {
+    sent.current.set(client.command(body), zone);
+    setNotice('');
+  };
+
+  const dropPending = useCallback((z: number): void => setPending((p) => {
+    if (p[z as 0 | 1 | 2] === undefined) return p;
+    const next = { ...p };
+    delete next[z as 0 | 1 | 2];
+    return next;
+  }), []);
+
+  useEffect(() => events.onCommandEvent((e) => {
+    if (e.type !== 'accepted' && e.type !== 'rejected') return;
+    if (!sent.current.has(e.cmd)) return;
+    const zone = sent.current.get(e.cmd);
+    sent.current.delete(e.cmd);
+    if (e.type === 'rejected') {
+      setNotice(reasonText(e.reason));
+      if (zone !== undefined) dropPending(zone);
+    }
+  }), [events, dropPending]);
+  useEffect(() => () => { for (const t of timers.current) window.clearTimeout(t); }, []);
 
   useEffect(() => {
     refresh();
@@ -81,7 +125,10 @@ export function Budget({ client, stats, onClose }: Props) {
   const cur = data?.current;
   const setRate = (z: 0 | 1 | 2, rate: number): void => {
     setPending((p) => ({ ...p, [z]: rate }));
-    client.command({ type: 'setTax', rate, zone: z + 1 });
+    send({ type: 'setTax', rate, zone: z + 1 }, z);
+    // Fallback if no event or stats update arrives: show the sim's value again.
+    const t = window.setTimeout(() => { timers.current.delete(t); dropPending(z); }, PENDING_MS);
+    timers.current.add(t);
   };
 
   return (
@@ -90,7 +137,8 @@ export function Budget({ client, stats, onClose }: Props) {
         <h2>Budget</h2>
         <button ref={closeRef} type="button" className="tb" onClick={onClose} aria-label="Close budget">Close</button>
       </div>
-      {stats.debtMonths >= 3 && (
+      {notice && <p className="budget-warn" role="alert" data-testid="budget-notice">{notice}</p>}
+      {stats.debtMonths >= BANKRUPT_MONTHS && (
         <p className="budget-warn" role="alert" data-testid="bankruptcy">Bankruptcy warning: the treasury has been below zero for {stats.debtMonths} months. Raise taxes, cut roads or repay loans.</p>
       )}
       {error && <p className="budget-warn" role="status">Budget unavailable: {error}</p>}
@@ -115,13 +163,13 @@ export function Budget({ client, stats, onClose }: Props) {
           {stats.loans.map((l) => (
             <li key={l.slot}>
               <span>{money(l.principal)} at {(l.bp / 100).toFixed(1)}% a month</span>
-              <button type="button" className="tb" onClick={() => client.command({ type: 'repayLoan', slot: l.slot })}>Repay {money(l.principal)}</button>
+              <button type="button" className="tb" onClick={() => send({ type: 'repayLoan', slot: l.slot })}>Repay {money(l.principal)}</button>
             </li>
           ))}
         </ul>
         <div className="budget-borrow">
           {LOAN_TIERS.map((amount, tier) => (
-            <button key={amount} type="button" className="tb" disabled={stats.loans.length >= MAX_LOANS} onClick={() => client.command({ type: 'takeLoan', tier })}>
+            <button key={amount} type="button" className="tb" disabled={stats.loans.length >= MAX_LOANS} onClick={() => send({ type: 'takeLoan', tier })}>
               Borrow {money(amount)} ({(LOAN_BP[tier]! / 100).toFixed(1)}%/mo)
             </button>
           ))}

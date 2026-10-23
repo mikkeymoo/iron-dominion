@@ -1,5 +1,6 @@
 import { archetype, BFLAG, type Archetype } from './catalog.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
+import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
 import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
 import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
@@ -281,8 +282,6 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   w.uCmd[slot] = 0; w.uKind[slot] = UNDO.NONE; w.uCount[slot] = 0; w.uArg[slot] = 0; w.uGen[slot] = 0; w.uCost[slot] = 0;
   return 0;
 }
-
-const TAX_SCALAR = [S.taxR, S.taxC, S.taxI] as const;
 
 function setTax(sim: Sim, c: Extract<Command, { type: 'setTax' }>): void {
   if (!isInts(c.rate) || (c.zone !== undefined && !isInts(c.zone))) reject('invalid');

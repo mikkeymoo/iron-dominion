@@ -26,7 +26,8 @@ const REASONS: Record<string, string> = {
   full: 'The city cannot hold more buildings.',
   superseded: 'That order was dropped when the city was reloaded.',
   invalid: 'That order was not valid.',
-};
+  'max-loans': 'You already have three loans. Repay one first.',
+  'no-loan': 'That loan has already been repaid.',};
 
 /** Plain-words text for a sim or estimate rejection reason. */
 export const reasonText = (reason: string): string => REASONS[reason] ?? 'That could not be done.';
@@ -66,6 +67,7 @@ export class ToolsRuntime {
   private readonly pending = new Map<number, Pending>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private readonly listeners = new Set<() => void>();
+  private readonly eventListeners = new Set<(e: SimEvent) => void>();
   private seq = 1;
 
   constructor(private readonly deps: ToolsRuntimeDeps) {
@@ -101,9 +103,13 @@ export class ToolsRuntime {
   }
 
   /** Feed the sim's events; only those for commands this runtime sent are used. */
+  /** Every accepted or rejected command event, including commands other panels sent (the budget panel's loans and taxes). */
+  onCommandEvent(fn: (e: SimEvent) => void): () => void { this.eventListeners.add(fn); return () => { this.eventListeners.delete(fn); }; }
+
   handleEvents(events: readonly SimEvent[]): void {
     let changed = false;
     for (const e of events) {
+      if (e.type === 'accepted' || e.type === 'rejected') for (const fn of this.eventListeners) fn(e);
       if (e.type !== 'accepted' && e.type !== 'rejected') continue;
       const p = this.pending.get(e.cmd);
       if (!p) continue;
@@ -161,6 +167,7 @@ export class ToolsRuntime {
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     this.listeners.clear();
+    this.eventListeners.clear();
   }
 
   /** `window.__iron.tools`: the same code paths the pointer and keyboard use, for the smoke test. */

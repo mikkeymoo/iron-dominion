@@ -2,6 +2,7 @@ import type { Command } from './commands.ts';
 import { hashWorld } from './hash.ts';
 import { AMAX, CHUNK, REGISTRY, S, isTileLayer, type World } from './layers.ts';
 import type { ChunkPatch, EventsMsg, FromWorker, OverlayPatch, ResyncMsg, Typed } from './protocol.ts';
+import { DEFAULT_TAX } from './economy/tables.ts';
 import { RoadNet } from './roads/graph.ts';
 import { roadsSystem } from './roads/index.ts';
 import { seedRng } from './rng.ts';
@@ -12,7 +13,6 @@ import { copyChunkOut, readBuilding } from './tiles.ts';
 import { allocWorld, newDirty, type Sim } from './world.ts';
 
 export const START_TREASURY = 50000;
-export const DEFAULT_TAX = 9;
 
 export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   const world = allocWorld();

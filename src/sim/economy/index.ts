@@ -26,7 +26,10 @@ export function economySystem(sim: Sim): void {
   landValueSlice(sim);
   if (tick % POLL_PERIOD === 0) pollutionPass(sim);
   if (tick % ABANDON_PERIOD === 0) updateAbandonment(sim);
-  if (Math.floor(sc[S.day]! / MONTH_DAYS) > sc[S.month]!) closeMonth(sim);
+  const due = Math.floor(sc[S.day]! / MONTH_DAYS);
+  // A clock more than one month ahead (a state that skipped time) jumps to the present; missed months are not paid.
+  if (due - sc[S.month]! > 1) sc[S.month] = due;
+  else if (due > sc[S.month]!) closeMonth(sim);
 }
 
 const taxRates = (w: World): [number, number, number] => [w.scalars[S.taxR]!, w.scalars[S.taxC]!, w.scalars[S.taxI]!];

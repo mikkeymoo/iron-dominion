@@ -22,6 +22,7 @@ export const LABOR_SHIFT = 1;
 // ---- Demand ----
 export const TAX_MAX = 20;
 export const TAX_NEUTRAL = 9;
+export const DEFAULT_TAX = 9;
 /** Demand lost (Q10) per percentage point of tax above TAX_NEUTRAL, gained per point below; indexed zone - 1. */
 export const TAX_SLOPE = [40, 28, 28] as const;
 /** The smoothed demand moves one EMA_DIV-th of the gap per refresh; the dead band is EMA_DIV - 1 units. */

@@ -25,8 +25,8 @@ const EMPTY: BudgetRecord = {
 /**
  * The budget for one month from the world as it stands: tax per zone, road upkeep, service upkeep, loan interest.
  * R pays on every resident; C and I pay on filled jobs (jobs * employed / all jobs, floored per building). Each building
- * pays floor(taxpayers * wealth * rate / 100) with wealth = HEAD_BASE + landValue * HEAD_LV / 256. Does not change the world
- * except to refresh the population and job scalars. `month` labels the record.
+ * pays floor(taxpayers * wealth * rate / 100) with wealth = HEAD_BASE + landValue * HEAD_LV / 256. Pure: it recounts
+ * population and jobs from the building table itself and writes nothing. `month` labels the record.
  */
 export function computeBudget(world: World, month: number): BudgetRecord {
   const t = countTotals(world);
@@ -77,7 +77,8 @@ export function closeMonth(sim: Sim): BudgetRecord {
   writeRecord(w, r);
   sc[S.month] = month + 1;
   sc[S.lowMonths] = r.treasury < 0 ? sc[S.lowMonths]! + 1 : 0;
-  if (sc[S.lowMonths]! >= BANKRUPT_MONTHS) sim.events.push({ type: 'bankruptcy', tick: sc[S.tick]!, months: sc[S.lowMonths]! });
+  // Once per crossing: a long stay in debt does not repeat the warning until the treasury recovers and sinks again.
+  if (sc[S.lowMonths] === BANKRUPT_MONTHS) sim.events.push({ type: 'bankruptcy', tick: sc[S.tick]!, months: sc[S.lowMonths]! });
   return r;
 }
 
@@ -87,9 +88,11 @@ export function budgetHistory(world: World): BudgetRecord[] {
   for (let k = 0; k < BUDGET_MONTHS; k++) {
     const b = k * BUDGET_FIELDS, f = world.budget;
     if (f[b + BUDGET_FIELD.month] === 0) continue;
+    const F = BUDGET_FIELD;
     out.push({
-      month: f[b + BUDGET_FIELD.month]! - 1, incomeR: f[b + 1]!, incomeC: f[b + 2]!, incomeI: f[b + 3]!, roads: f[b + 4]!, services: f[b + 5]!,
-      interest: f[b + 6]!, income: f[b + 7]!, expenses: f[b + 8]!, net: f[b + 9]!, population: f[b + 10]!, treasury: f[b + 11]!,
+      month: f[b + F.month]! - 1, incomeR: f[b + F.incomeR]!, incomeC: f[b + F.incomeC]!, incomeI: f[b + F.incomeI]!,
+      roads: f[b + F.roads]!, services: f[b + F.services]!, interest: f[b + F.interest]!, income: f[b + F.income]!,
+      expenses: f[b + F.expenses]!, net: f[b + F.net]!, population: f[b + F.population]!, treasury: f[b + F.treasury]!,
     });
   }
   return out.sort((a, b) => a.month - b.month);

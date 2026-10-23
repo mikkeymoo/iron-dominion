@@ -6,7 +6,8 @@ import {
 import type { Totals } from './totals.ts';
 
 const DEMAND_SCALAR = [S.demandR, S.demandC, S.demandI] as const;
-const TAX_SCALAR = [S.taxR, S.taxC, S.taxI] as const;
+/** Scalar slot of each zone's tax rate, indexed zone - 1. */
+export const TAX_SCALAR =[S.taxR, S.taxC, S.taxI] as const;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 

@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CommandBody } from '../sim/commands.ts';
 import type { BudgetMsg, BudgetRecord } from '../sim/protocol.ts';
+import type { SimEvent } from '../sim/world.ts';
 import { Budget, type BudgetStats } from './Budget';
 import { DemandBars } from './DemandBars';
 
@@ -14,15 +15,18 @@ const rec = (month: number, net: number): BudgetRecord => ({
 function fakeClient(history: BudgetRecord[]) {
   const sent: CommandBody[] = [];
   const msg: BudgetMsg = { type: 'budget', id: 1, month: history.length, history, current: rec(history.length, -3), loans: [], taxRates: [9, 9, 9] };
-  return { sent, client: { command: (b: CommandBody) => { sent.push(b); return sent.length; }, requestBudget: vi.fn(() => Promise.resolve(msg)) } };
+  const listeners = new Set<(e: SimEvent) => void>();
+  const events = { onCommandEvent: (fn: (e: SimEvent) => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; } };
+  const emit = (e: SimEvent): void => { act(() => { for (const fn of listeners) fn(e); }); };
+  return { sent, events, emit, msg, client: { command: (b: CommandBody) => { sent.push(b); return sent.length; }, requestBudget: vi.fn(() => Promise.resolve(msg)) } };
 }
 
 const stats = (over: Partial<BudgetStats> = {}): BudgetStats => ({ month: 3, taxRates: [9, 9, 9], loans: [], debtMonths: 0, ...over });
 
 describe('Budget panel', () => {
   it('shows a 12-row month table, the chart and the projected month', async () => {
-    const { client } = fakeClient([rec(0, 10), rec(1, -20), rec(2, 30)]);
-    render(<Budget client={client} stats={stats()} onClose={() => {}} />);
+    const { client, events } = fakeClient([rec(0, 10), rec(1, -20), rec(2, 30)]);
+    render(<Budget client={client} events={events} stats={stats()} onClose={() => {}} />);
     await waitFor(() => expect(screen.getByTestId('budget-month')).toBeTruthy());
     expect(screen.getAllByTestId('budget-row')).toHaveLength(12);
     expect(screen.getByTestId('budget-chart').getAttribute('aria-label')).toMatch(/last 3 months/);
@@ -31,8 +35,8 @@ describe('Budget panel', () => {
   });
 
   it('sends setTax for the zone when a slider moves, keeps the new value, and caps at 20', async () => {
-    const { client, sent } = fakeClient([]);
-    render(<Budget client={client} stats={stats()} onClose={() => {}} />);
+    const { client, sent, events } = fakeClient([]);
+    render(<Budget client={client} events={events} stats={stats()} onClose={() => {}} />);
     const r = screen.getByLabelText('Residential tax rate') as HTMLInputElement;
     expect(r.max).toBe('20');
     fireEvent.change(r, { target: { value: '20' } });
@@ -43,24 +47,51 @@ describe('Budget panel', () => {
   });
 
   it('offers loan tiers, repays by slot, and disables borrowing at three loans', () => {
-    const { client, sent } = fakeClient([]);
+    const { client, sent, events } = fakeClient([]);
     const loans = [0, 1, 2].map((slot) => ({ slot, principal: 10000, bp: 50 }));
-    render(<Budget client={client} stats={stats({ loans: loans.slice(0, 1) })} onClose={() => {}} />);
+    render(<Budget client={client} events={events} stats={stats({ loans: loans.slice(0, 1) })} onClose={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: /Borrow \$25,000/ }));
     fireEvent.click(screen.getByRole('button', { name: /Repay \$10,000/ }));
     expect(sent).toEqual([{ type: 'takeLoan', tier: 1 }, { type: 'repayLoan', slot: 0 }]);
     cleanup();
-    render(<Budget client={client} stats={stats({ loans })} onClose={() => {}} />);
+    render(<Budget client={client} events={events} stats={stats({ loans })} onClose={() => {}} />);
     for (const b of screen.getAllByRole('button', { name: /Borrow/ })) expect((b as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('warns about bankruptcy after three months in debt and closes on Escape', () => {
-    const { client } = fakeClient([]);
+    const { client, events } = fakeClient([]);
     const onClose = vi.fn();
-    render(<Budget client={client} stats={stats({ debtMonths: 3 })} onClose={onClose} />);
+    render(<Budget client={client} events={events} stats={stats({ debtMonths: 3 })} onClose={onClose} />);
     expect(screen.getByTestId('bankruptcy').textContent).toMatch(/3 months/);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('Budget command feedback', () => {
+  it('shows plain words for a rejected loan and returns a rejected slider to the sim value', () => {
+    const { client, events, emit } = fakeClient([]);
+    render(<Budget client={client} events={events} stats={stats({ loans: [] })} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Borrow \$10,000/ }));
+    emit({ type: 'rejected', cmd: 1, tick: 5, reason: 'max-loans' });
+    expect(screen.getByTestId('budget-notice').textContent).toMatch(/three loans/);
+
+    fireEvent.change(screen.getByLabelText('Commercial tax rate'), { target: { value: '15' } });
+    expect((screen.getByLabelText('Commercial tax rate') as HTMLInputElement).value).toBe('15');
+    emit({ type: 'rejected', cmd: 2, tick: 6, reason: 'bounds' });
+    expect((screen.getByLabelText('Commercial tax rate') as HTMLInputElement).value).toBe('9');
+  });
+
+  it('ignores a budget reply that arrives after a newer one', async () => {
+    const { client, events, msg } = fakeClient([]);
+    const resolvers: ((m: BudgetMsg) => void)[] = [];
+    client.requestBudget.mockImplementation(() => new Promise<BudgetMsg>((res) => { resolvers.push(res); }));
+    render(<Budget client={client} events={events} stats={stats()} onClose={() => {}} />);
+    await waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(2));
+    const newest = resolvers.length - 1;
+    await act(async () => { resolvers[newest]!({ ...msg, history: [rec(7, 42)] }); });
+    await act(async () => { resolvers[0]!({ ...msg, history: [] }); });
+    expect(screen.getAllByText('$42').length).toBeGreaterThan(0);
   });
 });
 

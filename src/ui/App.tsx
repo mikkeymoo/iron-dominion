@@ -3,9 +3,9 @@ import type { IronDebug } from '../render/debug.ts';
 import '../platform/debug.ts';
 import './toolsStore.ts';
 import './roadsDebug.ts';
-import './economyDebug.ts';
+import { StatsRing } from './economyDebug.ts';
 import type { ClientState } from '../sim/client.ts';
-import type { Stats } from '../sim/protocol.ts';
+import { DEFAULT_TAX } from '../sim/economy/tables.ts';
 import { openPlatformDb, type PlatformDb, type SlotMeta } from '../platform/db.ts';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
 import { readFileBytes } from '../platform/save.ts';
@@ -18,9 +18,10 @@ import './app.css';
 // ?autostart=1 skips the title screen with an unsaved city; add &slot=<id> to load that slot instead.
 // ?seed=42&haltAt=200 is the determinism debug path (see session.ts).
 const ZERO: HudStats = {
-  tick: 0, day: 0, dayFrac: 0, treasury: 0, population: 0, rciDemand: [0, 0, 0], taxRates: [9, 9, 9], month: 0, lastNet: 0, loans: [], debtMonths: 0,
+  tick: 0, day: 0, dayFrac: 0, treasury: 0, population: 0, rciDemand: [0, 0, 0], taxRates: [DEFAULT_TAX, DEFAULT_TAX, DEFAULT_TAX], month: 0, lastNet: 0, loans: [], debtMonths: 0,
 };
 const SAMPLE_CAP = 2000;
+const isDebug = (): boolean => query().get('debug') === '1' || query().get('showcase') === '1';
 
 const query = (): URLSearchParams => new URLSearchParams(window.location.search);
 
@@ -39,7 +40,7 @@ export function App() {
   const current = useRef<Session | null>(null);
   const iron = useRef<IronDebug | null>(null);
   const graphEpoch = useRef(0);
-  const samplesRef = useRef<Stats[]>([]);
+  const samplesRef = useRef<StatsRing | null>(null);
 
   const refreshSlots = useCallback(async (): Promise<void> => {
     const r = await db.current?.listSlots();
@@ -55,13 +56,18 @@ export function App() {
       dbg.sim = { tick: 0 };
       dbg.tools = s.tools.debug;
       graphEpoch.current = 0;
-      samplesRef.current = [];
-      dbg.economy = {
-        command: (body) => s.client.command(body),
-        requestBudget: () => s.client.requestBudget(),
-        get stats() { const a = samplesRef.current; return a[a.length - 1] ?? null; },
-        get samples() { return samplesRef.current; },
-      };
+      delete dbg.economy;
+      samplesRef.current = null;
+      if (isDebug()) {
+        const ring = new StatsRing(SAMPLE_CAP);
+        samplesRef.current = ring;
+        dbg.economy = {
+          command: (body) => s.client.command(body),
+          requestBudget: () => s.client.requestBudget(),
+          get stats() { return ring.last; },
+          get samples() { return ring.toArray(); },
+        };
+      }
       dbg.roads = {
         get graphEpoch() { return graphEpoch.current; },
         requestPath: (from, to) => s.client.requestPath(from, to),
@@ -91,9 +97,7 @@ export function App() {
           dbg.sim.tick = st.tick;
           if (st.hash !== undefined) { dbg.sim.hash = st.hash; dbg.sim.hashTick = st.tick; }
         }
-        const samples = samplesRef.current;
-        samples.push(st);
-        if (samples.length > SAMPLE_CAP) samples.splice(0, samples.length - SAMPLE_CAP);
+        samplesRef.current?.push(st);
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
           rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths,
