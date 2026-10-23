@@ -27,6 +27,7 @@ export class PointerControl {
   constructor(private readonly host: ControlHost) {}
 
   get activeMode(): Mode { return this.mode; }
+  get pointerCount(): number { return this.pointers.size; }
 
   private setMode(m: Mode): void {
     if (this.mode === 'none' && m !== 'none') this.host.rig.beginDrag();

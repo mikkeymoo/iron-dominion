@@ -1,4 +1,5 @@
-import { archetype, BFLAG, type Archetype, BRIDGE_EXTRA, BULLDOZE_COST, ROAD_COST, ZONE_COST } from './catalog.ts';
+import { archetype, BFLAG, type Archetype } from './catalog.ts';
+import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
 import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { markDirty, type Sim } from './world.ts';
@@ -8,6 +9,8 @@ export type CommandBody =
   | { type: 'zone'; x0: number; y0: number; x1: number; y1: number; zone: number; density: number }
   | { type: 'bulldoze'; x0: number; y0: number; x1: number; y1: number }
   | { type: 'placeBuilding'; arch: number; x: number; y: number; rot: number }
+  /** (x0, y0) is where the drag began: `level` flattens to that tile's height. Not undoable (the journal holds roads and zones only). */
+  | { type: 'terraform'; mode: 'raise' | 'lower' | 'level'; x0: number; y0: number; x1: number; y1: number }
   | { type: 'debugGrow'; x: number; y: number; archetype: number; progress: number }
   | { type: 'debugLevel'; x0: number; y0: number; x1: number; y1: number; margin: number }
   | { type: 'setTax'; rate: number }
@@ -17,14 +20,10 @@ export type CommandBody =
 export type Command = { id: number; tick: number } & CommandBody;
 
 const UNDO = { NONE: 0, ROAD: 1, ZONE: 2, BUILDING: 3 } as const;
-const MAX_ROAD_CELLS = 600;
-const MAX_ZONE_TILES = UCELLS;
 const NEI = [[0, -1, ROAD.N], [1, 0, ROAD.E], [0, 1, ROAD.S], [-1, 0, ROAD.W]] as const;
 
 class Reject extends Error {}
 const reject = (reason: string): never => { throw new Reject(reason); };
-
-const isInts = (...v: number[]): boolean => v.every((n) => Number.isInteger(n));
 
 function fixRoad(world: World, x: number, y: number): void {
   if (!inBounds(x, y)) return;
@@ -40,17 +39,6 @@ function fixRoad(world: World, x: number, y: number): void {
     if (Math.abs(world.height[j]! - world.height[i]!) > SLOPE_LIMIT) slope = ROAD.SLOPE;
   }
   world.road[i] = (r & ROAD.CLASS_MASK) | (r & ROAD.BRIDGE) | conn | slope;
-}
-
-function roadPath(c: { ax: number; ay: number; bx: number; by: number }): number[] {
-  const cells: number[] = [];
-  const sx = Math.sign(c.bx - c.ax), sy = Math.sign(c.by - c.ay);
-  let x = c.ax;
-  cells.push(tileIdx(x, c.ay));
-  while (x !== c.bx) { x += sx; cells.push(tileIdx(x, c.ay)); }
-  let y = c.ay;
-  while (y !== c.by) { y += sy; cells.push(tileIdx(x, y)); }
-  return cells;
 }
 
 interface Capture {
@@ -90,24 +78,16 @@ function journalCommit(sim: Sim, cap: Capture, kind: number, cost: number, arg: 
   return id;
 }
 
-function spend(world: World, cost: number): void {
-  if (cost > world.scalars[S.treasury]!) reject('funds');
+/** Validation and cost come from estimate(), the same module the ghost preview runs on the main thread. */
+function checked(sim: Sim, c: CommandBody): ReturnType<typeof estimate> {
+  const e = estimate(sim.world, c, sim.world.scalars[S.treasury]);
+  if (e.reason) reject(e.reason);
+  return e;
 }
 
 function placeRoad(sim: Sim, c: Extract<Command, { type: 'placeRoad' }>): number {
   const w = sim.world;
-  if (!isInts(c.ax, c.ay, c.bx, c.by, c.cls)) reject('invalid');
-  if (!inBounds(c.ax, c.ay) || !inBounds(c.bx, c.by)) reject('bounds');
-  if (c.cls < 1 || c.cls > 3) reject('invalid');
-  const path = roadPath(c);
-  if (path.length > MAX_ROAD_CELLS) reject('too-large');
-  let cost = 0;
-  for (const i of path) {
-    if (w.bId[i]) reject('blocked');
-    if ((w.road[i]! & ROAD.CLASS_MASK) < c.cls) cost += ROAD_COST[c.cls]! + (isWaterTerrain(w.terrain[i]!) ? BRIDGE_EXTRA : 0);
-  }
-  if (cost === 0) reject('noop');
-  spend(w, cost);
+  const { validTiles: path, cost } = checked(sim, c);
 
   const touched: number[] = [];
   for (const i of path) {
@@ -128,33 +108,10 @@ function placeRoad(sim: Sim, c: Extract<Command, { type: 'placeRoad' }>): number
   return journalCommit(sim, cap, UNDO.ROAD, cost, 0);
 }
 
-function rect(c: { x0: number; y0: number; x1: number; y1: number }): [number, number, number, number] {
-  if (!isInts(c.x0, c.y0, c.x1, c.y1)) reject('invalid');
-  if (!inBounds(c.x0, c.y0) || !inBounds(c.x1, c.y1)) reject('bounds');
-  return [Math.min(c.x0, c.x1), Math.min(c.y0, c.y1), Math.max(c.x0, c.x1), Math.max(c.y0, c.y1)];
-}
-
-const ZONABLE = (t: number): boolean => t === TERRAIN.SAND || t === TERRAIN.GRASS || t === TERRAIN.FOREST;
-
 function zone(sim: Sim, c: Extract<Command, { type: 'zone' }>): number {
   const w = sim.world;
-  if (!isInts(c.zone, c.density)) reject('invalid');
-  if (c.zone < 1 || c.zone > 3 || c.density < 0 || c.density > 2) reject('invalid');
-  const [x0, y0, x1, y1] = rect(c);
-  if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_ZONE_TILES) reject('too-large');
+  const { validTiles: changed, cost } = checked(sim, c);
   const value = c.zone | (c.density << 2);
-  const changed: number[] = [];
-  let valid = 0;
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = tileIdx(x, y);
-    if (!ZONABLE(w.terrain[i]!) || w.road[i] || w.bId[i]) continue;
-    valid++;
-    if (w.zone[i] !== value) changed.push(i);
-  }
-  if (valid === 0) reject('terrain');
-  if (changed.length === 0) reject('noop');
-  const cost = changed.length * ZONE_COST;
-  spend(w, cost);
   const cap = capture(w, changed);
   for (const i of changed) { w.zone[i] = value; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); }
   w.scalars[S.treasury]! -= cost;
@@ -177,16 +134,10 @@ function clearBuilding(sim: Sim, slot: number): void {
 
 function bulldoze(sim: Sim, c: Extract<Command, { type: 'bulldoze' }>): void {
   const w = sim.world;
-  const [x0, y0, x1, y1] = rect(c);
+  const { cost, rect } = checked(sim, c);
+  const [x0, y0, x1, y1] = rect!;
   const slots = new Set<number>();
-  let cost = 0;
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = tileIdx(x, y);
-    if (w.bId[i]) { if (!slots.has(w.bId[i]! - 1)) cost += BULLDOZE_COST; slots.add(w.bId[i]! - 1); }
-    else if (w.road[i] || w.zone[i]) cost += BULLDOZE_COST;
-  }
-  if (cost === 0) reject('noop');
-  spend(w, cost);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (w.bId[tileIdx(x, y)]) slots.add(w.bId[tileIdx(x, y)]! - 1);
   for (const s of [...slots].sort((a, b) => a - b)) clearBuilding(sim, s);
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = tileIdx(x, y);
@@ -203,19 +154,13 @@ interface PlaceOptions { level: number; prog: number; flags: number; /** Treasur
 /** Shared placement for placeBuilding and debugGrow: validate the footprint, pick a slot, write the table and tile layers. */
 function placeSite(sim: Sim, a: Archetype, x: number, y: number, rot: number, o: PlaceOptions): number {
   const w = sim.world;
-  const bw = rot & 1 ? a.h : a.w, bh = rot & 1 ? a.w : a.h;
-  if (!inBounds(x, y) || !inBounds(x + bw - 1, y + bh - 1)) reject('bounds');
-  for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) {
-    const i = tileIdx(xx, yy);
-    if (isWaterTerrain(w.terrain[i]!)) reject('terrain');
-    if (w.road[i] || w.bId[i]) reject('blocked');
-  }
-  if (o.cost > 0) spend(w, o.cost);
+  const { w: bw, h: bh } = footprintOf(a, rot);
+  const site = estimateSite(w, a, x, y, rot, o.cost, w.scalars[S.treasury]);
+  if (site.reason) reject(site.reason);
   let slot = -1;
   for (let s = 0; s < w.bArch.length; s++) if (w.bArch[s] === 0) { slot = s; break; }
   if (slot < 0) reject('full');
-  const cells: number[] = [];
-  for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) cells.push(tileIdx(xx, yy));
+  const cells = site.validTiles;
   const cap = o.journal ? capture(w, cells) : undefined;
   w.bArch[slot] = a.id; w.bX[slot] = x; w.bY[slot] = y; w.bW[slot] = bw; w.bH[slot] = bh;
   w.bRot[slot] = rot; w.bLevel[slot] = o.level; w.bProg[slot] = o.prog; w.bFlags[slot] = o.flags;
@@ -251,7 +196,9 @@ function debugLevel(sim: Sim, c: Extract<Command, { type: 'debugLevel' }>): void
   const w = sim.world;
   if (!sim.debug) reject('debug-only');
   if (!isInts(c.margin) || c.margin < 0 || c.margin > 16) reject('invalid');
-  const [x0, y0, x1, y1] = rect(c);
+  const r = rectOf(c);
+  if (typeof r === 'string') reject(r);
+  const [x0, y0, x1, y1] = r as [number, number, number, number];
   let sum = 0, n = 0;
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = tileIdx(x, y);
@@ -273,8 +220,13 @@ function debugLevel(sim: Sim, c: Extract<Command, { type: 'debugLevel' }>): void
       markDirty(sim, 'geometry', x, y);
     }
   }
-  // Heights moved, so road slope flags and building ground heights in and around the area are stale.
-  const ex0 = Math.max(0, x0 - m - 1), ey0 = Math.max(0, y0 - m - 1), ex1 = Math.min(MAP - 1, x1 + m + 1), ey1 = Math.min(MAP - 1, y1 + m + 1);
+  settleGround(sim, x0 - m - 1, y0 - m - 1, x1 + m + 1, y1 + m + 1);
+}
+
+/** Heights moved inside the rect: road slope flags and building ground heights in and around it are stale. Clamps to the map. */
+function settleGround(sim: Sim, rx0: number, ry0: number, rx1: number, ry1: number): void {
+  const w = sim.world;
+  const ex0 = Math.max(0, rx0), ey0 = Math.max(0, ry0), ex1 = Math.min(MAP - 1, rx1), ey1 = Math.min(MAP - 1, ry1);
   for (let y = ey0; y <= ey1; y++) for (let x = ex0; x <= ex1; x++) {
     const i = tileIdx(x, y), before = w.road[i]!;
     if (!(before & ROAD.CLASS_MASK)) continue;
@@ -284,6 +236,15 @@ function debugLevel(sim: Sim, c: Extract<Command, { type: 'debugLevel' }>): void
   for (let s = 0; s < w.bArch.length; s++) {
     if (w.bArch[s] && w.bX[s]! + w.bW[s]! > ex0 && w.bX[s]! <= ex1 && w.bY[s]! + w.bH[s]! > ey0 && w.bY[s]! <= ey1) sim.dirty.buildings.add(s);
   }
+}
+
+function terraform(sim: Sim, c: Extract<Command, { type: 'terraform' }>): void {
+  const w = sim.world;
+  const e = checked(sim, c);
+  const [x0, y0, x1, y1] = e.rect!;
+  e.validTiles.forEach((i, n) => { w.height[i] = e.heights![n]!; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); });
+  w.scalars[S.treasury]! -= e.cost;
+  settleGround(sim, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
 }
 
 function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
@@ -330,6 +291,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'zone': journal = zone(sim, cmd); break;
       case 'bulldoze': bulldoze(sim, cmd); break;
       case 'placeBuilding': journal = placeBuilding(sim, cmd); break;
+      case 'terraform': terraform(sim, cmd); break;
       case 'debugGrow': debugGrow(sim, cmd); break;
       case 'debugLevel': debugLevel(sim, cmd); break;
       case 'setTax': setTax(sim, cmd); break;

@@ -3,6 +3,7 @@ import type { Speed } from '../sim/protocol.ts';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
+import { isEditableTarget } from '../render/editable.ts';
 
 export const SPEEDS: { speed: Speed; label: string; key: string }[] = [
   { speed: 0, label: 'Pause', key: '0' },
@@ -45,10 +46,6 @@ const clock = (f: number): string => {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 };
 
-const editable = (t: EventTarget | null): boolean => {
-  const el = t as HTMLElement | null;
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
-};
 
 export function Hud({ lifecycle, stats, settings, notice, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
@@ -67,7 +64,7 @@ export function Hud({ lifecycle, stats, settings, notice, onSave, onSaveAs, onEx
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.ctrlKey || e.metaKey || e.altKey || editable(e.target)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || isEditableTarget(e.target)) return;
       const hit = SPEEDS.find((s) => s.key === e.key);
       if (hit) { e.preventDefault(); lifecycle.setSpeed(hit.speed); return; }
       if (e.key === ' ' && (e.target as HTMLElement | null)?.tagName !== 'BUTTON') {

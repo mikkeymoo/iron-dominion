@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { apply, collectOutgoing, createSim, packAgents, restore, snapshot, stateHash, step, tickOf } from './engine.ts';
+import { apply, collectOutgoing, drainCommands, createSim, packAgents, restore, snapshot, stateHash, step, tickOf } from './engine.ts';
 import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
@@ -143,7 +143,12 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
     }
     if (!handshaken || !sim || fatal) return;
     switch (m.type) {
-      case 'command': apply(sim, m.cmd); break;
+      case 'command':
+        apply(sim, m.cmd);
+        // Players build while paused: run the command now (same tick, same order as the next step's first system) and
+        // send the patch and events so the mirror and ghost update. A halted debug run keeps its tick-exact hash.
+        if ((paused || speed === 0) && !halted) { drainCommands(sim); flush(performance.now(), true); }
+        break;
       case 'requestResync': sim.resync = true; break;
       case 'agentsReturn': freeAgentBufs.push({ pos: m.pos, ids: m.ids }); break;
       case 'viewRect': view = { x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1 }; break;
