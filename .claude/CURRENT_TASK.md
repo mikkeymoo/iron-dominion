@@ -19,9 +19,9 @@ Run: `/lfg` through U0..U14, one commit per unit, pushed to `origin/main` (Micha
 | U0   | fbbcc48 | 1 test, build ok, smoke pass (2 viewports) | old game deleted; three 0.186.1 |
 | U1   | 20f126b | 22 tests, build ok (2 tsconfigs), smoke pass incl. worker golden hash | review: 10 findings applied (undo slot reuse, sim-assigned journal ids, mirror resync, snapshot protocol check, worker fatal flag) |
 | U2   | 2c83678 | 92 tests, build ok (315 KB gzip), smoke pass webgl2+webgpu desktop, webgl2 phone | review: 10 findings applied (touch inertia, chunk-border seams, recovery race, view rect, fine-chunk budget); docs/next preview |
-| U3   |        |               |       |
+| U3   | f9c7f47 | 139 tests, build ok (339 KB gzip), smoke 57 ok incl. showcase on both backends | review: 10 findings applied (buildings follow terrain/road patches, batch disposal, stable variants across tiers, crane placement, O(map) site search) |
 | U4   |        |               |       |
-| U5   |        |               |       |
+| U5   | cf6eab0 (merge of f2e2e91 + 55dc5c4) | 193 tests after merge, smoke pass incl. real IndexedDB save/reload hash | review: 10 findings applied (single save queue, cache refresh, quit dialog, quota mapping) |
 | U6   |        |               |       |
 | U7   |        |               |       |
 | U8   |        |               |       |
