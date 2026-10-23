@@ -8,4 +8,10 @@ describe('App shell', () => {
     expect(screen.getByRole('heading', { name: 'Iron Dominion' })).toBeTruthy();
     expect(screen.getByText(/Engine: failed/)).toBeTruthy();
   });
+
+  it('offers a New city button that is disabled while the engine is down', () => {
+    render(<App />);
+    const button = screen.getByRole('button', { name: 'New city' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
 });

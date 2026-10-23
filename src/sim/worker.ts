@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { apply, collectOutgoing, createSim, packAgents, restore, snapshot, stateHash, step, tickOf } from './engine.ts';
+import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
 import type { Sim } from './world.ts';
@@ -125,6 +126,10 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
     if (m.type === 'hello') {
       if (m.protocolVersion !== PROTOCOL_VERSION) {
         fail(`protocol mismatch: worker ${PROTOCOL_VERSION}, client ${m.protocolVersion}`);
+        return;
+      }
+      if (m.buildHash !== undefined && m.buildHash !== BUILD_HASH) {
+        fail(`build mismatch: worker ${BUILD_HASH}, app ${m.buildHash} (stale cache? reload the page)`);
         return;
       }
       sim = createSim(m.seed ?? 1);

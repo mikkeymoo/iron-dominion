@@ -1,5 +1,21 @@
 :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #0b1116; color: #e6edf3; }
-html, body, #root { margin: 0; height: 100%; overflow: hidden; }
-.title { height: 100%; display: grid; place-content: center; text-align: center; }
+html, body, #root { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+.title { height: 100%; display: grid; place-content: center; justify-items: center; text-align: center; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .title h1 { font-size: clamp(2rem, 8vw, 4rem); margin: 0; letter-spacing: 0.08em; }
 .title .status { opacity: 0.6; font-size: 0.85rem; }
+button.primary { font: inherit; font-weight: 600; padding: 0.7rem 1.6rem; margin: 0.5rem 0; border: 1px solid #3a6ea5; border-radius: 6px; background: #1d4c7c; color: #e6edf3; cursor: pointer; min-height: 44px; }
+button.primary:disabled { opacity: 0.5; cursor: default; }
+
+.game { position: fixed; inset: 0; overflow: hidden; background: #b4d4f0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.game-host { position: absolute; inset: 0; touch-action: none; }
+.game-loading { position: absolute; inset: 0; display: grid; place-content: center; color: #0b1116; font-weight: 600; pointer-events: none; }
+.game-error { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; text-align: center; gap: 0.4rem; padding: 1.5rem; background: #0b1116; }
+.game-error .detail { opacity: 0.55; font-size: 0.75rem; max-width: 40rem; word-break: break-word; }
+
+.hud { position: absolute; inset: 0; pointer-events: none; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.hud > * { pointer-events: auto; }
+.perf-toggle { position: absolute; top: calc(env(safe-area-inset-top) + 6px); right: calc(env(safe-area-inset-right) + 6px); min-width: 44px; min-height: 44px; font: 600 0.75rem ui-monospace, monospace; color: #e6edf3; background: rgba(11, 17, 22, 0.7); border: 1px solid rgba(230, 237, 243, 0.3); border-radius: 6px; }
+.perf-toggle[aria-pressed="true"] { border-color: #6fb0ff; }
+.perf { position: absolute; top: calc(env(safe-area-inset-top) + 6px); left: calc(env(safe-area-inset-left) + 6px); margin: 0; padding: 6px 10px; display: grid; grid-template-columns: auto auto; gap: 1px 12px; font: 0.72rem/1.35 ui-monospace, monospace; color: #e6edf3; background: rgba(11, 17, 22, 0.72); border-radius: 6px; pointer-events: none; }
+.perf dt { opacity: 0.65; }
+.perf dd { margin: 0; text-align: right; }
