@@ -63,12 +63,7 @@ export class RenderMirror {
         }
         if ('road' in m.layers) this.roadVersion++;
         for (const c of m.chunks) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); }
-        for (const b of m.buildings) {
-          // An outage flag flips what the power and water overlays paint on the footprint, so those overlay chunks repaint.
-          if (this.table.bFlags[b.slot] !== b.flags || !this.table.bArch[b.slot]) this.markOverlayFootprint(b.x, b.y, b.w, b.h);
-          writeBuilding(this.table, b);
-          this.dirtyBuildings.add(b.slot);
-        }
+        for (const b of m.buildings) { writeBuilding(this.table, b); this.dirtyBuildings.add(b.slot); }
         this.tick = m.tick;
         return true;
       case 'overlayPatch':
@@ -110,8 +105,10 @@ export class RenderMirror {
       const watch = name === 'height' || name === 'road';
       const lines = name === 'ugPower' || name === 'ugWater';
       chunks.forEach((chunk, n) => {
-        if (watch && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK)) groundChanged.add(chunk);
-        if (lines && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK)) this.dirtyLines.add(chunk);
+        const differs = (watch || lines) && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
+        if (watch && differs) groundChanged.add(chunk);
+        // Pylons and pipes sit on the ground, so a height change redraws the lines in that chunk too.
+        if ((lines || name === 'height') && differs) this.dirtyLines.add(chunk);
         copyChunkIn(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
       });
     }
@@ -142,12 +139,6 @@ export class RenderMirror {
     const t = this.table;
     for (let s = 0; s < t.bArch.length; s++) {
       if (t.bArch[s] && near.has(chunkIdx(t.bX[s]!, t.bY[s]!))) this.dirtyBuildings.add(s);
-    }
-  }
-
-  private markOverlayFootprint(x: number, y: number, w: number, h: number): void {
-    for (const [px, py] of [[x, y], [x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1]] as const) {
-      if (px >= 0 && py >= 0 && px < MAP && py < MAP) this.dirtyOverlay.add(chunkIdx(px, py));
     }
   }
 

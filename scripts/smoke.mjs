@@ -332,12 +332,17 @@ const BUILD_QUERY = '?autostart=1&seed=42&backend=webgl2&tier=low&governor=off';
 const DEPOT_COST = 500, STREET_COST = 10, ZONE_COST = 2;
 const until = (page, fn, arg, timeout = 20000) => page.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
 const camOf = (page) => page.evaluate(() => ({ ...window.__iron.render.camera }));
+// A page can report the renderer ready a moment before the first terrain resync reaches the mirror; until then findSite sees only water.
+const siteWhenReady = async (page, size) => {
+  await until(page, (n) => window.__iron.tools.findSite(n) !== null, size, 20000);
+  return page.evaluate((n) => window.__iron.tools.findSite(n), size);
+};
 
 async function bootBuildPage(open, add) {
   const page = await open(BUILD_QUERY);
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && r.triangles > 10000 && window.__iron.tools); }, null, 60000);
   if (!up) { add('city boots with tools', 'renderer or __iron.tools never ready'); await page.close(); return null; }
-  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  const site = await siteWhenReady(page, 14);
   if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return null; }
   await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
   await waitFrames(page, (await frames(page)) + 6, 10000);
@@ -524,7 +529,7 @@ async function roadGraphChecks(open) {
   const page = await open(`${BUILD_QUERY}&debug=1`);
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.roads); }, null, 60000);
   if (!up) { add('debug session boots with __iron.roads', 'renderer, tools or roads hook never ready'); await page.close(); return out; }
-  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  const site = await siteWhenReady(page, 14);
   if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
   const A = { x: site.x + 1, y: site.y + 2 }, B = { x: site.x + 8, y: site.y + 2 }, D = { x: site.x + 8, y: site.y + 9 }, M = { x: site.x + 4, y: site.y + 2 };
   const idx = (p) => p.y * MAP + p.x;
@@ -569,7 +574,7 @@ async function economyChecks(open) {
   const page = await open(`${BUILD_QUERY}&debug=1`);
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
   if (!up) { add('debug session boots with __iron.economy', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
-  const site = await page.evaluate(() => window.__iron.tools.findSite(24));
+  const site = await siteWhenReady(page, 24);
   if (!site) { add('a flat 24x24 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
   const sx = site.x, sy = site.y, roadY = sy + 8;
   const accepted = (id) => until(page, (i) => window.__iron.tools.lastEvent?.cmd === i && window.__iron.tools.lastEvent.type === 'accepted', id);
@@ -656,7 +661,7 @@ async function utilitiesChecks(open) {
   const page = await open(`${BUILD_QUERY}&debug=1`);
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
   if (!up) { add('debug session boots with tools and economy hooks', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
-  const site = await page.evaluate(() => window.__iron.tools.findSite(24));
+  const site = await siteWhenReady(page, 24);
   if (!site) { add('a flat 24x24 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
   const sx = site.x, sy = site.y;
   await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 12, z: s.y + 8, dist: 36, pitch: 0.95, yaw: 0.35 }), site);

@@ -73,7 +73,7 @@ describe('power network', () => {
     expect(xs.filter((x) => !unpowered(sim, x, 103))).toEqual([106, 110]);
     // The tile layer follows: the live side carries power, the cut-off side none.
     const on = (x: number, y: number): number => sim.world.powerOn[y * MAP + x]!;
-    expect([on(108, 102), on(113, 102), on(115, 102), on(120, 102), on(116, 103)]).toEqual([1, 1, 0, 0, 0]);
+    expect([on(108, 102), on(113, 102), on(115, 102), on(120, 102), on(116, 103)]).toEqual([1, 1, 0, 0, 3]);
 
     lay(sim, 'power', 114, 102, 114, 102);
     solveUtilities(sim);
@@ -164,21 +164,57 @@ describe('power network', () => {
     expect(unpowered(sim, 104, 103)).toBe(true);
   });
 
-  it('models nothing until the city builds a producer or a line, then every consumer needs service', () => {
+  it('models nothing until a FINISHED producer exists: a lone line tile or an unfinished plant site leaves the city lit', () => {
     const sim = flatSim();
     grow(sim, 100, 100, R1);
     solveUtilities(sim);
     expect(unpowered(sim, 100, 100)).toBe(false);
     expect(sim.world.scalars[S.grid]).toBe(0);
     lay(sim, 'power', 120, 120, 125, 120);
+    lay(sim, 'water', 120, 124, 125, 124);
     solveUtilities(sim);
-    expect(unpowered(sim, 100, 100)).toBe(true);
+    expect(unpowered(sim, 100, 100), 'a line with nothing feeding it').toBe(false);
+    expect(unwatered(sim, 100, 100), 'a pipe with nothing feeding it').toBe(false);
+    expect(sim.world.scalars[S.grid]).toBe(0);
+    expect(sim.utils!.modelled).toEqual({ power: false, water: false });
+    grow(sim, 130, 100, ARCH.POWER_PLANT, 0.4);
+    grow(sim, 140, 100, ARCH.WATER_PUMP, 0.4);
+    solveUtilities(sim);
+    expect(unpowered(sim, 100, 100), 'a plant site under construction').toBe(false);
+    expect(unwatered(sim, 100, 100), 'a pump site under construction').toBe(false);
+    expect(sim.world.scalars[S.grid]).toBe(0);
+    place(sim, ARCH.POWER_PLANT, 150, 150);
+    solveUtilities(sim);
+    expect(unpowered(sim, 100, 100), 'a finished plant switches power on').toBe(true);
+    expect(unwatered(sim, 100, 100), 'water is still not modelled').toBe(false);
+    expect(sim.utils!.modelled).toEqual({ power: true, water: false });
     expect(sim.world.scalars[S.grid]! & GRID_POWER).toBe(GRID_POWER);
-    must(run(sim, { type: 'bulldoze', x0: 120, y0: 120, x1: 125, y1: 120 }), 'remove the line');
+    must(run(sim, { type: 'bulldoze', x0: 150, y0: 150, x1: 153, y1: 153 }), 'remove the plant');
     solveUtilities(sim);
     expect(unpowered(sim, 100, 100), 'back to an unmodelled grid').toBe(false);
     expect(sim.world.scalars[S.grid]! & GRID_POWER).toBe(0);
     expect(sim.world.powerOn.every((v) => v === 0)).toBe(true);
+  });
+
+  it('gives an overlap of two water networks to the lower network id, even when that network is dry', () => {
+    const sim = flatSim();
+    // Network 1: a pipe down x = 200 from y = 10 with no pump (lowest tile index, so id 1). Network 2: a pump and a pipe at y = 98.
+    lay(sim, 'water', 200, 10, 200, 112);
+    place(sim, ARCH.WATER_PUMP, 208, 96);
+    lay(sim, 'water', 206, 98, 210, 98);
+    grow(sim, 203, 100, R1);
+    grow(sim, 211, 100, R1);
+    solveUtilities(sim);
+    expect(unwatered(sim, 203, 100), 'reached by both networks: the lower id wins and has no water').toBe(true);
+    expect(unwatered(sim, 211, 100), 'reached only by the pumped network').toBe(false);
+    const again = flatSim();
+    lay(again, 'water', 200, 10, 200, 112);
+    place(again, ARCH.WATER_PUMP, 208, 96);
+    lay(again, 'water', 206, 98, 210, 98);
+    grow(again, 203, 100, R1);
+    grow(again, 211, 100, R1);
+    solveUtilities(again);
+    expect(Array.from(again.world.waterOn)).toEqual(Array.from(sim.world.waterOn));
   });
 });
 
@@ -235,7 +271,8 @@ describe('solar output', () => {
     grow(sim, 104, 100, R1);
     solveUtilities(sim);
     expect(sim.utils!.power.supply).toBe(0);
-    expect(unpowered(sim, 104, 100)).toBe(true);
+    expect(unpowered(sim, 104, 100), 'an unfinished plant does not switch power on, so nothing is dark').toBe(false);
+    expect(sim.utils!.modelled.power).toBe(false);
   });
 });
 
@@ -276,7 +313,7 @@ describe('water network', () => {
     expect(unwatered(sim, 165, 147), 'three tiles above the pipe').toBe(false);
     expect(unwatered(sim, 160, 154), 'four tiles below').toBe(true);
     expect(unwatered(sim, 168, 145), 'five tiles above').toBe(true);
-    expect([w.waterOn[153 * MAP + 160], w.waterOn[154 * MAP + 160], w.waterOn[150 * MAP + 171], w.waterOn[150 * MAP + 173], w.waterOn[150 * MAP + 174]]).toEqual([1, 0, 1, 1, 0]);
+    expect([w.waterOn[153 * MAP + 160], w.waterOn[154 * MAP + 160], w.waterOn[150 * MAP + 171], w.waterOn[150 * MAP + 173], w.waterOn[150 * MAP + 174]]).toEqual([1, 3, 1, 1, 0]);
     expect(sim.utils!.unwatered).toBe(2);
   });
 
@@ -419,6 +456,19 @@ describe('placeLine commands', () => {
     lay(sim, 'power', 100, 100, 104, 100);
     expect(run(sim, { type: 'placeBuilding', arch: ARCH.DEPOT, x: 102, y: 99, rot: 0 }).reason).toBe('blocked');
     expect(run(sim, { type: 'placeBuilding', arch: ARCH.DEPOT, x: 102, y: 101, rot: 0 }).ok).toBe(true);
+  });
+
+  it('refuses to terraform ground that carries a power line or a pipe, and allows it once they are gone', () => {
+    const sim = flatSim();
+    lay(sim, 'power', 100, 100, 104, 100);
+    lay(sim, 'water', 110, 100, 114, 100);
+    for (const x of [102, 112]) {
+      const body = { type: 'terraform', mode: 'raise', x0: x, y0: 99, x1: x, y1: 101 } as const;
+      expect(estimate(sim.world, body).reason).toBe('blocked');
+      expect(run(sim, body).reason).toBe('blocked');
+    }
+    must(run(sim, { type: 'bulldoze', x0: 102, y0: 100, x1: 102, y1: 100 }), 'remove the line tile');
+    expect(run(sim, { type: 'terraform', mode: 'raise', x0: 102, y0: 99, x1: 102, y1: 101 }).ok).toBe(true);
   });
 
   it('refuses the locked fusion reactor', () => {

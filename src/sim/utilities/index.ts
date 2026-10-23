@@ -8,9 +8,9 @@ export * from './solve.ts';
 export * from './tables.ts';
 
 /** The utilities fields of a Stats message, from the last solve (zeros until the first one after a load). */
-export function utilStats(sim: Sim): Pick<Stats, 'power' | 'water' | 'unpowered' | 'unwatered'> {
+export function utilStats(sim: Sim): Pick<Stats, 'power' | 'water' | 'unpowered' | 'unwatered' | 'modelled'> {
   const u = sim.utils ?? emptyUtilStats();
-  return { power: { ...u.power }, water: { ...u.water }, unpowered: u.unpowered, unwatered: u.unwatered };
+  return { power: { ...u.power }, water: { ...u.water }, unpowered: u.unpowered, unwatered: u.unwatered, modelled: { ...u.modelled } };
 }
 
 export interface LotService { power: boolean; water: boolean }
@@ -29,8 +29,9 @@ export function lotService(world: World, x: number, y: number, bw: number, bh: n
       const inX = xx >= x && xx < x + bw, inY = yy >= y && yy < y + bh;
       if (!inX && !inY) continue;
       const i = yy * MAP + xx;
-      if (world.powerOn[i]! > 0) power = true;
-      if (inX && inY && world.waterOn[i]! > 0) water = true;
+      const p = world.powerOn[i]!, q = world.waterOn[i]!;
+      if (p === 1 || p === 2) power = true;
+      if (inX && inY && (q === 1 || q === 2)) water = true;
     }
   }
   return { power, water };

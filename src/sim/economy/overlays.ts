@@ -62,7 +62,7 @@ export function landValueAt(w: World, x: number, y: number): number {
   v -= w.pollution[i]! >> LV_POLLUTION_SHIFT;
   v += serviceBonus(w, i);
   // Utilities, once the city models them: no water reach costs the tile land value, and so does standing under a dark building.
-  if ((w.scalars[S.grid]! & GRID_WATER) !== 0 && w.waterOn[i] === 0) v -= LV_NO_WATER;
+  if ((w.scalars[S.grid]! & GRID_WATER) !== 0 && w.waterOn[i] !== 1 && w.waterOn[i] !== 2) v -= LV_NO_WATER;
   if (w.bId[i] !== 0 && (w.bFlags[w.bId[i]! - 1]! & BFLAG.UNPOWERED) !== 0) v -= LV_NO_POWER;
   return v < 0 ? 0 : v > 255 ? 255 : v;
 }

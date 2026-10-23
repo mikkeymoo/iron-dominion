@@ -49,6 +49,8 @@ export const LV_NO_POWER = 16;
 export const LOT_NO_POWER = 220;
 export const LOT_NO_WATER = 160;
 
+/** powerOn / waterOn value on the footprint of a consumer that is not served, so the overlay layers alone say which buildings are dark. */
+export const TILE_DARK = 3;
 export const GRID_POWER = 1;
 export const GRID_WATER = 2;
 

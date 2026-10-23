@@ -188,8 +188,9 @@ export class BuildingInstances {
     const dry = p >= 1 && (b.flags & BFLAG.UNWATERED) !== 0;
     const had = this.outages.get(slot);
     if (dark || dry) {
-      if (!had || had.power !== dark || had.water !== dry || had.x !== cx || had.z !== cz) this.outageVersion++;
-      this.outages.set(slot, { x: cx, y: gy + model.height + ICON_LIFT, z: cz, power: dark, water: dry });
+      const y = gy + model.height + ICON_LIFT;
+      if (!had || had.power !== dark || had.water !== dry || had.x !== cx || had.y !== y || had.z !== cz) this.outageVersion++;
+      this.outages.set(slot, { x: cx, y, z: cz, power: dark, water: dry });
     } else if (had) { this.outages.delete(slot); this.outageVersion++; }
 
     if (near) {

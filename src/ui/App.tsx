@@ -19,7 +19,7 @@ import './app.css';
 // ?seed=42&haltAt=200 is the determinism debug path (see session.ts).
 const ZERO: HudStats = {
   tick: 0, day: 0, dayFrac: 0, treasury: 0, population: 0, rciDemand: [0, 0, 0], taxRates: [DEFAULT_TAX, DEFAULT_TAX, DEFAULT_TAX], month: 0, lastNet: 0, loans: [], debtMonths: 0,
-  power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 }, unpowered: 0, unwatered: 0,
+  power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 }, unpowered: 0, unwatered: 0, modelled: { power: false, water: false },
 };
 const SAMPLE_CAP = 2000;
 const isDebug = (): boolean => query().get('debug') === '1' || query().get('showcase') === '1';
@@ -102,7 +102,7 @@ export function App() {
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
           rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths,
-          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered,
+          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled,
         });
       },
     });

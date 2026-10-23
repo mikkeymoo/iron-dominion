@@ -113,6 +113,9 @@ export class LinesView {
     this.underground = on;
     this.soil.visible = on;
     for (const p of this.pipes) if (p.mesh) p.mesh.visible = on;
+    // The underground view shows pipes only: pylons and cables go with the buildings.
+    for (const c of this.cables) if (c.mesh) c.mesh.visible = !on;
+    if (this.pylonMesh) this.pylonMesh.visible = !on && this.pylonTotal > 0;
   }
 
   /** Drain the mirror's dirty-line chunks and rebuild a few stale superchunks. */
@@ -135,6 +138,7 @@ export class LinesView {
       this.pylonSets[s] = g.pylons;
       this.spanCount[s] = g.spans;
       this.cables[s]!.set(g.cables);
+      if (this.cables[s]!.mesh) this.cables[s]!.mesh!.visible = !this.underground;
       this.pylonsDirty = true;
       left--;
     }
@@ -176,7 +180,7 @@ export class LinesView {
       for (let k = 0; k < set.length; k += 3, i++) composeMatrix(arr.subarray(i * MATRIX_STRIDE, (i + 1) * MATRIX_STRIDE), set[k]!, set[k + 1]!, set[k + 2]!, 0);
     }
     mesh.count = n;
-    mesh.visible = n > 0;
+    mesh.visible = n > 0 && !this.underground;
     mesh.instanceMatrix.needsUpdate = true;
   }
 
@@ -185,7 +189,7 @@ export class LinesView {
       pylons: this.pylonTotal,
       spans: this.spanCount.reduce((a, b) => a + b, 0),
       pipeSegments: this.segmentCount.reduce((a, b) => a + b, 0),
-      cableDraws: this.cables.filter((c) => c.mesh).length + (this.pylonTotal > 0 ? 1 : 0),
+      cableDraws: this.underground ? 0 : this.cables.filter((c) => c.mesh).length + (this.pylonTotal > 0 ? 1 : 0),
       pipeDraws: this.underground ? this.pipes.filter((p) => p.mesh).length : 0,
     };
   }

@@ -40,7 +40,8 @@ export const SPEC = {
   // geometry patch, not the 1 Hz overlay one: the ghost estimate and the pylons must see an edit at once.
   ugPower: L(Uint8Array, TILES, true, 'geometry'),
   ugWater: L(Uint8Array, TILES, true, 'geometry'),
-  // Written by the utilities solve: 0 not served, 1 served, 2 served by a network that is browned out (supply < demand).
+  // Written by the utilities solve: 0 not served, 1 served, 2 served by a network that is browned out (supply < demand),
+  // 3 the footprint of a consumer building that is not served.
   powerOn: L(Uint8Array, TILES, true, 'overlay'),
   waterOn: L(Uint8Array, TILES, true, 'overlay'),
   landValue: L(Uint8Array, TILES, true, 'overlay'),

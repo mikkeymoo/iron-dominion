@@ -207,7 +207,7 @@ function estimateTerraform(v: TileRead, c: Extract<CommandBody, { type: 'terrafo
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = tileIdx(x, y);
     if (isWaterTerrain(v.terrain[i]!) || v.waterDepth[i]! > 0) { reason ??= 'terrain'; invalid.push(i); }
-    else if (v.road[i] || v.bId[i]) { reason ??= 'blocked'; invalid.push(i); }
+    else if (v.road[i] || v.bId[i] || v.ugPower?.[i] || v.ugWater?.[i]) { reason ??= 'blocked'; invalid.push(i); }
   }
   if (reason) return fail(reason, [], invalid);
 

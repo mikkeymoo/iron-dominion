@@ -59,7 +59,7 @@ describe('mirror and utilities', () => {
     expect(mirror.takeDirtyLines()).toEqual([]);
   });
 
-  it('repaints the overlay chunk of a building whose outage flag flipped', () => {
+  it('sends the overlay chunk of a building whose service flipped', () => {
     const { sim, mirror } = setup();
     run(sim, { type: 'placeBuilding', arch: ARCH.POWER_PLANT, x: 100, y: 100, rot: 0 });
     run(sim, { type: 'debugGrow', x: 120, y: 120, archetype: rciId(1, 0, 1), progress: 1 });
@@ -71,6 +71,20 @@ describe('mirror and utilities', () => {
     const flagged = mirror.table.bFlags[sim.world.bId[120 * MAP + 120]! - 1]!;
     expect(flagged & BFLAG.UNPOWERED).toBe(BFLAG.UNPOWERED);
     expect(mirror.takeDirtyOverlay()).toContain(chunkIdx(120, 120));
+    expect(mirror.layers.powerOn![120 * MAP + 120], 'the overlay layer itself marks the dark building').toBe(3);
+  });
+
+  it('marks the lines in a chunk dirty when its ground height changes, so pylons and pipes follow the terrain', () => {
+    const { sim, mirror } = setup();
+    run(sim, { type: 'placeLine', kind: 'power', ax: 40, ay: 40, bx: 44, by: 40 });
+    sync(sim, mirror);
+    mirror.takeDirtyLines();
+    run(sim, { type: 'terraform', mode: 'raise', x0: 80, y0: 80, x1: 81, y1: 81 });
+    sync(sim, mirror);
+    expect(mirror.takeDirtyLines()).toEqual([chunkIdx(80, 80)]);
+    run(sim, { type: 'terraform', mode: 'raise', x0: 40, y0: 41, x1: 41, y1: 42 });
+    sync(sim, mirror);
+    expect(mirror.takeDirtyLines()).toEqual([chunkIdx(40, 41)]);
   });
 
   it('carries power and water coverage in the overlay patch', () => {

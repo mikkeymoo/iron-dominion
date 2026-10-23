@@ -1,5 +1,6 @@
 import { useEffect, useReducer } from 'react';
 import { archetype, PIPE_COST, POWER_LINE_COST, ROAD_COST } from '../sim/catalog.ts';
+import { WATER_REACH } from '../sim/utilities/tables.ts';
 import { isEditableTarget } from '../render/editable.ts';
 import {
   DENSITY_LABELS, LINE_NAMES, ROAD_NAMES, SERVICES, TERRAFORM_MODES, UTILITY_BUILDINGS, ZONE_LABELS, keyAction, type LineKind, type ToolId, type ToolSel,
@@ -134,7 +135,7 @@ export function Tools({ runtime, view }: { runtime: ToolsRuntime; view: ViewStat
               <span className="tool-hint">{view.underground ? 'Underground: drag to dig up water pipes.' : 'Drag over roads, zones, power lines and buildings to clear them.'}</span>
             )}
             {sel.tool === 'line' && (
-              <span className="tool-hint">{sel.kind === 'power' ? 'Power flows through lines and touching buildings, not roads.' : 'Pipes run underground and serve buildings within 3 tiles.'}</span>
+              <span className="tool-hint">{sel.kind === 'power' ? 'Power flows through lines and touching buildings, not roads.' : `Pipes run underground and serve buildings within ${WATER_REACH} tiles.`}</span>
             )}
           </div>
         )}

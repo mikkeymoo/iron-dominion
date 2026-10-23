@@ -85,10 +85,14 @@ export class OutageIcons {
     this.mesh.name = 'outageIcons';
   }
 
-  /** Upload the icons for the buildings in `recs` (the first MAX_ICONS) and size them for the camera distance. */
-  update(recs: Iterable<OutageRec>, nowSec: number, cameraDist: number): void {
+  /** Per frame: only uniforms (flicker clock, icon size for the camera distance). */
+  tick(nowSec: number, cameraDist: number): void {
     this.clock.value = nowSec;
     this.size.value = Math.min(6, Math.max(0.42, cameraDist * 0.024));
+  }
+
+  /** Upload the icons for the buildings in `recs` (the first MAX_ICONS). Call only when the set of outages changed. */
+  setRecords(recs: Iterable<OutageRec>): void {
     let n = 0;
     for (const r of recs) {
       for (const water of r.power && r.water ? [false, true] : [r.water]) {

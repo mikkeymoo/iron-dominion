@@ -21,6 +21,7 @@ export class WorldScene {
   readonly icons: OutageIcons;
   readonly overlay: OverlayView;
   private viewVersion = -1;
+  private iconVersion = -1;
   private under = false;
 
   constructor(private readonly renderer: WebGPURenderer, mirror: RenderMirror, search: string, tier: Tier) {
@@ -55,7 +56,11 @@ export class WorldScene {
     }
     this.overlay.update(view?.effectiveOverlay ?? 'none');
     this.lines.update(nowSec);
-    this.icons.update(this.buildings.outages.values(), nowSec, cameraDist);
+    if (this.buildings.outageVersion !== this.iconVersion) {
+      this.iconVersion = this.buildings.outageVersion;
+      this.icons.setRecords(this.buildings.outages.values());
+    }
+    this.icons.tick(nowSec, cameraDist);
   }
 
   setAspect(aspect: number): void {

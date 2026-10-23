@@ -1,6 +1,6 @@
 // Paints the terrain overlay texture (256x256 RGBA8, one pixel per tile) from the mirror's tile layers for one overlay mode.
 // Pure: no three, no DOM. The terrain shader blends the texture over the ground colour by its alpha.
-import { BFLAG } from '../sim/catalog.ts';
+import { TILE_DARK } from '../sim/utilities/tables.ts';
 import { CHUNK, CHUNKS, MAP, isWaterTerrain } from '../sim/layers.ts';
 import type { OverlayMode } from './viewState.ts';
 
@@ -8,7 +8,6 @@ export interface OverlayLayers {
   terrain: ArrayLike<number>;
   waterDepth: ArrayLike<number>;
   bId: ArrayLike<number>;
-  bFlags: ArrayLike<number>;
   ugPower: ArrayLike<number>;
   ugWater: ArrayLike<number>;
   powerOn: ArrayLike<number>;
@@ -18,7 +17,7 @@ export interface OverlayLayers {
 }
 
 export const overlayLayersOf = (layers: Record<string, ArrayLike<number>>): OverlayLayers => ({
-  terrain: layers.terrain!, waterDepth: layers.waterDepth!, bId: layers.bId!, bFlags: layers.bFlags!, ugPower: layers.ugPower!,
+  terrain: layers.terrain!, waterDepth: layers.waterDepth!, bId: layers.bId!, ugPower: layers.ugPower!,
   ugWater: layers.ugWater!, powerOn: layers.powerOn!, waterOn: layers.waterOn!, landValue: layers.landValue!, pollution: layers.pollution!,
 });
 
@@ -54,23 +53,20 @@ const dry = (L: OverlayLayers, i: number): boolean => !isWaterTerrain(L.terrain[
 function colour(mode: OverlayMode, L: OverlayLayers, i: number): Rgba {
   switch (mode) {
     case 'power': {
-      const b = L.bId[i]!;
+      // State comes only from powerOn (0 off, 1 live, 2 browned out, 3 a dark building), written together by one solve; the
+      // building and line layers only say what stands on the tile.
       const on = L.powerOn[i]!;
-      if (b !== 0) {
-        if ((L.bFlags[b - 1]! & BFLAG.UNPOWERED) !== 0) return DARK;
-        return on === 0 ? NONE : on === 2 ? POWER_SHORT : POWER_OK;
-      }
+      if (on === TILE_DARK) return DARK;
+      if (L.bId[i] !== 0) return on === 0 ? NONE : on === 2 ? POWER_SHORT : POWER_OK;
       if (L.ugPower[i] !== 0) return on === 0 ? LINE_DEAD : on === 2 ? POWER_SHORT : LINE_OK;
       return NONE;
     }
     case 'water': {
-      const b = L.bId[i]!;
       const on = L.waterOn[i]!;
-      if (b !== 0 && (L.bFlags[b - 1]! & BFLAG.UNWATERED) !== 0) return DARK;
+      if (on === TILE_DARK) return DARK;
       if (L.ugWater[i] !== 0) return PIPE;
-      if (!dry(L, i)) return NONE;
-      if (on === 0) return NONE;
-      if (b !== 0) return WATER_BUILDING;
+      if (!dry(L, i) || on === 0) return NONE;
+      if (L.bId[i] !== 0) return WATER_BUILDING;
       return on === 2 ? WATER_SHORT : WATER_OK;
     }
     case 'landValue': return dry(L, i) ? ramp(L.landValue[i]!) : NONE;

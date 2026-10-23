@@ -123,6 +123,8 @@ export interface Stats {
   /** Finished consumers currently without power or water (0 while that network is not modelled). */
   unpowered: number;
   unwatered: number;
+  /** True once the city has a finished power (water) producer; until then that network is not modelled and nothing is dark. */
+  modelled: { power: boolean; water: boolean };
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }

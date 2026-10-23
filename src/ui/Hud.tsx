@@ -41,6 +41,7 @@ export interface HudStats {
   /** Finished buildings without power or water. */
   unpowered: number;
   unwatered: number;
+  modelled: { power: boolean; water: boolean };
 }
 
 interface Props {
@@ -116,7 +117,7 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
           </span>
         </div>
         <DemandBars demand={stats.rciDemand} />
-        <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} />
+        <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} modelled={stats.modelled} />
         <button type="button" className="tb coin" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" title="Budget" onClick={onBudget}>$</button>
         <button type="button" className="tb wide" onClick={onSave} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>
         <button type="button" className="tb wide" aria-expanded={menu} aria-haspopup="dialog" onClick={() => (menu ? closeMenu() : setMenu(true))}>Menu</button>

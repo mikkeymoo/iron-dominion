@@ -12,7 +12,7 @@ export function ViewControls({ view }: { view: ViewState }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.ctrlKey || e.metaKey || e.altKey || isEditableTarget(e.target) || e.key.toLowerCase() !== 'u') return;
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isEditableTarget(e.target) || e.key.toLowerCase() !== 'u') return;
       e.preventDefault();
       view.toggleUnderground();
     };

@@ -1,6 +1,6 @@
 interface Net { supply: number; demand: number }
 
-interface Props { power: Net; water: Net; unpowered: number; unwatered: number }
+interface Props { power: Net; water: Net; unpowered: number; unwatered: number; modelled: { power: boolean; water: boolean } }
 
 /** Share of demand the supply covers, 0..1; an idle network (no demand) counts as full when it produces anything. */
 export const coverage = (n: Net): number => (n.demand <= 0 ? (n.supply > 0 ? 1 : 0) : Math.min(1, n.supply / n.demand));
@@ -22,15 +22,14 @@ function Bar({ id, label, unit, net, dark }: { id: string; label: string; unit: 
 
 /**
  * Power and water supply against demand as two small bars. A bar goes amber when demand outruns supply (a brown-out has begun)
- * and red when nothing is supplied at all; the count of dark buildings sits beside it. Hidden until the city has either network.
+ * and red when nothing is supplied at all; the count of dark buildings sits beside it. A bar shows only once that network is modelled.
  */
-export function UtilityBars({ power, water, unpowered, unwatered }: Props) {
-  const any = power.supply > 0 || power.demand > 0 || water.supply > 0 || water.demand > 0;
-  if (!any) return null;
+export function UtilityBars({ power, water, unpowered, unwatered, modelled }: Props) {
+  if (!modelled.power && !modelled.water) return null;
   return (
     <div className="util" role="group" aria-label="Power and water" data-testid="utilities">
-      <Bar id="power" label="Power" unit="MW" net={power} dark={unpowered} />
-      <Bar id="water" label="Water" unit="ML" net={water} dark={unwatered} />
+      {modelled.power && <Bar id="power" label="Power" unit="MW" net={power} dark={unpowered} />}
+      {modelled.water && <Bar id="water" label="Water" unit="ML" net={water} dark={unwatered} />}
       {(unpowered > 0 || unwatered > 0) && (
         <span className="util-warn" role="status" data-testid="util-warn">
           {unpowered > 0 && `${unpowered} without power`}

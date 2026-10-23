@@ -2,7 +2,7 @@ import { BFLAG } from '../catalog.ts';
 import { BMAX, MAP, S, TILES, isWaterTerrain, type World } from '../layers.ts';
 import { markDirty, type Sim } from '../world.ts';
 import {
-  GRID_POWER, GRID_WATER, PRODUCER, UTIL_PERIOD, PUMP_INLAND_ML, PUMP_NEAR_ML, PUMP_SHORE, TOWER_ML, WATER_REACH, fixedMwOf, isPowerProducer,
+  GRID_POWER, GRID_WATER, PRODUCER, TILE_DARK, UTIL_PERIOD, PUMP_INLAND_ML, PUMP_NEAR_ML, PUMP_SHORE, TOWER_ML, WATER_REACH, fixedMwOf, isPowerProducer,
   isService, isWaterSource, powerUseOf, producerKind, solarOutput, waterUseOf,
 } from './tables.ts';
 
@@ -22,14 +22,21 @@ import {
 // out: services (depot, fire station) first, then houses and businesses, each by ascending building slot. The first consumer
 // that does not fit and every one after it in that network stay dark, so the served set is always a prefix of the order.
 //
-// Neither network is modelled until the city builds something for it (any producer or line, any pump, tower or pipe): a fresh
+// Neither network is modelled until the city has a FINISHED producer for it (a completed plant, solar farm or reactor; a completed
+// pump or tower). A site under construction, or lines and pipes with nothing feeding them, do not switch it on: a fresh
 // city with no plant is not blacked out. From then on every consumer needs service. The result is written to the building
 // flag bits (UNPOWERED, UNWATERED) and the powerOn / waterOn tile layers.
 
 export interface NetTotals { supply: number; demand: number }
-export interface UtilStats { power: NetTotals; water: NetTotals; unpowered: number; unwatered: number }
+export interface UtilStats {
+  power: NetTotals; water: NetTotals; unpowered: number; unwatered: number;
+  /** Which networks the city has switched on (a finished producer exists); the HUD shows a network's bar only then. */
+  modelled: { power: boolean; water: boolean };
+}
 
-export const emptyUtilStats = (): UtilStats => ({ power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 }, unpowered: 0, unwatered: 0 });
+export const emptyUtilStats = (): UtilStats => ({
+  power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 }, unpowered: 0, unwatered: 0, modelled: { power: false, water: false },
+});
 
 const cond = new Uint8Array(TILES);
 const comp = new Int32Array(TILES);
@@ -110,6 +117,19 @@ function setTile(sim: Sim, layer: Uint8Array, i: number, v: number): void {
 }
 
 /** 0 for a network with no supply, 1 when it meets its demand, 2 when it is browned out. */
+const darkTile = new Uint8Array(TILES);
+
+/** Flag the footprint tiles of the unserved consumers among the first `count` (their `consServed` is 0). */
+function markDark(w: World, count: number, modelled: boolean): void {
+  darkTile.fill(0);
+  if (!modelled) return;
+  for (let k = 0; k < count; k++) {
+    if (consServed[k] !== 0) continue;
+    const s = consumers[k]!;
+    for (let yy = w.bY[s]!; yy < w.bY[s]! + w.bH[s]!; yy++) for (let xx = w.bX[s]!; xx < w.bX[s]! + w.bW[s]!; xx++) darkTile[yy * MAP + xx] = 1;
+  }
+}
+
 const stateOf = (n: number): number => (supply[n]! === 0 ? 0 : need[n]! <= supply[n]! ? 1 : 2);
 
 interface PassResult { supply: number; demand: number; unserved: number; modelled: boolean }
@@ -117,19 +137,15 @@ interface PassResult { supply: number; demand: number; unserved: number; modelle
 function powerPass(sim: Sim): PassResult {
   const w = sim.world;
   const solar = solarOutput(w);
-  let lines = 0, producers = 0, total = 0;
-  for (let i = 0; i < TILES; i++) {
-    const l = w.ugPower[i]!;
-    if (l !== 0) lines++;
-    cond[i] = l !== 0 || w.bId[i] !== 0 ? 1 : 0;
-  }
+  let producers = 0, total = 0;
+  for (let i = 0; i < TILES; i++) cond[i] = w.ugPower[i] !== 0 || w.bId[i] !== 0 ? 1 : 0;
   for (let s = 0; s < BMAX; s++) {
     const arch = w.bArch[s]!;
-    if (arch === 0 || !isPowerProducer(arch)) continue;
+    if (arch === 0 || !isPowerProducer(arch) || !finished(w, s)) continue;
     producers++;
-    if (finished(w, s)) total += producerKind(arch) === PRODUCER.SOLAR ? solar : fixedMwOf(arch);
+    total += producerKind(arch) === PRODUCER.SOLAR ? solar : fixedMwOf(arch);
   }
-  const modelled = producers + lines > 0;
+  const modelled = producers > 0;
   const was = (w.scalars[S.grid]! & GRID_POWER) !== 0;
   const count = collectConsumers(w, powerUseOf);
   let demand = 0;
@@ -158,7 +174,8 @@ function powerPass(sim: Sim): PassResult {
     if (dark) unserved++;
     setBit(sim, consumers[k]!, BFLAG.UNPOWERED, dark);
   }
-  for (let i = 0; i < TILES; i++) setTile(sim, w.powerOn, i, modelled && cond[i] !== 0 ? stateOf(comp[i]!) : 0);
+  markDark(w, count, modelled);
+  for (let i = 0; i < TILES; i++) setTile(sim, w.powerOn, i, modelled ? (darkTile[i] !== 0 ? TILE_DARK : cond[i] !== 0 ? stateOf(comp[i]!) : 0) : 0);
   return { supply: total, demand, unserved, modelled };
 }
 
@@ -178,19 +195,15 @@ export const pumpOutput = (w: World, slot: number): number =>
 
 function waterPass(sim: Sim): PassResult {
   const w = sim.world;
-  let pipes = 0, sources = 0;
-  for (let i = 0; i < TILES; i++) {
-    const p = w.ugWater[i]!;
-    if (p !== 0) pipes++;
-    cond[i] = p;
-  }
+  let sources = 0;
+  for (let i = 0; i < TILES; i++) cond[i] = w.ugWater[i]!;
   for (let s = 0; s < BMAX; s++) {
     const arch = w.bArch[s]!;
     if (arch === 0 || !isWaterSource(arch)) continue;
-    sources++;
+    if (finished(w, s)) sources++;
     for (let yy = w.bY[s]!; yy < w.bY[s]! + w.bH[s]!; yy++) for (let xx = w.bX[s]!; xx < w.bX[s]! + w.bW[s]!; xx++) cond[yy * MAP + xx] = 1;
   }
-  const modelled = sources + pipes > 0;
+  const modelled = sources > 0;
   const was = (w.scalars[S.grid]! & GRID_WATER) !== 0;
   const count = collectConsumers(w, waterUseOf);
   let demand = 0;
@@ -220,14 +233,14 @@ function waterPass(sim: Sim): PassResult {
     const n = comp[i]!, x = i % MAP, y = (i / MAP) | 0;
     const x0 = Math.max(0, x - WATER_REACH), x1 = Math.min(MAP - 1, x + WATER_REACH);
     for (let yy = Math.max(0, y - WATER_REACH), y1 = Math.min(MAP - 1, y + WATER_REACH); yy <= y1; yy++) {
-      for (let xx = x0, row = yy * MAP; xx <= x1; xx++) if (cov[row + xx] === 0) cov[row + xx] = n;
+      for (let xx = x0, row = yy * MAP; xx <= x1; xx++) { const c = cov[row + xx]!; if (c === 0 || n < c) cov[row + xx] = n; }
     }
   }
   for (let k = 0; k < count; k++) {
     const s = consumers[k]!;
     let n = 0;
-    for (let yy = w.bY[s]!; yy < w.bY[s]! + w.bH[s]! && n === 0; yy++) {
-      for (let xx = w.bX[s]!; xx < w.bX[s]! + w.bW[s]!; xx++) { n = cov[yy * MAP + xx]!; if (n !== 0) break; }
+    for (let yy = w.bY[s]!; yy < w.bY[s]! + w.bH[s]!; yy++) {
+      for (let xx = w.bX[s]!; xx < w.bX[s]! + w.bW[s]!; xx++) { const c = cov[yy * MAP + xx]!; if (c !== 0 && (n === 0 || c < n)) n = c; }
     }
     consNet[k] = n;
   }
@@ -243,7 +256,8 @@ function waterPass(sim: Sim): PassResult {
     if (dark) unserved++;
     setBit(sim, consumers[k]!, BFLAG.UNWATERED, dark);
   }
-  for (let i = 0; i < TILES; i++) setTile(sim, w.waterOn, i, modelled && cov[i] !== 0 ? stateOf(cov[i]!) : 0);
+  markDark(w, count, modelled);
+  for (let i = 0; i < TILES; i++) setTile(sim, w.waterOn, i, modelled ? (darkTile[i] !== 0 ? TILE_DARK : cov[i] !== 0 ? stateOf(cov[i]!) : 0) : 0);
   return { supply: total, demand, unserved, modelled };
 }
 
@@ -256,6 +270,7 @@ export function solveUtilities(sim: Sim): UtilStats {
   sim.world.scalars[S.grid] = (p.modelled ? GRID_POWER : 0) | (q.modelled ? GRID_WATER : 0);
   const stats: UtilStats = {
     power: { supply: p.supply, demand: p.demand }, water: { supply: q.supply, demand: q.demand }, unpowered: p.unserved, unwatered: q.unserved,
+    modelled: { power: p.modelled, water: q.modelled },
   };
   sim.utils = stats;
   return stats;

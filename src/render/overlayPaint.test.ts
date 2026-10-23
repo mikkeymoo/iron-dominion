@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { BFLAG } from '../sim/catalog.ts';
 import { MAP, TERRAIN } from '../sim/layers.ts';
 import { allocWorld } from '../sim/world.ts';
 import { overlayChecksum, overlayLayersOf, paintAll, paintChunk, paintTile } from './overlayPaint.ts';
@@ -15,8 +14,9 @@ function city() {
   for (let i = 0; i < MAP * MAP; i++) w.landValue[i] = i % 256;
   w.bArch[0] = 2; w.bArch[1] = 16;
   w.bId[at(30, 30)] = 1; w.bId[at(32, 30)] = 2;
-  w.bFlags[1] = BFLAG.UNPOWERED | BFLAG.UNWATERED;
-  w.powerOn[at(30, 30)] = 1; w.powerOn[at(32, 30)] = 1; w.powerOn[at(31, 30)] = 1;
+  // The solve writes 3 on the footprint of a building it did not serve; the painter reads nothing else for state.
+  w.powerOn[at(30, 30)] = 1; w.powerOn[at(32, 30)] = 3; w.powerOn[at(31, 30)] = 1;
+  w.waterOn[at(32, 30)] = 3;
   w.ugPower[at(31, 30)] = 1;
   w.waterOn[at(30, 30)] = 1; w.waterOn[at(40, 40)] = 1; w.waterOn[at(41, 40)] = 2;
   w.ugWater[at(42, 40)] = 1; w.waterOn[at(42, 40)] = 1;
@@ -78,7 +78,7 @@ describe('overlay painter', () => {
     const out = new Uint8Array(MAP * MAP * 4);
     paintAll('power', layers, out);
     const before = overlayChecksum(out);
-    world.bFlags[1] = 0;
+    world.powerOn[at(32, 30)] = 1;
     // (32, 30) lies in chunk (2, 1) = 1 * 16 + 2.
     paintChunk('power', layers, 1 * 16 + 2, out);
     const full = new Uint8Array(MAP * MAP * 4);

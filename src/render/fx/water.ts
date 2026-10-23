@@ -315,7 +315,10 @@ export class WaterSystem {
     const nW = normalize(vec3(detail.x.mul(0.55).sub(gx.mul(sharp)), float(1), detail.y.mul(0.55).sub(gz.mul(sharp))));
     m.normalNode = transformNormalToView(nW);
 
-    const depthMix = float(1).sub(exp(depth.mul(-0.42)));
+    // Rivers are one or two tiles wide: marked 0.5 in the info texture's blue channel (lakes and sea 1). They get a richer body
+    // colour and an alpha that fades out before the tile edge, so a narrow river reads as a soft channel, not pale tile-shaped patches.
+    const river = step(open, 0.6);
+    const depthMix = float(1).sub(exp(depth.mul(-0.42))).max(river.mul(0.62));
     const shallowC = vec3(0.07, 0.5, 0.52), deepC = vec3(0.008, 0.062, 0.19);
     const waterC = mix(shallowC, deepC, depthMix);
 
@@ -342,14 +345,15 @@ export class WaterSystem {
 
     let base: N = waterC;
     let emissive: N = reflRGB.mul(fres);
-    let alpha: N = mix(float(0.62), float(0.97), depthMix).mul(smoothstep(0, 0.5, shore.add(0.12)));
+    const bankFade = mix(smoothstep(0, 0.5, shore.add(0.12)), smoothstep(0.1, 0.31, shore), river);
+    let alpha: N = mix(float(0.62), float(0.97), depthMix).mul(bankFade);
     if (mode === 'refract') {
       const bend = vec2(nW.x, nW.z).mul(0.05).mul(float(1).sub(depthMix.mul(0.6)));
       const behind = (viewportOpaqueMipTexture(screenUV.add(bend)) as N).rgb;
       const absorb = exp(depth.mul(vec3(0.5, 0.2, 0.1)).negate());
       emissive = emissive.add(behind.mul(absorb).mul(float(1).sub(fres)).mul(float(1).sub(depthMix.mul(0.8))));
       base = waterC.mul(depthMix);
-      alpha = max(float(0.95).mul(smoothstep(0, 0.4, shore.add(0.12))), foam);
+      alpha = max(float(0.95).mul(mix(smoothstep(0, 0.4, shore.add(0.12)), smoothstep(0.1, 0.31, shore), river)), foam);
     }
     m.colorNode = mix(base, vec3(1, 1, 1), foam.mul(0.9));
     m.emissiveNode = emissive.mul(float(1).sub(foam));
