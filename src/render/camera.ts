@@ -20,11 +20,11 @@ export type GroundFn = (x: number, z: number) => number;
 export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
 /** Camera position and look-at point. The camera is lifted above terrain without moving the look-at point. */
-export function poseOf(s: RigState, ground: GroundFn): Pose {
+export function poseOf(s: RigState, ground: GroundFn, clearance: number = CAMERA.clearance): Pose {
   const cp = Math.cos(s.pitch);
   const px = s.x + Math.sin(s.yaw) * cp * s.dist;
   const pz = s.z + Math.cos(s.yaw) * cp * s.dist;
-  const py = Math.max(s.ty + Math.sin(s.pitch) * s.dist, ground(px, pz) + CAMERA.clearance);
+  const py = Math.max(s.ty + Math.sin(s.pitch) * s.dist, ground(px, pz) + clearance);
   return { px, py, pz, tx: s.x, ty: s.ty, tz: s.z };
 }
 
@@ -62,8 +62,18 @@ const KEY_YAW_RATE = 1.6;
 const DRAG_DAMP = 25;
 const GLIDE_DAMP = 5;
 
+/** Chase-camera framing behind a followed robot: street level, a few tiles back, looking slightly down. */
+export const FOLLOW = { dist: 1.9, pitch: 0.22, lift: 0.2, clearance: 0.12, damp: 5, minDist: 1.2 } as const;
+
+/** Where a followed thing is: tile coordinates (x, z) and the direction it faces (forward = (sin yaw, cos yaw)). */
+export type FollowPose = { x: number; z: number; yaw: number };
+
+const wrapAngle = (a: number): number => { let d = a % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2; return d; };
+
 export class CameraRig {
   readonly state: RigState = { x: MAP / 2, z: MAP / 2, yaw: 0.6, pitch: 0.7, dist: 90, ty: 0 };
+  private follow: (() => FollowPose | null) | null = null;
+  private snapFollow = false;
   private vx = 0; private vz = 0; private vyaw = 0; private vpitch = 0;
   private held = 0;
   private readonly keys = new Set<string>();
@@ -83,7 +93,18 @@ export class CameraRig {
     this.version++;
   }
 
-  pose(): Pose { return poseOf(this.state, this.ground); }
+  pose(): Pose { return poseOf(this.state, this.ground, this.follow ? FOLLOW.clearance : CAMERA.clearance); }
+
+  /** Chase a moving target at street level until stopFollow(). `getPos` returning null (the target is gone) ends the follow. */
+  followTarget(getPos: () => FollowPose | null): void {
+    this.follow = getPos;
+    this.snapFollow = true;
+    this.vx = this.vz = this.vyaw = this.vpitch = 0;
+  }
+
+  stopFollow(): void { this.follow = null; }
+
+  get following(): boolean { return this.follow !== null; }
 
   beginDrag(): void { this.held++; }
   endDrag(): void { this.held = Math.max(0, this.held - 1); }
@@ -131,6 +152,23 @@ export class CameraRig {
   step(dt: number): void {
     const s = this.state;
     const before = `${s.x}|${s.z}|${s.yaw}|${s.pitch}|${s.dist}|${s.ty}`;
+    if (this.follow) {
+      const p = this.follow();
+      if (!p) this.follow = null;
+      else {
+        const snap = this.snapFollow;
+        const k = snap ? 1 : 1 - Math.exp(-dt * FOLLOW.damp);
+        this.snapFollow = false;
+        s.x += (p.x - s.x) * k; s.z += (p.z - s.z) * k;
+        s.yaw += wrapAngle(p.yaw + Math.PI - s.yaw) * k * 0.6;
+        s.pitch += (FOLLOW.pitch - s.pitch) * k; s.dist += (FOLLOW.dist - s.dist) * k;
+        this.clampState();
+        const g = this.ground(s.x, s.z) + FOLLOW.lift;
+        s.ty += (g - s.ty) * (snap ? 1 : 1 - Math.exp(-dt * 10));
+        if (`${s.x}|${s.z}|${s.yaw}|${s.pitch}|${s.dist}|${s.ty}` !== before) this.version++;
+        return;
+      }
+    }
     const k = this.keys;
     const fwd = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);
     const side = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0);
@@ -162,7 +200,7 @@ export class CameraRig {
     const s = this.state;
     s.x = clamp(s.x, 0, MAP); s.z = clamp(s.z, 0, MAP);
     s.pitch = clamp(s.pitch, CAMERA.minPitch, CAMERA.maxPitch);
-    s.dist = clamp(s.dist, CAMERA.minDist, CAMERA.maxDist);
+    s.dist = clamp(s.dist, this.follow ? FOLLOW.minDist : CAMERA.minDist, CAMERA.maxDist);
     if (s.yaw > Math.PI) s.yaw -= Math.PI * 2; else if (s.yaw < -Math.PI) s.yaw += Math.PI * 2;
   }
 }

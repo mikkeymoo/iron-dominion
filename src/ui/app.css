@@ -40,6 +40,7 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .tb[aria-pressed="true"] { background: #1d4c7c; border-color: #6fb0ff; }
 .tb:disabled { opacity: 0.6; cursor: default; }
 .tb.row { display: block; width: 100%; margin-top: 6px; text-align: left; }
+.workforce { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 0.78rem; color: #f2c879; font-variant-numeric: tabular-nums; }
 .readouts { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1 1 10rem; font-variant-numeric: tabular-nums; }
 .topbar .notice { flex-basis: 100%; min-height: 1.1em; font-size: 0.75rem; color: #f2c879; }
 .topbar .notice:empty { display: none; }

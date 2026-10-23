@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LoanInfo, Speed } from '../sim/protocol.ts';
+import type { LoanInfo, Speed, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
@@ -34,7 +34,10 @@ export interface HudStats {
   lastNet: number;
   loans: LoanInfo[];
   debtMonths: number;
+  workforce: Workforce;
 }
+
+export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
 
 interface Props {
   lifecycle: Lifecycle;
@@ -43,6 +46,8 @@ interface Props {
   notice: string;
   budgetOpen: boolean;
   onBudget(): void;
+  /** Chase-camera state and toggle; absent while the 3D view is not running. */
+  follow?: { active: boolean; toggle(): void };
   onSave(): void;
   onSaveAs(name: string): void;
   onExport(): void;
@@ -61,7 +66,7 @@ const clock = (f: number): string => {
 };
 
 
-export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
+export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings'>('main');
@@ -108,7 +113,18 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
             {stats.lastNet < 0 ? '-' : '+'}${Math.abs(Math.round(stats.lastNet)).toLocaleString('en-US')}/mo
           </span>
         </div>
+        <div className="workforce" data-testid="workforce" title="Builder bots and hauler drones: working now / total, jobs in progress, material in stock">
+          <span>Builders {stats.workforce.activeBuilders}/{stats.workforce.builders}</span>
+          <span>Haulers {stats.workforce.activeHaulers}/{stats.workforce.haulers}</span>
+          <span>Jobs {stats.workforce.jobs}</span>
+          <span>Material {stats.workforce.stock}</span>
+        </div>
         <DemandBars demand={stats.rciDemand} />
+        {follow && (
+          <button type="button" className="tb wide" aria-pressed={follow.active} title="Chase a robot at street level (Esc or a tap to stop)" onClick={follow.toggle}>
+            {follow.active ? 'Stop following' : 'Follow a robot'}
+          </button>
+        )}
         <button type="button" className="tb coin" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" title="Budget" onClick={onBudget}>$</button>
         <button type="button" className="tb wide" onClick={onSave} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>
         <button type="button" className="tb wide" aria-expanded={menu} aria-haspopup="dialog" onClick={() => (menu ? closeMenu() : setMenu(true))}>Menu</button>

@@ -1,3 +1,4 @@
+import type { Workforce } from '../sim/protocol.ts';
 import type { FxDebug } from './fx/index.ts';
 import type { Backend, Tier } from './tier.ts';
 
@@ -29,6 +30,11 @@ export interface RenderDebug {
   resetCamera(pose?: { x?: number; z?: number; yaw?: number; pitch?: number; dist?: number }): void;
   /** Simulate a lost device / context to exercise recovery. */
   loseDevice(): void;
+  /** Robots in the latest agent message: drawn (visible), and how many are builders and haulers; beams and sparks are what the view has emitted. */
+  readonly robots: { readonly visible: number; readonly builders: number; readonly haulers: number; readonly beams: number; readonly sparks: number };
+  /** Follow-a-robot chase camera. `follow(true)` picks a random active robot and returns whether one was found. */
+  readonly following: boolean;
+  follow(on: boolean, kind?: number): boolean;
 }
 
 export interface BuildingDebug {
@@ -43,7 +49,8 @@ export interface BuildingDebug {
 }
 
 export interface IronDebug {
-  sim: { tick: number; hash?: number; hashTick?: number };
+  /** `workforce`, `population` and `jobs` (jobs in finished commercial and industrial buildings) come from the newest Stats message. */
+  sim: { tick: number; hash?: number; hashTick?: number; workforce?: Workforce; population?: number; jobs?: number };
   render?: RenderDebug;
 }
 

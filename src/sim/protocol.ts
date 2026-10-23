@@ -55,7 +55,7 @@ export interface AgentsMsg {
   count: number;
   /** x, y, heading per agent. */
   pos: Float32Array;
-  /** Per agent two words: slot | generation << 16, kind. */
+  /** Per agent two words: slot | generation << 16, and kind | state << 8 | carrying << 16 (see AKIND and AST in sim/robots/constants.ts). */
   ids: Uint32Array;
 }
 export interface AgentsReturn { type: 'agentsReturn'; pos: Float32Array; ids: Uint32Array }
@@ -88,8 +88,17 @@ export interface BudgetMsg {
   /** [R, C, I] tax percent. */
   taxRates: [number, number, number];
 }
+/** Robot workforce numbers for the HUD. `active` robots are out of their depot. */
+export interface Workforce {
+  builders: number; haulers: number; activeBuilders: number; activeHaulers: number;
+  /** Construction, level-up and demolition jobs in progress. */
+  jobs: number;
+  /** Material units held by depots and industry. */
+  stock: number;
+}
 export interface Stats {
   type: 'stats';
+  workforce: Workforce;
   tick: number;
   hash?: number;
   tickMs: number;

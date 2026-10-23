@@ -76,6 +76,32 @@ export const SPEC = {
   aHead: L(Float32Array, AMAX, false, 'none'),
   aState: L(Uint8Array, AMAX, false, 'none'),
   aTarget: L(Uint32Array, AMAX, false, 'none'),
+  // Robot workforce (sim/robots): home depot, trip goal and plan origin as slot | gen << 16 or tile index, path cursor, graphEpoch
+  // the path was planned at, carried units, pickup building, backoff/homeless timer and retry count. Paths are rebuilt from
+  // (aPlan, aGoal) after a load; see robots/move.ts.
+  aHome: L(Uint32Array, AMAX, false, 'none'),
+  aGoal: L(Uint32Array, AMAX, false, 'none'),
+  aPlan: L(Uint32Array, AMAX, false, 'none'),
+  aStep: L(Uint16Array, AMAX, false, 'none'),
+  aFrac: L(Float32Array, AMAX, false, 'none'),
+  aEpoch: L(Uint32Array, AMAX, false, 'none'),
+  aCarry: L(Uint8Array, AMAX, false, 'none'),
+  aSrc: L(Uint32Array, AMAX, false, 'none'),
+  aWait: L(Uint16Array, AMAX, false, 'none'),
+  aTry: L(Uint8Array, AMAX, false, 'none'),
+
+  // Construction jobs live on the building slot they build (robots/jobs.ts). jKind 0 none, 1 build, 2 level up, 3 demolish.
+  // jProg is 0..65535 (bProg is its top byte); jHave is material delivered, jInbound material on its way, jNeed the total.
+  jKind: L(Uint8Array, BMAX, false, 'none'),
+  jGen: L(Uint16Array, BMAX, false, 'none'),
+  jNeed: L(Uint16Array, BMAX, false, 'none'),
+  jHave: L(Uint16Array, BMAX, false, 'none'),
+  jInbound: L(Uint16Array, BMAX, false, 'none'),
+  jProg: L(Uint16Array, BMAX, false, 'none'),
+  jAccess: L(Uint32Array, BMAX, false, 'none'),
+  // Material stock held by a depot or an industrial building; bAux is 1 once a depot has received its starting stock.
+  bStock: L(Uint16Array, BMAX, false, 'none'),
+  bAux: L(Uint8Array, BMAX, false, 'none'),
 
   // Undo journal: ring of UMAX entries keyed by a sim-assigned id (S.journalNext), not the client's command id.
   // Each entry owns UCELLS cell records (previous and resulting values).

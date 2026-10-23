@@ -1,0 +1,280 @@
+// Instanced robot rendering: builder bots and hauler drones, vertex-shader animation, welding sparks and the build beam.
+// The sim streams robot positions once per tick; AgentStore interpolates them and this view only draws.
+import {
+  AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedBufferGeometry, InstancedMesh,
+  Mesh, MeshBasicNodeMaterial, MeshStandardNodeMaterial, Vector4, type Material,
+} from 'three/webgpu';
+import { attribute, cameraPosition, cos, cross, float, mix, normalize, positionGeometry, positionLocal, sin, smoothstep, step, uniform, uniformArray, vec3, vec4, vertexColor } from 'three/tsl';
+import { AMAX } from '../sim/layers.ts';
+import { AGENT_KIND, AGENT_STATE, makeSample, type AgentSample, type AgentStore } from './agentStore.ts';
+import { surfaceHeight } from './heightfield.ts';
+import { cachedModel, composeMatrix } from './instances.ts';
+import { fxU } from './fx/uniforms.ts';
+import { PIVOTS, generateBuilder, generateHauler, type RobotModel } from './kit/robots.ts';
+import type { RenderMirror } from './mirror.ts';
+import { TIER_TABLE, type Tier } from './tier.ts';
+
+export interface RobotStats { visible: number; builders: number; haulers: number; beams: number; sparks: number }
+
+/** Drone hover height above the road, in tiles. */
+const HOVER = 0.42;
+/** The kit is modelled at 0.2 tiles tall; robots are drawn this much larger so they read from the strategy camera. */
+export const ROBOT_SCALE = 1.7;
+const SPARK_RATE = 9;
+const MAX_SPARKS_PER_FRAME = 30;
+const BEAM_CAP = 256;
+
+function geometryOf(m: RobotModel): BufferGeometry {
+  const g = new BufferGeometry();
+  const n = m.positions.length / 3;
+  const color = new Float32Array(n * 4), rb = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    color[i * 4] = m.colors[i * 3]!; color[i * 4 + 1] = m.colors[i * 3 + 1]!; color[i * 4 + 2] = m.colors[i * 3 + 2]!; color[i * 4 + 3] = m.ao[i]!;
+    rb[i * 2] = m.wid[i]!; rb[i * 2 + 1] = m.slot[i]!;
+  }
+  g.setAttribute('position', new BufferAttribute(m.positions, 3));
+  g.setAttribute('normal', new BufferAttribute(m.normals, 3));
+  g.setAttribute('color', new BufferAttribute(color, 4));
+  g.setAttribute('rb', new BufferAttribute(rb, 2));
+  g.setIndex(new BufferAttribute(m.indices, 1));
+  return g;
+}
+
+const botClock = uniform(0);
+
+/**
+ * One material for both robots. Animation runs in the vertex stage from `time` and a per-instance phase: legs and arms swing about
+ * their pivots, rotors spin, the crate hangs and sways (and vanishes when empty), the whole body bobs or hovers. The instance matrix
+ * places the robot; the animation offset is rotated into world space with the per-instance yaw and added on top.
+ */
+function robotMaterial(kind: 'builder' | 'hauler'): MeshStandardNodeMaterial {
+  const piv: any = uniformArray(PIVOTS.map((p) => new Vector4(p[0], p[1], p[2], p[3])), 'vec4');
+  const rb = attribute('rb', 'vec2');
+  const iBot = attribute('iBot', 'vec4');
+  const part: any = rb.x, slot: any = rb.y;
+  const P: any = piv.element(part.toInt());
+  const kindN: any = P.w;
+  const t: any = botClock, ph: any = iBot.x, carry: any = iBot.y, mode: any = iBot.z, yaw: any = iBot.w;
+
+  const rel: any = positionGeometry.sub(P.xyz);
+  const isSwing: any = step(0.5, kindN).mul(step(kindN, 2.5));
+  const sign: any = float(1).sub(step(1.5, kindN).mul(2));
+  const isArm: any = step(2.5, part).mul(step(part, 4.5));
+  const isSpin: any = step(2.5, kindN).mul(step(kindN, 3.5));
+  const isCrate: any = step(3.5, kindN);
+  const freq: any = mix(float(9), float(16), isArm.mul(mode));
+  const amp: any = mix(float(0.75), mix(float(0.4), float(1.0), mode), isArm);
+  const swing: any = sin(t.mul(freq).add(ph)).mul(amp).mul(sign).mul(isSwing).mul(kind === 'builder' ? 1 : 0)
+    .add(sin(t.mul(2.6).add(ph)).mul(0.12).mul(isCrate));
+  const cx: any = cos(swing), sx: any = sin(swing);
+  const r1: any = vec3(rel.x, rel.y.mul(cx).sub(rel.z.mul(sx)), rel.y.mul(sx).add(rel.z.mul(cx)));
+  const spinDir: any = float(1).sub(part.mod(2).mul(2));
+  const sa: any = t.mul(46).mul(spinDir).add(ph).mul(isSpin);
+  const cy: any = cos(sa), sy: any = sin(sa);
+  const r2: any = vec3(r1.x.mul(cy).sub(r1.z.mul(sy)), r1.y, r1.x.mul(sy).add(r1.z.mul(cy)));
+  const scaled: any = r2.mul(mix(float(1), carry, isCrate));
+  const bob: any = kind === 'builder'
+    ? sin(t.mul(9).add(ph)).abs().mul(0.006).mul(float(1).sub(mode))
+    : sin(t.mul(2.4).add(ph)).mul(0.014);
+  const delta: any = P.xyz.add(scaled).sub(positionGeometry).add(vec3(0, bob, 0));
+  const cyaw: any = cos(yaw), syaw: any = sin(yaw);
+  const world: any = vec3(delta.x.mul(cyaw).add(delta.z.mul(syaw)), delta.y, delta.z.mul(cyaw).sub(delta.x.mul(syaw))).mul(ROBOT_SCALE);
+
+  const m = new MeshStandardNodeMaterial();
+  m.positionNode = positionLocal.add(world);
+  const ao: any = vertexColor().a;
+  const base: any = vertexColor().rgb;
+  const isGlass: any = step(0.5, slot).mul(step(slot, 1.5));
+  const isAccent: any = step(3.5, slot).mul(step(slot, 4.5));
+  m.colorNode = base.mul(ao.mul(0.55).add(0.45));
+  m.aoNode = ao;
+  // Visors and rotor lights always glow a little and blaze at night, so the workforce sparkles across the dark city.
+  const night: any = fxU.night;
+  m.emissiveNode = base.mul(isGlass).mul(night.mul(2.4).add(0.7)).add(base.mul(isAccent).mul(night.mul(3.2).add(1.0)));
+  m.roughness = 0.5;
+  m.metalness = 0.25;
+  return m;
+}
+
+class Fleet {
+  readonly mesh: InstancedMesh;
+  readonly iBot: Float32Array;
+  readonly matrix: Float32Array;
+  count = 0;
+  constructor(readonly geometry: BufferGeometry, material: Material, capacity: number, name: string) {
+    this.iBot = new Float32Array(capacity * 4);
+    const attr = new InstancedBufferAttribute(this.iBot, 4);
+    attr.setUsage(DynamicDrawUsage);
+    geometry.setAttribute('iBot', attr);
+    this.mesh = new InstancedMesh(geometry, material, capacity);
+    this.matrix = this.mesh.instanceMatrix.array as Float32Array;
+    this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.name = name;
+    this.mesh.count = 0;
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+  }
+  flush(): void {
+    this.mesh.count = this.count;
+    this.mesh.visible = this.count > 0;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    (this.geometry.getAttribute('iBot') as BufferAttribute).needsUpdate = true;
+  }
+  dispose(): void {
+    this.mesh.dispose();
+    this.geometry.dispose();
+  }
+}
+
+/** Camera-facing glowing strips from each working builder's tool to the structure it builds. */
+class Beams {
+  readonly mesh: Mesh;
+  readonly a = new Float32Array(BEAM_CAP * 4);
+  readonly b = new Float32Array(BEAM_CAP * 4);
+  readonly material: MeshBasicNodeMaterial;
+  count = 0;
+  private readonly geo = new InstancedBufferGeometry();
+  constructor() {
+    this.geo.setAttribute('position', new BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0]), 3));
+    this.geo.setIndex([0, 1, 2, 0, 2, 3]);
+    for (const [name, arr] of [['iA', this.a], ['iB', this.b]] as const) {
+      const at = new InstancedBufferAttribute(arr, 4);
+      at.setUsage(DynamicDrawUsage);
+      this.geo.setAttribute(name, at);
+    }
+    this.geo.instanceCount = 0;
+    const m = new MeshBasicNodeMaterial();
+    m.transparent = true; m.depthWrite = false; m.fog = false; m.blending = AdditiveBlending;
+    const a: any = attribute('iA', 'vec4'), b: any = attribute('iB', 'vec4');
+    const along: any = positionGeometry.y;
+    const p: any = mix(a.xyz, b.xyz, along);
+    const dir: any = b.xyz.sub(a.xyz);
+    const side: any = normalize(cross(dir, cameraPosition.sub(p))).mul(positionGeometry.x).mul(0.016);
+    m.positionNode = p.add(side);
+    const flick: any = sin(botClock.mul(37).add(a.w)).mul(0.25).add(0.75);
+    const edge: any = smoothstep(0.5, 0.05, positionGeometry.x.abs());
+    const hot: any = mix(vec3(1.0, 0.62, 0.18), vec3(1.0, 0.96, 0.78), edge);
+    m.colorNode = vec4(hot.mul(2.4), 1);
+    m.opacityNode = edge.mul(flick).mul(b.w).mul(float(1).sub(along.mul(0.55)));
+    this.material = m;
+    this.mesh = new Mesh(this.geo, m);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 14;
+    this.mesh.visible = false;
+  }
+  flush(): void {
+    this.geo.instanceCount = this.count;
+    this.mesh.visible = this.count > 0;
+    (this.geo.getAttribute('iA') as BufferAttribute).needsUpdate = true;
+    (this.geo.getAttribute('iB') as BufferAttribute).needsUpdate = true;
+  }
+  dispose(): void { this.geo.dispose(); this.material.dispose(); }
+}
+
+export class RobotsView {
+  readonly group = new Group();
+  private readonly builders: Fleet;
+  private readonly haulers: Fleet;
+  private readonly beams = new Beams();
+  private readonly mats: MeshStandardNodeMaterial[];
+  private sample: AgentSample;
+  private capacity: number;
+  private stats: RobotStats = { visible: 0, builders: 0, haulers: 0, beams: 0, sparks: 0 };
+  private sparkSpawned = 0;
+  private sparkCarry = 0;
+  private time = 0;
+  private readonly mat = new Float32Array(16);
+
+  constructor(
+    private readonly store: AgentStore, private readonly mirror: RenderMirror, private readonly emit: (kind: 'spark', x: number, y: number, z: number, n: number) => number,
+    tier: Tier,
+  ) {
+    this.group.name = 'robots';
+    this.capacity = Math.min(AMAX, TIER_TABLE[tier].visibleAgents);
+    this.mats = [robotMaterial('builder'), robotMaterial('hauler')];
+    this.builders = new Fleet(geometryOf(generateBuilder()), this.mats[0]!, AMAX, 'builders');
+    this.haulers = new Fleet(geometryOf(generateHauler()), this.mats[1]!, AMAX, 'haulers');
+    this.sample = makeSample(AMAX);
+    this.group.add(this.builders.mesh, this.haulers.mesh, this.beams.mesh);
+  }
+
+  setTier(tier: Tier): void { this.capacity = Math.min(AMAX, TIER_TABLE[tier].visibleAgents); }
+
+  get snapshot(): Readonly<RobotStats> { return this.stats; }
+
+  /** Draw the interpolated robots nearest the focus (up to the tier cap), place their sparks and beams. `emitBudget` bounds sparks per frame. */
+  update(dt: number, nowMs: number, focusX: number, focusZ: number, emitBudget: number): void {
+    this.time += Math.min(0.1, Math.max(0, dt));
+    botClock.value = this.time;
+    const s = this.store.sample(nowMs, this.sample, this.capacity, focusX, focusZ);
+    const heights = this.mirror.layers.height!;
+    let nb = 0, nh = 0, beams = 0;
+    const work: number[] = [];
+    for (let i = 0; i < s.count; i++) {
+      const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
+      const gy = surfaceHeight(heights, x, z);
+      const key = s.key[i]!;
+      const phase = (((key * 2654435761) >>> 0) / 4294967296) * Math.PI * 2;
+      if (s.kind[i] === AGENT_KIND.BUILDER) {
+        composeMatrix(this.mat, x, gy, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
+        this.builders.matrix.set(this.mat, nb * 16);
+        const working = s.state[i] === AGENT_STATE.WORK ? 1 : 0;
+        this.builders.iBot.set([phase, 0, working, yaw], nb * 4);
+        if (working) work.push(i);
+        nb++;
+      } else {
+        composeMatrix(this.mat, x, gy + HOVER, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
+        this.haulers.matrix.set(this.mat, nh * 16);
+        this.haulers.iBot.set([phase, s.carry[i] ? 1 : 0, 0, yaw], nh * 4);
+        nh++;
+      }
+    }
+    this.builders.count = nb; this.haulers.count = nh;
+    this.builders.flush(); this.haulers.flush();
+
+    const sparkBudget = Math.min(MAX_SPARKS_PER_FRAME, Math.max(0, emitBudget));
+    this.sparkCarry += work.length * SPARK_RATE * dt;
+    for (const i of work) {
+      if (beams >= BEAM_CAP) break;
+      const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
+      const gy = surfaceHeight(heights, x, z);
+      const hx = x + Math.sin(yaw) * 0.085 * ROBOT_SCALE, hz = z + Math.cos(yaw) * 0.085 * ROBOT_SCALE, hy = gy + 0.075 * ROBOT_SCALE;
+      const slot = this.mirror.buildingAt(Math.floor(x), Math.floor(z));
+      const b = slot >= 0 ? this.mirror.building(slot) : undefined;
+      if (!b) continue;
+      const prog = Math.min(1, b.prog / 255);
+      const top = cachedModel(b.arch, 0).height * (0.12 + 0.88 * prog);
+      const tx = b.x + b.w / 2, tz = b.y + b.h / 2, ty = surfaceHeight(heights, tx, tz) + 0.05 + top * 0.7;
+      this.beams.a.set([hx, hy, hz, phaseOf(i)], beams * 4);
+      this.beams.b.set([tx, ty, tz, 0.55], beams * 4);
+      beams++;
+    }
+    this.beams.count = beams;
+    this.beams.flush();
+
+    let sparks = 0;
+    if (sparkBudget > 0 && this.sparkCarry >= 1 && work.length > 0) {
+      let n = Math.min(sparkBudget, Math.floor(this.sparkCarry));
+      this.sparkCarry -= n;
+      let k = 0;
+      while (n > 0) {
+        const i = work[k++ % work.length]!;
+        const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
+        const gy = surfaceHeight(heights, x, z);
+        sparks += this.emit('spark', x + Math.sin(yaw) * 0.085 * ROBOT_SCALE, gy + 0.075 * ROBOT_SCALE, z + Math.cos(yaw) * 0.085 * ROBOT_SCALE, 1);
+        n--;
+      }
+      this.sparkSpawned += sparks;
+    } else if (work.length === 0) this.sparkCarry = 0;
+    const counts = this.store.counts();
+    this.stats = { visible: nb + nh, builders: counts.builders, haulers: counts.haulers, beams, sparks: this.sparkSpawned };
+  }
+
+  dispose(): void {
+    this.builders.dispose(); this.haulers.dispose(); this.beams.dispose();
+    for (const m of this.mats) m.dispose();
+  }
+}
+
+const phaseOf = (i: number): number => (i * 1.618) % (Math.PI * 2);

@@ -126,7 +126,8 @@ function zone(sim: Sim, c: Extract<Command, { type: 'zone' }>): number {
   return journalCommit(sim, cap, UNDO.ZONE, cost, 0);
 }
 
-function clearBuilding(sim: Sim, slot: number): void {
+/** Free a building slot: tiles, table row, stock and any robot job on it; bumps the slot generation. */
+export function clearBuilding(sim: Sim, slot: number): void {
   const w = sim.world;
   const x = w.bX[slot]!, y = w.bY[slot]!, bw = w.bW[slot]!, bh = w.bH[slot]!;
   for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) {
@@ -135,6 +136,8 @@ function clearBuilding(sim: Sim, slot: number): void {
   }
   w.bArch[slot] = 0; w.bX[slot] = 0; w.bY[slot] = 0; w.bW[slot] = 0; w.bH[slot] = 0;
   w.bRot[slot] = 0; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0; w.bAband[slot] = 0;
+  w.bStock[slot] = 0; w.bAux[slot] = 0;
+  w.jKind[slot] = 0; w.jNeed[slot] = 0; w.jHave[slot] = 0; w.jInbound[slot] = 0; w.jProg[slot] = 0; w.jAccess[slot] = 0;
   w.bGen[slot] = (w.bGen[slot]! + 1) & 0xffff;
   for (let u = 0; u < UMAX; u++) if (w.uKind[u] === UNDO.BUILDING && w.uArg[u] === slot) { w.uKind[u] = UNDO.NONE; w.uCmd[u] = 0; }
   sim.dirty.buildings.add(slot);
@@ -176,6 +179,19 @@ function placeSite(sim: Sim, a: Archetype, x: number, y: number, rot: number, o:
   sim.dirty.buildings.add(slot);
   w.scalars[S.treasury]! -= o.cost;
   return cap ? journalCommit(sim, cap, UNDO.BUILDING, o.cost, slot) : 0;
+}
+
+/** Robot growth: reserve a free site for a grown building (free of charge, not undoable). Returns the slot, or -1 when the site is not valid. */
+export function reserveBuilding(sim: Sim, a: Archetype, x: number, y: number, level: number, prog: number, flags: number): number {
+  const slotsBefore = sim.world.bArch.indexOf(0);
+  if (slotsBefore < 0) return -1;
+  try {
+    placeSite(sim, a, x, y, 0, { level, prog, flags, cost: 0, journal: false });
+  } catch (e) {
+    if (e instanceof Reject) return -1;
+    throw e;
+  }
+  return slotsBefore;
 }
 
 function placeBuilding(sim: Sim, c: Extract<Command, { type: 'placeBuilding' }>): number {

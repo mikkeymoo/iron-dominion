@@ -1,0 +1,137 @@
+import type { AgentsMsg } from '../sim/protocol.ts';
+
+// Main-thread copy of the sim's moving robots. The worker sends the visible agents each frame; positions only change when the
+// sim ticks, so the store keeps the last two tick snapshots and interpolates between them. Agents are matched by key
+// (slot | generation << 16), so a slot reused by another robot is a new agent that snaps, never one that slides across the map.
+
+export const AGENT_KIND = { BUILDER: 1, HAULER: 2 } as const;
+/** Mirrors AST in sim/robots/constants.ts (the renderer does not import sim internals beyond the protocol). */
+export const AGENT_STATE = { IDLE: 0, TO_SITE: 1, WORK: 2, RETURN: 3, TO_PICKUP: 4, HAUL: 5 } as const;
+
+interface Frame { tick: number; t: number; count: number; pos: Float32Array; ids: Uint32Array; index: Map<number, number> }
+
+const emptyFrame = (): Frame => ({ tick: -1, t: 0, count: 0, pos: new Float32Array(0), ids: new Uint32Array(0), index: new Map() });
+
+export interface AgentSample {
+  count: number;
+  /** x, z (tile units, z = sim y) and yaw per agent. */
+  pos: Float32Array;
+  key: Uint32Array;
+  kind: Uint8Array;
+  state: Uint8Array;
+  carry: Uint8Array;
+}
+
+const MIN_TICK_MS = 16;
+const MAX_TICK_MS = 1000;
+
+const lerpAngle = (a: number, b: number, t: number): number => {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+};
+
+export class AgentStore {
+  private prev: Frame = emptyFrame();
+  private cur: Frame = emptyFrame();
+  /** Smoothed milliseconds between sim ticks as observed on arrival. */
+  private tickMs = 100;
+  private lastTickAt = 0;
+  /** Latest message tick, for the stats readout. */
+  get tick(): number { return this.cur.tick; }
+  get count(): number { return this.cur.count; }
+
+  /** Copy a worker message in. The caller may return the transferred buffers straight away. */
+  ingest(m: Pick<AgentsMsg, 'tick' | 'count' | 'pos' | 'ids'>, nowMs: number): void {
+    const frame: Frame = {
+      tick: m.tick, t: nowMs, count: m.count, pos: m.pos.slice(0, m.count * 3), ids: m.ids.slice(0, m.count * 2), index: new Map(),
+    };
+    for (let i = 0; i < m.count; i++) frame.index.set(frame.ids[i * 2]!, i);
+    if (m.tick !== this.cur.tick) {
+      if (this.lastTickAt > 0 && this.cur.tick >= 0 && m.tick > this.cur.tick) {
+        const per = (nowMs - this.lastTickAt) / (m.tick - this.cur.tick);
+        this.tickMs = Math.min(MAX_TICK_MS, Math.max(MIN_TICK_MS, this.tickMs * 0.8 + per * 0.2));
+      }
+      this.lastTickAt = nowMs;
+      this.prev = this.cur;
+      this.cur = frame;
+    } else {
+      // Same tick again (the worker posts every frame): the view rect may have added agents, so keep the newer set.
+      frame.t = this.cur.t;
+      this.cur = frame;
+    }
+  }
+
+  reset(): void {
+    this.prev = emptyFrame(); this.cur = emptyFrame(); this.lastTickAt = 0;
+  }
+
+  /** Interpolated state of every agent at `nowMs`, up to `cap` (nearest to `(fx, fz)` when there are more). Returns the filled sample. */
+  sample(nowMs: number, out: AgentSample, cap: number, fx = 0, fz = 0): AgentSample {
+    const cur = this.cur, prev = this.prev;
+    const alpha = cur.tick < 0 ? 1 : Math.min(1, Math.max(0, (nowMs - cur.t) / this.tickMs));
+    const n = cur.count;
+    let order: number[] | null = null;
+    if (n > cap) {
+      const d = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const dx = cur.pos[i * 3]! - fx, dz = cur.pos[i * 3 + 1]! - fz; d[i] = dx * dx + dz * dz; }
+      order = Array.from({ length: n }, (_, i) => i).sort((a, b) => d[a]! - d[b]! || a - b).slice(0, cap);
+    }
+    const m = order ? order.length : n;
+    for (let j = 0; j < m; j++) {
+      const i = order ? order[j]! : j;
+      const key = cur.ids[i * 2]!, meta = cur.ids[i * 2 + 1]!;
+      let x = cur.pos[i * 3]!, z = cur.pos[i * 3 + 1]!, yaw = cur.pos[i * 3 + 2]!;
+      const p = prev.index.get(key);
+      if (p !== undefined && (prev.ids[p * 2 + 1]! & 0xff00) !== 0) {
+        const px = prev.pos[p * 3]!, pz = prev.pos[p * 3 + 1]!;
+        // A jump of more than a few tiles in one tick is a teleport (replan from a lot, respawn): snap.
+        if (Math.abs(x - px) + Math.abs(z - pz) < 6) {
+          x = px + (x - px) * alpha; z = pz + (z - pz) * alpha;
+          yaw = lerpAngle(prev.pos[p * 3 + 2]!, yaw, alpha);
+        }
+      }
+      out.pos[j * 3] = x; out.pos[j * 3 + 1] = z; out.pos[j * 3 + 2] = yaw;
+      out.key[j] = key;
+      out.kind[j] = meta & 0xff;
+      out.state[j] = (meta >> 8) & 0xff;
+      out.carry[j] = (meta >> 16) & 0xff;
+    }
+    out.count = m;
+    return out;
+  }
+
+  /** Keys of agents currently doing something, in slot order. */
+  activeKeys(kind?: number): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.cur.count; i++) if (kind === undefined || (this.cur.ids[i * 2 + 1]! & 0xff) === kind) out.push(this.cur.ids[i * 2]!);
+    return out;
+  }
+
+  /** Current interpolated pose of one agent, or null when it is gone. */
+  poseOf(key: number, nowMs: number): { x: number; z: number; yaw: number } | null {
+    const i = this.cur.index.get(key);
+    if (i === undefined) return null;
+    const cur = this.cur, prev = this.prev;
+    const alpha = Math.min(1, Math.max(0, (nowMs - cur.t) / this.tickMs));
+    let x = cur.pos[i * 3]!, z = cur.pos[i * 3 + 1]!, yaw = cur.pos[i * 3 + 2]!;
+    const p = prev.index.get(key);
+    if (p !== undefined && Math.abs(x - prev.pos[p * 3]!) + Math.abs(z - prev.pos[p * 3 + 1]!) < 6) {
+      x = prev.pos[p * 3]! + (x - prev.pos[p * 3]!) * alpha;
+      z = prev.pos[p * 3 + 1]! + (z - prev.pos[p * 3 + 1]!) * alpha;
+      yaw = lerpAngle(prev.pos[p * 3 + 2]!, yaw, alpha);
+    }
+    return { x, z, yaw };
+  }
+
+  /** Counts of the agents in the latest message by kind. */
+  counts(): { builders: number; haulers: number } {
+    let builders = 0, haulers = 0;
+    for (let i = 0; i < this.cur.count; i++) { if ((this.cur.ids[i * 2 + 1]! & 0xff) === AGENT_KIND.BUILDER) builders++; else haulers++; }
+    return { builders, haulers };
+  }
+}
+
+export function makeSample(capacity: number): AgentSample {
+  return { count: 0, pos: new Float32Array(capacity * 3), key: new Uint32Array(capacity), kind: new Uint8Array(capacity), state: new Uint8Array(capacity), carry: new Uint8Array(capacity) };
+}

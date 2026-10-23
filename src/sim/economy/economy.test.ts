@@ -215,7 +215,8 @@ describe('monthly budget', () => {
   it('pays the budget into the treasury exactly at the month boundary while ticking', () => {
     const sim = syntheticCity();
     const w = sim.world;
-    runTicks(sim, MONTH_TICKS - 20);
+    // A new city opens mid-morning, so the first month closes before MONTH_TICKS have run.
+    runTicks(sim, MONTH_TICKS - w.scalars[S.tickOfDay]! - 20);
     expect(w.scalars[S.month]).toBe(0);
     const before = w.scalars[S.treasury]!;
     runTicks(sim, 40);
@@ -568,7 +569,7 @@ describe('registry and persistence', () => {
 
   it('resumes across a month boundary and the treasury moves by the month net', () => {
     const straight = activeCity();
-    runTicks(straight, MONTH_TICKS - 100);
+    runTicks(straight, MONTH_TICKS - straight.world.scalars[S.tickOfDay]! - 100);
     const mid = snapshot(straight);
     const treasuryBefore = straight.world.scalars[S.treasury]!;
     runTicks(straight, 200);
