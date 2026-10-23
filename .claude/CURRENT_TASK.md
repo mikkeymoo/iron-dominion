@@ -18,7 +18,7 @@ Run: `/lfg` through U0..U14, one commit per unit, pushed to `origin/main` (Micha
 | ---- | ------ | ------------- | ----- |
 | U0   | fbbcc48 | 1 test, build ok, smoke pass (2 viewports) | old game deleted; three 0.186.1 |
 | U1   | 20f126b | 22 tests, build ok (2 tsconfigs), smoke pass incl. worker golden hash | review: 10 findings applied (undo slot reuse, sim-assigned journal ids, mirror resync, snapshot protocol check, worker fatal flag) |
-| U2   |        |               |       |
+| U2   | 2c83678 | 92 tests, build ok (315 KB gzip), smoke pass webgl2+webgpu desktop, webgl2 phone | review: 10 findings applied (touch inertia, chunk-border seams, recovery race, view rect, fine-chunk budget); docs/next preview |
 | U3   |        |               |       |
 | U4   |        |               |       |
 | U5   |        |               |       |
