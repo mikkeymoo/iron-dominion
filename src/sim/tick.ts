@@ -1,5 +1,6 @@
 import { execute } from './commands.ts';
 import { DAY_TICKS, MAP, S, WEATHER } from './layers.ts';
+import { roadsSystem } from './roads/index.ts';
 import { nextFloat, nextInt } from './rng.ts';
 import type { Sim } from './world.ts';
 
@@ -59,6 +60,7 @@ const disasters: System = () => {};
 /** Fixed system order: later units fill the hooks, they never reorder. */
 export const SYSTEMS: readonly { name: string; run: System }[] = [
   { name: 'commands', run: commandsSystem },
+  { name: 'roads', run: roadsSystem },
   { name: 'clockWeather', run: clockWeather },
   { name: 'growth', run: growth },
   { name: 'economy', run: economy },

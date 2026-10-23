@@ -124,6 +124,8 @@ export const S = {
   tick: 0, tickOfDay: 1, dayFrac: 2, day: 3, weather: 4, weatherIntensity: 5, weatherTimer: 6,
   treasury: 7, demandR: 8, demandC: 9, demandI: 10, population: 11, tax: 12,
   journalNext: 13, nextAgentId: 14, undoNext: 15, seed: 16, lightningCount: 17, weatherTarget: 18,
+  // Bumped once per tick in which the road graph changed (see roads/index.ts). Cached paths compare against it.
+  graphEpoch: 19,
 } as const;
 
 export const WEATHER = { CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;

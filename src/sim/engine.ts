@@ -2,6 +2,7 @@ import type { Command } from './commands.ts';
 import { hashWorld } from './hash.ts';
 import { AMAX, CHUNK, REGISTRY, S, isTileLayer, type World } from './layers.ts';
 import type { ChunkPatch, EventsMsg, FromWorker, OverlayPatch, ResyncMsg, Typed } from './protocol.ts';
+import { RoadNet } from './roads/graph.ts';
 import { seedRng } from './rng.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
 import { generateTerrain } from './terrain.ts';
@@ -21,11 +22,11 @@ export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   s[S.nextAgentId] = 1;
   seedRng(world.rng, seed);
   generateTerrain(world, seed);
-  return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true };
+  return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true, roads: RoadNet.build(world) };
 }
 
 export function simFromWorld(world: World): Sim {
-  return { world, queue: [], events: [], dirty: newDirty(), resync: true };
+  return { world, queue: [], events: [], dirty: newDirty(), resync: true, roads: RoadNet.build(world) };
 }
 
 export const step = (sim: Sim): void => runTick(sim);

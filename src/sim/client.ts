@@ -1,6 +1,6 @@
 import type { CommandBody } from './commands.ts';
 import {
-  PROTOCOL_VERSION, type AgentsMsg, type EventsMsg, type FromWorker, type Speed, type Stats, type ToWorker,
+  PROTOCOL_VERSION, type AgentsMsg, type EventsMsg, type FromWorker, type PathMsg, type Speed, type Stats, type ToWorker,
 } from './protocol.ts';
 
 export type ClientState = 'loading' | 'ready' | 'failed';
@@ -31,6 +31,8 @@ export interface SimClient {
   requestHash(): void;
   requestSnapshot(): Promise<Uint8Array>;
   loadSnapshot(data: Uint8Array): void;
+  /** Debug sessions only: the worker answers every request, with `ok: false` and a reason when it cannot. */
+  requestPath(from: { x: number; y: number }, to: { x: number; y: number }): Promise<PathMsg>;
   returnAgents(m: AgentsMsg): void;
   terminate(): void;
 }
@@ -41,9 +43,13 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
   let nextCmd = 1;
   let nextSnap = 1;
   const snaps = new Map<number, { res: (d: Uint8Array) => void; rej: (e: Error) => void }>();
+  let nextPath = 1;
+  const paths = new Map<number, { res: (m: PathMsg) => void; rej: (e: Error) => void }>();
   const rejectSnaps = (why: string): void => {
     for (const p of snaps.values()) p.rej(new Error(why));
     snaps.clear();
+    for (const p of paths.values()) p.rej(new Error(why));
+    paths.clear();
   };
 
   const setState = (s: ClientState, error?: string): void => {
@@ -69,6 +75,7 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
       case 'events': opt.onEvents?.(m); break;
       case 'stats': opt.onStats?.(m); break;
       case 'snapshot': snaps.get(m.id)?.res(m.data); snaps.delete(m.id); break;
+      case 'path': paths.get(m.id)?.res(m); paths.delete(m.id); break;
     }
   };
   worker.onerror = (e) => setState('failed', `worker error: ${e.message || 'unknown'}`);
@@ -95,6 +102,11 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
       return new Promise<Uint8Array>((res, rej) => { snaps.set(id, { res, rej }); send({ type: 'requestSnapshot', id }); });
     },
     loadSnapshot: (data) => send({ type: 'loadSnapshot', data }, [data.buffer]),
+    requestPath(from, to) {
+      const id = nextPath++;
+      if (state === 'failed') return Promise.reject(new Error('sim failed'));
+      return new Promise<PathMsg>((res, rej) => { paths.set(id, { res, rej }); send({ type: 'requestPath', id, from, to }); });
+    },
     returnAgents: (m) => send({ type: 'agentsReturn', pos: m.pos, ids: m.ids }, [m.pos.buffer, m.ids.buffer]),
     terminate() {
       rejectSnaps('client terminated');

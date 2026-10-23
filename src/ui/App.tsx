@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IronDebug } from '../render/debug.ts';
 import '../platform/debug.ts';
 import './toolsStore.ts';
+import './roadsDebug.ts';
 import type { ClientState } from '../sim/client.ts';
 import { openPlatformDb, type PlatformDb, type SlotMeta } from '../platform/db.ts';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
@@ -32,6 +33,7 @@ export function App() {
   const db = useRef<PlatformDb | undefined>(undefined);
   const current = useRef<Session | null>(null);
   const iron = useRef<IronDebug | null>(null);
+  const graphEpoch = useRef(0);
 
   const refreshSlots = useCallback(async (): Promise<void> => {
     const r = await db.current?.listSlots();
@@ -46,6 +48,11 @@ export function App() {
     if (dbg) {
       dbg.sim = { tick: 0 };
       dbg.tools = s.tools.debug;
+      graphEpoch.current = 0;
+      dbg.roads = {
+        get graphEpoch() { return graphEpoch.current; },
+        requestPath: (from, to) => s.client.requestPath(from, to),
+      };
       dbg.platform = {
         save: () => saveSession(s),
         load: (id) => loadInto(s, id),
@@ -65,6 +72,7 @@ export function App() {
       onState: (st) => { if (current.current === s || current.current === null) setWorker(st); },
       onStats: (st) => {
         if (current.current !== s) return;
+        graphEpoch.current = st.graphEpoch;
         const dbg = iron.current;
         if (dbg) {
           dbg.sim.tick = st.tick;

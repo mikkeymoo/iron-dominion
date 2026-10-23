@@ -2,6 +2,7 @@
 import { apply, collectOutgoing, drainCommands, createSim, packAgents, restore, snapshot, stateHash, step, tickOf } from './engine.ts';
 import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
+import { queryPath } from './roads/index.ts';
 import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
 import type { Sim } from './world.ts';
 
@@ -76,7 +77,7 @@ function flush(now: number, force = false): void {
     const stats: Stats = {
       type: 'stats', tick: tickOf(sim), tickMs, skippedSends, halted,
       treasury: s[S.treasury]!, population: s[S.population]!, dayFrac: s[S.dayFrac]!, day: s[S.day]!,
-      weather: s[S.weather]!, weatherIntensity: s[S.weatherIntensity]!,
+      weather: s[S.weather]!, weatherIntensity: s[S.weatherIntensity]!, graphEpoch: s[S.graphEpoch]!,
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);
@@ -156,6 +157,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
       case 'pause': paused = true; break;
       case 'resume': if (!halted) { paused = false; last = performance.now(); } break;
       case 'requestHash': wantHash = true; break;
+      case 'requestPath': post(queryPath(sim, m.id, m.from, m.to)); break;
       case 'requestSnapshot': {
         const data = snapshot(sim);
         post({ type: 'snapshot', id: m.id, tick: tickOf(sim), data }, [data.buffer]);

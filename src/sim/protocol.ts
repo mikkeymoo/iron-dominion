@@ -73,6 +73,21 @@ export interface Stats {
   day: number;
   weather: number;
   weatherIntensity: number;
+  /** Road graph epoch: bumps once per tick in which roads changed. */
+  graphEpoch: number;
+}
+/** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
+export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }
+export interface PathMsg {
+  type: 'path';
+  id: number;
+  ok: boolean;
+  /** Why not: 'debug-only', 'bounds', 'no-road' or 'unreachable'. */
+  reason?: string;
+  cost: number;
+  epoch: number;
+  /** Tile indices (y * MAP + x) from start to goal. */
+  tiles: number[];
 }
 export interface ViewRect { type: 'viewRect'; x0: number; y0: number; x1: number; y1: number }
 export interface SetSpeed { type: 'setSpeed'; speed: Speed }
@@ -85,6 +100,6 @@ export interface RequestHash { type: 'requestHash' }
 
 export type ToWorker =
   | Hello | CommandMsg | ResyncRequest | AgentsReturn | ViewRect | SetSpeed | Pause | Resume
-  | RequestSnapshot | LoadSnapshot | RequestHash;
+  | RequestSnapshot | LoadSnapshot | RequestHash | RequestPath;
 export type FromWorker =
-  | Ready | ErrorMsg | ResyncMsg | ChunkPatch | OverlayPatch | AgentsMsg | EventsMsg | Stats | SnapshotMsg;
+  | Ready | ErrorMsg | ResyncMsg | ChunkPatch | OverlayPatch | AgentsMsg | EventsMsg | Stats | SnapshotMsg | PathMsg;

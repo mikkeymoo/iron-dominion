@@ -1,6 +1,7 @@
 import { REGISTRY, type World } from './layers.ts';
 import { chunkIdx } from './tiles.ts';
 import type { Command } from './commands.ts';
+import type { RoadNet } from './roads/graph.ts';
 
 export type SimEvent =
   | { type: 'accepted'; cmd: number; tick: number; /** Undo handle, present when the command is undoable. */ journal?: number }
@@ -25,6 +26,8 @@ export interface Sim {
   resync: boolean;
   /** Session flag, not state: set only from Hello.debug. Enables debug-only commands; never hashed or saved. */
   debug?: boolean;
+  /** Road graph derived from world.road; rebuilt on load, never hashed or saved. */
+  roads?: RoadNet;
 }
 
 export function allocWorld(): World {

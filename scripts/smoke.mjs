@@ -436,6 +436,49 @@ async function buildToolChecksPhone(open, ctx) {
 }
 // ---- end U6 block ----
 
+// ---- U7a road graph checks (desktop, webgl2 low, sim debug mode) ----
+// Two street segments meeting at a corner give one connected network; bulldozing the middle splits it and bumps graphEpoch.
+async function roadGraphChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`roads: ${name}`, problem]);
+  const page = await open(`${BUILD_QUERY}&debug=1`);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.roads); }, null, 60000);
+  if (!up) { add('debug session boots with __iron.roads', 'renderer, tools or roads hook never ready'); await page.close(); return out; }
+  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
+  const A = { x: site.x + 1, y: site.y + 2 }, B = { x: site.x + 8, y: site.y + 2 }, D = { x: site.x + 8, y: site.y + 9 }, M = { x: site.x + 4, y: site.y + 2 };
+  const idx = (p) => p.y * MAP + p.x;
+
+  const none = await page.evaluate((a) => window.__iron.roads.requestPath(a, a), A);
+  add('a path query on bare ground is refused with no-road', !none.ok && none.reason === 'no-road' ? null : JSON.stringify(none));
+
+  const drag = (from, to) => page.evaluate(({ from, to }) => { const t = window.__iron.tools; t.select('road', { cls: 1 }); return t.dragTiles(from, to); }, { from, to });
+  const id1 = await drag(A, B), id2 = await drag(B, D);
+  const accepted = id1 > 0 && id2 > 0 && await until(page, (id) => window.__iron.tools.lastEvent?.cmd === id && window.__iron.tools.lastEvent.type === 'accepted', id2);
+  const laid = await until(page, ({ a, d }) => (window.__iron.tools.peek('road', a.x, a.y) & 7) !== 0 && (window.__iron.tools.peek('road', d.x, d.y) & 7) !== 0, { a: A, d: D });
+  add('two dragged street segments are accepted and reach the mirror', accepted && laid ? null : `commands ${id1}, ${id2}; accepted ${accepted}; mirror ${laid}`);
+
+  const epoch0 = await page.evaluate(() => window.__iron.roads.graphEpoch);
+  const p1 = await page.evaluate(({ a, d }) => window.__iron.roads.requestPath(a, d), { a: A, d: D });
+  add('requestPath across the turn returns a non-empty path', p1.ok && p1.tiles.length === 15 ? null : JSON.stringify(p1));
+  add('the path starts at the first tile and ends at the far end', p1.ok && p1.tiles[0] === idx(A) && p1.tiles[p1.tiles.length - 1] === idx(D) ? null : `ends ${p1.tiles?.[0]} .. ${p1.tiles?.[p1.tiles.length - 1]}, want ${idx(A)} .. ${idx(D)}`);
+  add('the path turns at the corner tile', p1.ok && p1.tiles.includes(idx(B)) ? null : 'corner tile missing from the path');
+  add('graphEpoch is above zero after roads were laid', epoch0 > 0 ? null : `graphEpoch ${epoch0}`);
+
+  const bd = await page.evaluate((m) => { const t = window.__iron.tools; t.select('bulldoze'); return t.dragTiles(m, m); }, M);
+  const cut = bd > 0 && await until(page, (m) => (window.__iron.tools.peek('road', m.x, m.y) & 7) === 0, M);
+  add('bulldozing the middle tile removes it from the mirror', cut ? null : `bulldoze command ${bd}, tile cleared ${cut}`);
+  const bumped = await until(page, (e) => window.__iron.roads.graphEpoch > e, epoch0, 10000);
+  add('graphEpoch increases after the bulldoze', bumped ? null : `graphEpoch ${await page.evaluate(() => window.__iron.roads.graphEpoch)}, was ${epoch0}`);
+  const p2 = await page.evaluate(({ a, d }) => window.__iron.roads.requestPath(a, d), { a: A, d: D });
+  add('the same path query now fails as unreachable', !p2.ok && p2.reason === 'unreachable' && p2.tiles.length === 0 ? null : JSON.stringify(p2));
+  const p3 = await page.evaluate(({ b, d }) => window.__iron.roads.requestPath(b, d), { b: B, d: D });
+  add('the intact segment still routes', p3.ok && p3.tiles.length === 8 ? null : JSON.stringify(p3));
+  await page.close();
+  return out;
+}
+// ---- end U7a block ----
+
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true }, { backend: 'webgpu', showcaseTier: 'high' }],
   phone: [{ backend: 'webgl2' }],
@@ -482,6 +525,7 @@ try {
       }
     }
     const buildChecks = vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
+    if (vp.name === 'desktop') buildChecks.push(...await roadGraphChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;
