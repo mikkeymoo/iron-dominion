@@ -2,18 +2,30 @@ import { useEffect, useRef, useState } from 'react';
 import type { SimClient } from '../sim/client.ts';
 import { startGame, type Game, type PerfSnapshot } from '../render/game.ts';
 import type { RenderMirror } from '../render/mirror.ts';
+import type { Lifecycle } from '../platform/lifecycle.ts';
+import { bindLifecycleDom } from '../platform/lifecycle.ts';
+import type { Settings } from '../platform/settings.ts';
+import { Hud, type HudStats } from './Hud';
 
 interface Props {
   client: SimClient;
   mirror: RenderMirror;
+  lifecycle: Lifecycle;
+  stats: HudStats;
+  settings: Settings;
+  notice: string;
   tick: number;
   worker: 'loading' | 'ready' | 'failed';
   onExit: () => void;
+  onSave(): void;
+  onSaveAs(name: string): void;
+  onExport(): void;
+  onSetting<K extends keyof Settings>(key: K, value: Settings[K]): void;
 }
 
 type Phase = 'starting' | 'running' | 'failed';
 
-export function GameView({ client, mirror, tick, worker, onExit }: Props) {
+export function GameView({ client, mirror, lifecycle, stats, settings, notice, tick, worker, onExit, onSave, onSaveAs, onExport, onSetting }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>('starting');
   const [error, setError] = useState('');
@@ -48,6 +60,8 @@ export function GameView({ client, mirror, tick, worker, onExit }: Props) {
     return () => window.clearInterval(id);
   }, [phase]);
 
+  useEffect(() => bindLifecycleDom(lifecycle, document, window), [lifecycle]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => { if (e.key === '`') setPanel((p) => !p); };
     window.addEventListener('keydown', onKey);
@@ -67,6 +81,7 @@ export function GameView({ client, mirror, tick, worker, onExit }: Props) {
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} />
         <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
         {panel && perf && (
           <dl className="perf" data-testid="perf">
