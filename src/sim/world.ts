@@ -23,6 +23,8 @@ export interface Sim {
   dirty: DirtySets;
   /** True until the next collectOutgoing has emitted a full Resync (new sim, loaded snapshot). */
   resync: boolean;
+  /** Session flag, not state: set only from Hello.debug. Enables debug-only commands; never hashed or saved. */
+  debug?: boolean;
 }
 
 export function allocWorld(): World {

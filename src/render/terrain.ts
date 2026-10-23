@@ -1,7 +1,8 @@
 import { BufferAttribute, BufferGeometry, Group, Mesh, type Material } from 'three/webgpu';
 import { CHUNK, CHUNKS, MAP, ZONE } from '../sim/layers.ts';
 import type { RenderMirror } from './mirror.ts';
-import { buildRoadMesh, buildTerrainMesh, buildWaterMesh, withNeighbours, type MeshData, type TerrainLayers } from './terrainMesh.ts';
+import { buildTerrainMesh, buildWaterMesh, withNeighbours, type MeshData, type TerrainLayers } from './terrainMesh.ts';
+import { buildRoadMesh } from './kit/roads.ts';
 import { createRoadMaterial, createTerrainMaterial, createWaterMaterial, type TerrainSlots } from './terrainMaterial.ts';
 
 const SUPER = 4;
@@ -73,6 +74,8 @@ export class TerrainView {
   private readonly roads: Slot[] = [];
   private detail = new Set<number>();
   private detailKey = '';
+  /** Bumped whenever the set of fine chunks changes; buildings reclassify near/far on it. */
+  detailVersion = 0;
   private shadows = false;
   builds = 0;
 
@@ -157,7 +160,11 @@ export class TerrainView {
     }
     order.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     this.detail = new Set(order.slice(0, count).map((o) => o[1]));
+    this.detailVersion++;
   }
+
+  /** True when the chunk is drawn at full detail: buildings and roads inside it use the fine kit. */
+  isFine(chunk: number): boolean { return this.detail.has(chunk); }
 
   /**
    * Drain the mirror's geometry queue, choose which chunks are drawn fine, and build what is missing.
@@ -175,9 +182,6 @@ export class TerrainView {
 
       const ws = this.water[s]!;
       if (ws.stale && left > 0) { ws.set(buildWaterMesh(L, sx, sy, SUPER_TILES), false, false, 2); left--; this.builds++; }
-      const rs = this.roads[s]!;
-      if (rs.stale && left > 0) { rs.set(buildRoadMesh(L, sx, sy, SUPER_TILES), false, true, 1); left--; this.builds++; }
-
       // Fine chunks exist only for the nearest N chunks. The coarse superchunk stays drawn and is cut around them.
       const covered = new Set<number>();
       chunks.forEach((c, local) => {
@@ -196,6 +200,15 @@ export class TerrainView {
       });
 
       const key = [...covered].join(',');
+      // Roads get the full kit only inside fine chunks; the rest of the superchunk stays flat asphalt strips. Keyed on the
+      // target detail set (not on which fine meshes are built yet) so a camera move rebuilds each road mesh once.
+      const roadKey = chunks.map((c, local) => (this.detail.has(c) ? local : -1)).filter((l) => l >= 0).join(',');
+      const rs = this.roads[s]!;
+      if ((rs.stale || rs.key !== roadKey) && left > 0) {
+        rs.set(buildRoadMesh(L, sx, sy, SUPER_TILES, (tx, ty) => this.detail.has(chunks[Math.floor((ty - sy) / CHUNK) * SUPER + Math.floor((tx - sx) / CHUNK)]!)), false, true, 1);
+        rs.key = roadKey;
+        left--; this.builds++;
+      }
       const cs = this.coarse[s]!;
       if ((cs.stale || cs.key !== key) && (left > 0 || !cs.built)) {
         const perChunk = CHUNK / COARSE_STEP;

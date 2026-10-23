@@ -1,5 +1,5 @@
-import { HEIGHT_SCALE, MAP, ROAD, TERRAIN } from '../sim/layers.ts';
-import { cornerHeight, surfaceHeight, type HeightLayer } from './heightfield.ts';
+import { HEIGHT_SCALE, MAP, TERRAIN } from '../sim/layers.ts';
+import { cornerHeight, type HeightLayer } from './heightfield.ts';
 
 // Pure geometry builders over the mirror's full-map layers. No three, no DOM: positions, normals, vertex colours
 // and indices come back as typed arrays that terrain.ts wraps in BufferGeometry.
@@ -211,44 +211,6 @@ export function buildWaterMesh(l: TerrainLayers, x0: number, y0: number, size: n
       const v = pos.length / 3;
       pos.push(x, corner(x, y), y, x + 1, corner(x + 1, y), y, x, corner(x, y + 1), y + 1, x + 1, corner(x + 1, y + 1), y + 1);
       idx.push(v, v + 2, v + 3, v, v + 3, v + 1);
-    }
-  }
-  const positions = Float32Array.from(pos);
-  const normals = new Float32Array(positions.length);
-  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
-  return finish(positions, normals, idx);
-}
-
-const HALF_WIDTH = [0, 0.2, 0.28, 0.38];
-const LIFT = 0.04;
-const BRIDGE_LIFT = 0.15;
-
-/** Thin dark strips (centre square plus an arm per connection) draped on the terrain: placeholder until the road kit. */
-export function buildRoadMesh(l: TerrainLayers, x0: number, y0: number, size: number): MeshData {
-  const pos: number[] = [];
-  const idx: number[] = [];
-  const quad = (xa: number, za: number, xb: number, zb: number, base: number): void => {
-    const v = pos.length / 3;
-    const y = (x: number, z: number): number => surfaceHeight(l.height, x, z);
-    pos.push(xa, y(xa, za), za, xb, y(xb, za), za, xa, y(xa, zb), zb, xb, y(xb, zb), zb);
-    for (let k = 0; k < 4; k++) pos[(v + k) * 3 + 1] = Math.max(pos[(v + k) * 3 + 1]!, base) + LIFT;
-    idx.push(v, v + 2, v + 3, v, v + 3, v + 1);
-  };
-  for (let y = y0; y < y0 + size; y++) {
-    for (let x = x0; x < x0 + size; x++) {
-      const t = y * MAP + x;
-      const r = l.road[t]!;
-      const cls = r & ROAD.CLASS_MASK;
-      if (cls === 0) continue;
-      const hw = HALF_WIDTH[cls] ?? 0.3;
-      const cx = x + 0.5, cz = y + 0.5;
-      let base = -Infinity;
-      if ((r & ROAD.BRIDGE) !== 0) base = (l.height[t]! + l.waterDepth[t]!) / HEIGHT_SCALE + BRIDGE_LIFT;
-      quad(cx - hw, cz - hw, cx + hw, cz + hw, base);
-      if (r & ROAD.N) quad(cx - hw, y, cx + hw, cz - hw, base);
-      if (r & ROAD.S) quad(cx - hw, cz + hw, cx + hw, y + 1, base);
-      if (r & ROAD.W) quad(x, cz - hw, cx - hw, cz + hw, base);
-      if (r & ROAD.E) quad(cx + hw, cz - hw, x + 1, cz + hw, base);
     }
   }
   const positions = Float32Array.from(pos);

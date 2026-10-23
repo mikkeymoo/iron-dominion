@@ -7,6 +7,7 @@ export type ClientState = 'loading' | 'ready' | 'failed';
 
 export interface ClientOptions {
   seed?: number;
+  debug?: boolean;
   haltAt?: number;
   hashEvery?: number;
   buildHash?: string;
@@ -73,7 +74,7 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
   worker.onerror = (e) => setState('failed', `worker error: ${e.message || 'unknown'}`);
   worker.onmessageerror = () => setState('failed', 'worker message could not be deserialised');
 
-  send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, buildHash: opt.buildHash, seed: opt.seed, haltAt: opt.haltAt, hashEvery: opt.hashEvery });
+  send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, buildHash: opt.buildHash, seed: opt.seed, debug: opt.debug, haltAt: opt.haltAt, hashEvery: opt.hashEvery });
 
   return {
     get state() { return state; },

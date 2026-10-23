@@ -16,32 +16,37 @@ export interface TierSpec {
   visibleAgents: number;
   fullDetailChunks: number;
   drawCallBudget: number;
+  /** Building variants per archetype that may be drawn (bounds near-LOD building draw calls). */
+  variants: number;
   maxTextureSize: number;
   /** Frame-time budget the governor defends (ms). */
   frameBudgetMs: number;
 }
 
-// Draw-call budgets cover terrain + water + road superchunk meshes and the pipeline quad (asserted in smoke).
+// Draw-call budgets cover terrain + water + road superchunk meshes, buildings (near batches, far box, construction sites, crane)
+// and the pipeline quad, plus the shadow pass where the tier has one (asserted in smoke). U3 raised mid/high from 220/340 after
+// measuring the full showcase (27 RCI archetypes + services, half under construction): low 82, mid 214, high 271, ultra 315.
+// The new numbers keep ~35% headroom over that; `variants` bounds the per-archetype near batches that dominate the growth.
 export const TIER_TABLE: Record<Tier, TierSpec> = {
   low: {
     renderScale: 0.6, dprCap: 1.5, shadows: 'blob', shadowMapSize: 0, ao: 'off', water: 'flat',
     post: { bloom: true, grade: true, tiltShift: false, godRays: false, dof: false, lens: false, aa: 'none' },
-    particleBudget: 2000, visibleAgents: 300, fullDetailChunks: 9, drawCallBudget: 160, maxTextureSize: 1024, frameBudgetMs: 33.3,
+    particleBudget: 2000, visibleAgents: 300, fullDetailChunks: 9, drawCallBudget: 160, variants: 2, maxTextureSize: 1024, frameBudgetMs: 33.3,
   },
   mid: {
     renderScale: 0.8, dprCap: 2, shadows: 'csm1', shadowMapSize: 1024, ao: 'off', water: 'reflect',
     post: { bloom: true, grade: true, tiltShift: true, godRays: false, dof: false, lens: false, aa: 'none' },
-    particleBudget: 8000, visibleAgents: 1500, fullDetailChunks: 25, drawCallBudget: 220, maxTextureSize: 2048, frameBudgetMs: 33.3,
+    particleBudget: 8000, visibleAgents: 1500, fullDetailChunks: 25, drawCallBudget: 300, variants: 3, maxTextureSize: 2048, frameBudgetMs: 33.3,
   },
   high: {
     renderScale: 1, dprCap: 2, shadows: 'csm3', shadowMapSize: 2048, ao: 'full', water: 'refract',
     post: { bloom: true, grade: true, tiltShift: true, godRays: true, dof: false, lens: false, aa: 'msaa' },
-    particleBudget: 64000, visibleAgents: 6000, fullDetailChunks: 49, drawCallBudget: 340, maxTextureSize: 4096, frameBudgetMs: 17.5,
+    particleBudget: 64000, visibleAgents: 6000, fullDetailChunks: 49, drawCallBudget: 380, variants: 4, maxTextureSize: 4096, frameBudgetMs: 17.5,
   },
   ultra: {
     renderScale: 1, dprCap: 3, shadows: 'csm4', shadowMapSize: 4096, ao: 'bent', water: 'ssr',
     post: { bloom: true, grade: true, tiltShift: true, godRays: true, dof: true, lens: true, aa: 'taa' },
-    particleBudget: 256000, visibleAgents: 20000, fullDetailChunks: 81, drawCallBudget: 520, maxTextureSize: 8192, frameBudgetMs: 17.5,
+    particleBudget: 256000, visibleAgents: 20000, fullDetailChunks: 81, drawCallBudget: 520, variants: 4, maxTextureSize: 8192, frameBudgetMs: 17.5,
   },
 };
 

@@ -1,4 +1,4 @@
-import { archetype, BRIDGE_EXTRA, BULLDOZE_COST, ROAD_COST, ZONE_COST } from './catalog.ts';
+import { archetype, BFLAG, type Archetype, BRIDGE_EXTRA, BULLDOZE_COST, ROAD_COST, ZONE_COST } from './catalog.ts';
 import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { markDirty, type Sim } from './world.ts';
@@ -8,6 +8,8 @@ export type CommandBody =
   | { type: 'zone'; x0: number; y0: number; x1: number; y1: number; zone: number; density: number }
   | { type: 'bulldoze'; x0: number; y0: number; x1: number; y1: number }
   | { type: 'placeBuilding'; arch: number; x: number; y: number; rot: number }
+  | { type: 'debugGrow'; x: number; y: number; archetype: number; progress: number }
+  | { type: 'debugLevel'; x0: number; y0: number; x1: number; y1: number; margin: number }
   | { type: 'setTax'; rate: number }
   | { type: 'undo'; target: number };
 
@@ -196,30 +198,92 @@ function bulldoze(sim: Sim, c: Extract<Command, { type: 'bulldoze' }>): void {
   w.scalars[S.treasury]! -= cost;
 }
 
-function placeBuilding(sim: Sim, c: Extract<Command, { type: 'placeBuilding' }>): number {
+interface PlaceOptions { level: number; prog: number; flags: number; /** Treasury cost; 0 for free placement. */ cost: number; journal: boolean }
+
+/** Shared placement for placeBuilding and debugGrow: validate the footprint, pick a slot, write the table and tile layers. */
+function placeSite(sim: Sim, a: Archetype, x: number, y: number, rot: number, o: PlaceOptions): number {
   const w = sim.world;
-  if (!isInts(c.arch, c.x, c.y, c.rot) || c.rot < 0 || c.rot > 3) reject('invalid');
-  const a = archetype(c.arch) ?? reject('unknown-archetype');
-  const bw = c.rot & 1 ? a.h : a.w, bh = c.rot & 1 ? a.w : a.h;
-  if (!inBounds(c.x, c.y) || !inBounds(c.x + bw - 1, c.y + bh - 1)) reject('bounds');
-  for (let y = c.y; y < c.y + bh; y++) for (let x = c.x; x < c.x + bw; x++) {
-    const i = tileIdx(x, y);
+  const bw = rot & 1 ? a.h : a.w, bh = rot & 1 ? a.w : a.h;
+  if (!inBounds(x, y) || !inBounds(x + bw - 1, y + bh - 1)) reject('bounds');
+  for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) {
+    const i = tileIdx(xx, yy);
     if (isWaterTerrain(w.terrain[i]!)) reject('terrain');
     if (w.road[i] || w.bId[i]) reject('blocked');
   }
-  spend(w, a.cost);
+  if (o.cost > 0) spend(w, o.cost);
   let slot = -1;
   for (let s = 0; s < w.bArch.length; s++) if (w.bArch[s] === 0) { slot = s; break; }
   if (slot < 0) reject('full');
   const cells: number[] = [];
-  for (let y = c.y; y < c.y + bh; y++) for (let x = c.x; x < c.x + bw; x++) cells.push(tileIdx(x, y));
-  const cap = capture(w, cells);
-  w.bArch[slot] = a.id; w.bX[slot] = c.x; w.bY[slot] = c.y; w.bW[slot] = bw; w.bH[slot] = bh;
-  w.bRot[slot] = c.rot; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0;
+  for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) cells.push(tileIdx(xx, yy));
+  const cap = o.journal ? capture(w, cells) : undefined;
+  w.bArch[slot] = a.id; w.bX[slot] = x; w.bY[slot] = y; w.bW[slot] = bw; w.bH[slot] = bh;
+  w.bRot[slot] = rot; w.bLevel[slot] = o.level; w.bProg[slot] = o.prog; w.bFlags[slot] = o.flags;
   for (const i of cells) { w.bId[i] = slot + 1; w.zone[i] = 0; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); }
   sim.dirty.buildings.add(slot);
-  w.scalars[S.treasury]! -= a.cost;
-  return journalCommit(sim, cap, UNDO.BUILDING, a.cost, slot);
+  w.scalars[S.treasury]! -= o.cost;
+  return cap ? journalCommit(sim, cap, UNDO.BUILDING, o.cost, slot) : 0;
+}
+
+function placeBuilding(sim: Sim, c: Extract<Command, { type: 'placeBuilding' }>): number {
+  if (!isInts(c.arch, c.x, c.y, c.rot) || c.rot < 0 || c.rot > 3) reject('invalid');
+  const a = archetype(c.arch) ?? reject('unknown-archetype');
+  if (!a.placeable) reject('not-placeable');
+  return placeSite(sim, a, c.x, c.y, c.rot, { level: 0, prog: 0, flags: 0, cost: a.cost, journal: true });
+}
+
+/** Debug-only: put a (possibly RCI) building on free land at a chosen construction progress, free of charge and not undoable. */
+function debugGrow(sim: Sim, c: Extract<Command, { type: 'debugGrow' }>): void {
+  if (!sim.debug) reject('debug-only');
+  if (!isInts(c.x, c.y, c.archetype) || !Number.isFinite(c.progress) || c.progress < 0 || c.progress > 1) reject('invalid');
+  const a = archetype(c.archetype) ?? reject('unknown-archetype');
+  const done = c.progress >= 1;
+  placeSite(sim, a, c.x, c.y, 0, {
+    level: a.level ?? 0, prog: done ? 255 : Math.round(c.progress * 255), flags: done ? 0 : BFLAG.CONSTRUCTING, cost: 0, journal: false,
+  });
+}
+
+/**
+ * Debug-only: level a rectangle of land to its mean height and blend the surrounding `margin` tiles into the existing
+ * ground, so a showcase district sits on a plateau instead of a hillside. Dry land only; not undoable, not charged.
+ */
+function debugLevel(sim: Sim, c: Extract<Command, { type: 'debugLevel' }>): void {
+  const w = sim.world;
+  if (!sim.debug) reject('debug-only');
+  if (!isInts(c.margin) || c.margin < 0 || c.margin > 16) reject('invalid');
+  const [x0, y0, x1, y1] = rect(c);
+  let sum = 0, n = 0;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = tileIdx(x, y);
+    if (isWaterTerrain(w.terrain[i]!) || w.waterDepth[i]! > 0) reject('terrain');
+    sum += w.height[i]!; n++;
+  }
+  const target = Math.round(sum / n);
+  const m = c.margin;
+  for (let y = Math.max(0, y0 - m); y <= Math.min(MAP - 1, y1 + m); y++) {
+    for (let x = Math.max(0, x0 - m); x <= Math.min(MAP - 1, x1 + m); x++) {
+      const i = tileIdx(x, y);
+      const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0, dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
+      const inside = dx === 0 && dy === 0;
+      if (!inside && (isWaterTerrain(w.terrain[i]!) || w.waterDepth[i]! > 0)) continue;
+      const t = inside ? 1 : Math.max(0, 1 - Math.hypot(dx, dy) / (m + 1));
+      const k = t * t * (3 - 2 * t);
+      w.height[i] = Math.round(w.height[i]! + (target - w.height[i]!) * k);
+      if (inside) w.terrain[i] = TERRAIN.GRASS;
+      markDirty(sim, 'geometry', x, y);
+    }
+  }
+  // Heights moved, so road slope flags and building ground heights in and around the area are stale.
+  const ex0 = Math.max(0, x0 - m - 1), ey0 = Math.max(0, y0 - m - 1), ex1 = Math.min(MAP - 1, x1 + m + 1), ey1 = Math.min(MAP - 1, y1 + m + 1);
+  for (let y = ey0; y <= ey1; y++) for (let x = ex0; x <= ex1; x++) {
+    const i = tileIdx(x, y), before = w.road[i]!;
+    if (!(before & ROAD.CLASS_MASK)) continue;
+    fixRoad(w, x, y);
+    if (w.road[i] !== before) markDirty(sim, 'geometry', x, y);
+  }
+  for (let s = 0; s < w.bArch.length; s++) {
+    if (w.bArch[s] && w.bX[s]! + w.bW[s]! > ex0 && w.bX[s]! <= ex1 && w.bY[s]! + w.bH[s]! > ey0 && w.bY[s]! <= ey1) sim.dirty.buildings.add(s);
+  }
 }
 
 function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
@@ -266,6 +330,8 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'zone': journal = zone(sim, cmd); break;
       case 'bulldoze': bulldoze(sim, cmd); break;
       case 'placeBuilding': journal = placeBuilding(sim, cmd); break;
+      case 'debugGrow': debugGrow(sim, cmd); break;
+      case 'debugLevel': debugLevel(sim, cmd); break;
       case 'setTax': setTax(sim, cmd); break;
       case 'undo': undo(sim, cmd); break;
       default: reject('unknown-command');

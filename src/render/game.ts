@@ -9,6 +9,8 @@ import type { RenderMirror } from './mirror.ts';
 import { pickPoint, pickTile } from './picking.ts';
 import { computeViewRect } from './viewrect.ts';
 import { WorldScene } from './scene.ts';
+import { buildingLight } from './buildingMaterial.ts';
+import { planShowcase } from './kit/showcase.ts';
 import { TIER_TABLE, createGovernor, readStoredTier, resolveTier, type Governor, type Tier } from './tier.ts';
 
 export interface GameDeps {
@@ -30,6 +32,7 @@ export interface PerfSnapshot {
   triangles: number;
   fineChunks: number;
   coarseSupers: number;
+  buildings: { instances: number; farInstances: number; drawCalls: number };
   tick: number;
 }
 
@@ -64,6 +67,11 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   let drawCalls = 0, triangles = 0;
   let lastNow = 0, lastRectAt = 0, lastRectKey = '';
   let sawTerrain = false;
+  let showcaseDone = false;
+  let showcaseCamera: { x: number; z: number; yaw: number; pitch: number; dist: number } | undefined;
+  const wantShowcase = q.get('showcase') === '1';
+  const night = Number(q.get('night'));
+  if (q.has('night') && Number.isFinite(night)) buildingLight.night.value = Math.min(1, Math.max(0, night));
   let governor: Governor = createGovernor({ tier, enabled: false });
   let ctx!: RenderContext;
   let world!: WorldScene;
@@ -129,8 +137,18 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       world.terrain.update(rig.state.x, rig.state.z, TIER_TABLE[tier].fullDetailChunks);
       if (!sawTerrain && world.terrain.builds > 0) { sawTerrain = true; governor.noteWarmup(now); }
     }
+    if (wantShowcase && !showcaseDone && mirror.hasResync) {
+      showcaseDone = true;
+      const plan = planShowcase({ terrain: mirror.layers.terrain!, height: mirror.layers.height!, waterDepth: mirror.layers.waterDepth! });
+      if (plan) {
+        for (const cmd of plan.commands) client.command(cmd);
+        const c = plan.camera;
+        rig.reset(c.x, c.z, c.yaw, c.pitch, c.dist);
+        showcaseCamera = c;
+      } else console.warn('[showcase] no flat land window found');
+    }
     mirror.takeDirtyOverlay();
-    mirror.takeDirtyBuildings();
+    world.buildings.update();
 
     world.render();
     const r = ctx.renderer.info.render;
@@ -203,6 +221,11 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     get triangles() { return triangles; },
     get drawCallBudget() { return TIER_TABLE[tier].drawCallBudget; },
     get deviceLosses() { return deviceLosses; },
+    get showcaseCamera() { return showcaseCamera; },
+    get buildings() {
+      const b = world.buildings.stats;
+      return { instances: b.instances, farInstances: b.farInstances, sites: b.sites, cranes: b.cranes, drawCalls: b.drawCalls };
+    },
     get canvasCount() { return host.querySelectorAll('canvas').length; },
     get camera() {
       const s = rig.state, p = rig.pose();
@@ -213,7 +236,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       const n = pixelToNdc(x, y, w, h);
       return pickTile(rayFromPose(rig.pose(), world.camera.fov, w / h, n.nx, n.ny), mirror);
     },
-    resetCamera(pose) { rig.reset(RESET.x, RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
+    resetCamera(pose) { rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
     loseDevice() {
       const gl = (ctx.renderer.backend as unknown as { gl?: WebGL2RenderingContext }).gl;
       const ext = gl?.getExtension('WEBGL_lose_context');
@@ -228,6 +251,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     perf: () => ({
       backend: ctx.backend, tier, adapter: ctx.adapterLabel, fps, frameMs, drawCalls, triangles,
       fineChunks: world.terrain.stats.fineChunks, coarseSupers: world.terrain.stats.coarseSupers, tick: mirror.tick,
+      buildings: (() => { const b = world.buildings.stats; return { instances: b.instances, farInstances: b.farInstances, drawCalls: b.drawCalls }; })(),
     }),
     dispose() {
       disposed = true;

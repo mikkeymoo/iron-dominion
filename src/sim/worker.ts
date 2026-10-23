@@ -132,7 +132,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
         fail(`build mismatch: worker ${BUILD_HASH}, app ${m.buildHash} (stale cache? reload the page)`);
         return;
       }
-      sim = createSim(m.seed ?? 1);
+      sim = createSim(m.seed ?? 1, { debug: m.debug === true });
       haltAt = m.haltAt ?? 0;
       hashEvery = m.hashEvery ?? 0;
       handshaken = true;
@@ -159,6 +159,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
       case 'loadSnapshot':
         try {
           const next = restore(m.data);
+          next.debug = sim.debug;
           const tick = tickOf(sim);
           const dropped = sim.queue.map((c) => ({ type: 'rejected' as const, cmd: c.id, tick, reason: 'superseded' }));
           next.events.push(...sim.events, ...dropped);

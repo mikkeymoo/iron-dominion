@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { HEIGHT_SCALE, MAP, ROAD, TERRAIN, TILES } from '../sim/layers.ts';
-import { PALETTE, buildRoadMesh, buildTerrainMesh, buildWaterMesh, withNeighbours, type MeshData, type TerrainLayers } from './terrainMesh.ts';
+import { HEIGHT_SCALE, MAP, TERRAIN, TILES } from '../sim/layers.ts';
+import { PALETTE, buildTerrainMesh, buildWaterMesh, withNeighbours, type MeshData, type TerrainLayers } from './terrainMesh.ts';
 
 function layers(fn: (x: number, y: number) => { h?: number; t?: number; w?: number; r?: number } = () => ({})): TerrainLayers {
   const l = { height: new Int16Array(TILES), terrain: new Uint8Array(TILES), waterDepth: new Uint8Array(TILES), road: new Uint16Array(TILES) };
@@ -131,7 +131,7 @@ describe('buildTerrainMesh', () => {
   });
 });
 
-describe('buildWaterMesh and buildRoadMesh', () => {
+describe('buildWaterMesh', () => {
   it('emits one quad per wet tile at its surface level and nothing for dry land', () => {
     expect(buildWaterMesh(layers(), 0, 0, 64).triangleCount).toBe(0);
     const pond = layers((x, y) => (x >= 10 && x < 13 && y >= 20 && y < 22 ? { h: -2, w: 2 * HEIGHT_SCALE, t: TERRAIN.WATER } : {}));
@@ -155,30 +155,6 @@ describe('buildWaterMesh and buildRoadMesh', () => {
     for (const s of at.values()) expect(s.size).toBe(1);
   });
 
-  it('builds a centre square plus one arm per connection, draped above the ground', () => {
-    const road = layers((x, y) => (x === 40 && y === 40 ? { h: 1, r: 1 | ROAD.N | ROAD.S } : { h: 1 }));
-    const m = buildRoadMesh(road, 0, 0, 64);
-    expect(m.triangleCount).toBe(3 * 2);
-    for (let v = 0; v < m.vertexCount; v++) {
-      expect(m.positions[v * 3 + 1]).toBeGreaterThan(1);
-      expect(m.positions[v * 3]).toBeGreaterThanOrEqual(40);
-      expect(m.positions[v * 3]).toBeLessThanOrEqual(41);
-    }
-    expect(buildRoadMesh(layers(), 0, 0, 64).triangleCount).toBe(0);
-  });
-
-  it('lifts a bridge above the water surface', () => {
-    const bridge = layers((x, y) => (x === 40 && y === 40 ? { h: -4, w: 4 * HEIGHT_SCALE, t: TERRAIN.WATER, r: 1 | ROAD.BRIDGE } : { h: -4, w: 4 * HEIGHT_SCALE, t: TERRAIN.WATER }));
-    const m = buildRoadMesh(bridge, 0, 0, 64);
-    for (let v = 0; v < m.vertexCount; v++) expect(m.positions[v * 3 + 1]).toBeGreaterThan(0.1);
-  });
-
-  it('switches to 32-bit indices when a region needs more than 65535 vertices', () => {
-    const dense = layers((x, y) => (x < 64 && y < 64 ? { r: 1 | ROAD.N | ROAD.E | ROAD.S | ROAD.W } : {}));
-    const m = buildRoadMesh(dense, 0, 0, 64);
-    expect(m.vertexCount).toBeGreaterThan(65535);
-    expect(m.indices.BYTES_PER_ELEMENT).toBe(4);
-  });
 });
 
 describe('seams and holes', () => {

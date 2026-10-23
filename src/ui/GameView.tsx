@@ -76,6 +76,7 @@ export function GameView({ client, mirror, tick, worker, onExit }: Props) {
             <dt>draw calls</dt><dd>{perf.drawCalls}</dd>
             <dt>triangles</dt><dd>{perf.triangles.toLocaleString('en-US')}</dd>
             <dt>sim tick</dt><dd>{tick}</dd>
+            <dt>buildings</dt><dd>{perf.buildings.instances} near / {perf.buildings.farInstances} far / {perf.buildings.drawCalls} draws</dd>
             <dt>chunks</dt><dd>{perf.fineChunks} fine / {perf.coarseSupers} far</dd>
           </dl>
         )}

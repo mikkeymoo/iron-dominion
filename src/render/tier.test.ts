@@ -8,7 +8,7 @@ describe('tier table', () => {
     expect(TIERS).toEqual(['low', 'mid', 'high', 'ultra']);
     for (const t of TIERS) {
       const s = TIER_TABLE[t];
-      for (const k of ['renderScale', 'dprCap', 'particleBudget', 'visibleAgents', 'fullDetailChunks', 'drawCallBudget', 'maxTextureSize', 'frameBudgetMs'] as const) {
+      for (const k of ['renderScale', 'dprCap', 'particleBudget', 'visibleAgents', 'fullDetailChunks', 'drawCallBudget', 'variants', 'maxTextureSize', 'frameBudgetMs'] as const) {
         expect(s[k], `${t}.${k}`).toBeGreaterThan(0);
       }
       expect(s.shadows).toBeTruthy();
@@ -22,6 +22,7 @@ describe('tier table', () => {
       const a = TIER_TABLE[TIERS[i - 1]!], b = TIER_TABLE[TIERS[i]!];
       expect(b.renderScale).toBeGreaterThanOrEqual(a.renderScale);
       expect(b.drawCallBudget).toBeGreaterThan(a.drawCallBudget);
+      expect(b.variants).toBeGreaterThanOrEqual(a.variants);
       expect(b.particleBudget).toBeGreaterThan(a.particleBudget);
       expect(b.maxTextureSize).toBeGreaterThanOrEqual(a.maxTextureSize);
     }

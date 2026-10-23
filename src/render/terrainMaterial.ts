@@ -76,7 +76,7 @@ export function createWaterMaterial(): MeshStandardNodeMaterial {
 
 export function createRoadMaterial(): MeshStandardNodeMaterial {
   const m = new MeshStandardNodeMaterial();
-  m.color = new Color(0x2b2e33);
+  m.colorNode = vertexColor();
   m.roughness = 0.92;
   m.metalness = 0;
   m.polygonOffset = true;

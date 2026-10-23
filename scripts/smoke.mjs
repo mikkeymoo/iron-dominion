@@ -65,7 +65,10 @@ async function decodeBands(page, png) {
       for (let i = 0; i < n; i++) { r += d[i * 4]; gr += d[i * 4 + 1]; b += d[i * 4 + 2]; luma[i] = 0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]; }
       const mean = luma.reduce((a, v) => a + v, 0) / n;
       const sd = Math.sqrt(luma.reduce((a, v) => a + (v - mean) ** 2, 0) / n);
-      return { r: r / n, g: gr / n, b: b / n, sd };
+      // Colour variance: summed per-channel variance, so hue differences count and not only brightness.
+      let vr = 0, vg = 0, vb = 0;
+      for (let i = 0; i < n; i++) { vr += (d[i * 4] - r / n) ** 2; vg += (d[i * 4 + 1] - gr / n) ** 2; vb += (d[i * 4 + 2] - b / n) ** 2; }
+      return { r: r / n, g: gr / n, b: b / n, sd, cvar: (vr + vg + vb) / n };
     };
     const W = bmp.width, H = bmp.height;
     return {
@@ -150,8 +153,47 @@ async function renderChecks(page, backend, opts) {
   return out;
 }
 
+// U3 showcase: a district of every RCI archetype. `base` is a plain page on the same backend, used as the terrain-only baseline.
+const SHOWCASE_FLOOR_TRIANGLES = 60000;
+// Centre-region colour variance (sum of channel variances). Measured at the U3 gate: terrain only ~1400, showcase 4470-6415
+// (webgl2 low, webgpu high, phone). The terrain-only baseline is re-measured live on the same pose; the showcase must beat it
+// by 2x and clear this absolute floor, set just over half the lowest measured showcase value.
+const SHOWCASE_MIN_CVAR = 2500;
+const SHOWCASE_MIN_BUILDINGS = 90;
+
+async function showcaseChecks(page, base, backend, label) {
+  const out = [];
+  const add = (name, problem) => out.push([`${backend}: showcase ${name}`, problem]);
+  const up = await page.waitForFunction(() => window.__iron?.render?.ready === true, null, { timeout: 60000 }).then(() => true, () => false);
+  if (!up) { add('renderer starts', 'never ready'); return out; }
+  const loaded = await page.waitForFunction((n) => { const b = window.__iron?.render?.buildings; return b && b.instances + b.farInstances >= n; }, SHOWCASE_MIN_BUILDINGS, { timeout: 120000 }).then(() => true, () => false);
+  const f0 = await frames(page);
+  await waitFrames(page, f0 + 6, 30000);
+  const info = await page.evaluate(() => { const r = window.__iron.render; return { tier: r.tier, drawCalls: r.drawCalls, triangles: r.triangles, budget: r.drawCallBudget, b: { ...r.buildings }, cam: r.showcaseCamera }; });
+  console.log(`         ${label} ${backend} showcase: tier ${info.tier}, ${info.drawCalls}/${info.budget} draw calls, ${info.triangles} triangles, buildings ${JSON.stringify(info.b)}`);
+  add(`debug sim placed >= ${SHOWCASE_MIN_BUILDINGS} buildings`, loaded ? null : `only ${info.b.instances + info.b.farInstances}`);
+  add('building instance count > 0 (near LOD)', info.b.instances > 0 ? null : JSON.stringify(info.b));
+  add('construction sites and cranes are instanced', info.b.sites > 0 && info.b.cranes > 0 ? null : JSON.stringify(info.b));
+  add('building draw calls > 0 and total within tier budget', info.b.drawCalls > 0 && info.drawCalls <= info.budget ? null : JSON.stringify(info));
+  add(`triangles > ${SHOWCASE_FLOOR_TRIANGLES}`, info.triangles > SHOWCASE_FLOOR_TRIANGLES ? null : `triangles ${info.triangles}`);
+
+  const png = await page.screenshot();
+  if (process.env.SMOKE_SHOTS) await import('node:fs/promises').then((fs) => fs.writeFile(`${process.env.SMOKE_SHOTS}-${label}-${backend}-showcase.png`, png));
+  const show = await decodeBands(page, png);
+  let baseline = null;
+  if (info.cam) {
+    await base.evaluate((c) => window.__iron.render.resetCamera(c), info.cam);
+    const b0 = await frames(base);
+    await waitFrames(base, b0 + 6, 20000);
+    baseline = await decodeBands(base, await base.screenshot());
+  }
+  console.log(`         ${label} ${backend} centre colour variance: showcase ${show.centre.cvar.toFixed(0)}, terrain only ${baseline ? baseline.centre.cvar.toFixed(0) : 'n/a'}`);
+  add(`centre colour variance > ${SHOWCASE_MIN_CVAR} and above the terrain-only baseline`, show.centre.cvar > SHOWCASE_MIN_CVAR && (!baseline || show.centre.cvar > baseline.centre.cvar * 2) ? null : `showcase ${show.centre.cvar.toFixed(1)}, baseline ${baseline ? baseline.centre.cvar.toFixed(1) : 'n/a'}`);
+  return out;
+}
+
 const RENDER_LEGS = {
-  desktop: [{ backend: 'webgl2', interact: true, loseDevice: true }, { backend: 'webgpu' }],
+  desktop: [{ backend: 'webgl2', interact: true, loseDevice: true }, { backend: 'webgpu', showcaseTier: 'high' }],
   phone: [{ backend: 'webgl2' }],
 };
 
@@ -181,6 +223,12 @@ try {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
+      const sp = await open(`${RENDER_QUERY(leg.backend)}&showcase=1`.replace('tier=low', `tier=${leg.showcaseTier ?? 'low'}`));
+      for (const [name, problem] of await showcaseChecks(sp, p, leg.backend, vp.name)) {
+        console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
+        if (problem) failed++;
+      }
+      await sp.close();
       await p.close();
     }
     if (errors.length) { failed++; console.log(`${vp.name.padEnd(8)} FAIL console errors:\n  ${errors.join('\n  ')}`); }

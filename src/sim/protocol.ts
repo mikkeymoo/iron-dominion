@@ -16,6 +16,8 @@ export interface Hello {
   protocolVersion: number;
   buildHash?: string;
   seed?: number;
+  /** Enables debug-only commands (debugGrow). Absent or false in normal play. */
+  debug?: boolean;
   /** Debug: halt (pause) when the tick counter reaches this value, then report the hash in Stats. */
   haltAt?: number;
   /** Include the world hash in Stats every N ticks (0 = only when halted or requested). */

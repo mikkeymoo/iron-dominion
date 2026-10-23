@@ -28,10 +28,12 @@ export function App() {
       const q = new URLSearchParams(window.location.search);
       const seed = q.has('seed') ? Number(q.get('seed')) : 1;
       const haltAt = q.has('haltAt') ? Number(q.get('haltAt')) : undefined;
+      const debug = q.get('debug') === '1' || q.get('showcase') === '1';
       const mirror = new RenderMirror();
       w = new Worker(new URL(`./sim-worker.js?v=${BUILD_HASH}`, document.baseURI));
       const client = createSimClient(w, {
         seed,
+        debug,
         haltAt,
         hashEvery: HASH_EVERY,
         buildHash: BUILD_HASH,

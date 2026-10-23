@@ -6,6 +6,7 @@ import { color, mix, positionLocal, smoothstep } from 'three/tsl';
 import { CAMERA, type Pose } from './camera.ts';
 import { createPipeline, type Pipeline } from './pipeline.ts';
 import type { RenderMirror } from './mirror.ts';
+import { BuildingsView } from './buildings.ts';
 import { TerrainView } from './terrain.ts';
 import { TIER_TABLE, type Tier } from './tier.ts';
 
@@ -35,6 +36,7 @@ export class WorldScene {
   readonly scene = new Scene();
   readonly camera = new PerspectiveCamera(CAMERA.fovDeg, 1, 0.3, 2000);
   readonly terrain: TerrainView;
+  readonly buildings: BuildingsView;
   readonly sun = new DirectionalLight(0xfff1d6, 2.6);
   readonly hemi = new HemisphereLight(0xa8ccf0, 0x7d6b50, 1.1);
   private readonly sky = createSky();
@@ -45,6 +47,8 @@ export class WorldScene {
     s.add(this.sky, this.sun, this.sun.target, this.hemi);
     this.terrain = new TerrainView(mirror);
     s.add(this.terrain.group);
+    this.buildings = new BuildingsView(mirror, this.terrain);
+    s.add(this.buildings.group);
     this.sun.position.set(SUN_DIR.x, SUN_DIR.y, SUN_DIR.z).multiplyScalar(200);
     const sh = this.sun.shadow;
     sh.camera.left = -SHADOW_RADIUS; sh.camera.right = SHADOW_RADIUS; sh.camera.top = SHADOW_RADIUS; sh.camera.bottom = -SHADOW_RADIUS;
@@ -70,6 +74,7 @@ export class WorldScene {
       this.sun.shadow.map = null;
     }
     this.terrain.setShadows(shadows);
+    this.buildings.setTier(tier);
   }
 
   applyPose(p: Pose): void {
@@ -89,6 +94,7 @@ export class WorldScene {
 
   dispose(): void {
     this.pipeline.dispose();
+    this.buildings.dispose();
     this.terrain.dispose();
     this.sky.geometry.dispose();
     (this.sky.material as MeshBasicNodeMaterial).dispose();

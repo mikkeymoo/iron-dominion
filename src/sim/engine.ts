@@ -12,7 +12,7 @@ import { allocWorld, newDirty, type Sim } from './world.ts';
 export const START_TREASURY = 50000;
 export const DEFAULT_TAX = 9;
 
-export function createSim(seed: number): Sim {
+export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   const world = allocWorld();
   const s = world.scalars;
   s[S.seed] = seed >>> 0;
@@ -21,7 +21,7 @@ export function createSim(seed: number): Sim {
   s[S.nextAgentId] = 1;
   seedRng(world.rng, seed);
   generateTerrain(world, seed);
-  return { world, queue: [], events: [], dirty: newDirty(), resync: true };
+  return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true };
 }
 
 export function simFromWorld(world: World): Sim {

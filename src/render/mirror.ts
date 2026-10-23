@@ -1,6 +1,6 @@
 import { CHUNK, CHUNKS, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, isTileLayer, type LayerName } from '../sim/layers.ts';
 import type { BuildingRec, FromWorker, Typed } from '../sim/protocol.ts';
-import { copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
+import { chunkIdx, copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
 
 const renderInfos = REGISTRY.filter((l) => l.render);
 
@@ -69,10 +69,43 @@ export class RenderMirror {
   }
 
   private writeChunks(chunks: number[], layers: Record<string, Typed>): void {
+    const groundChanged = new Set<number>();
     for (const name of Object.keys(layers)) {
       const info = renderInfos.find((l) => l.name === name);
       if (!info || !isTileLayer(info)) continue;
-      chunks.forEach((chunk, n) => copyChunkIn(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK));
+      const watch = name === 'height' || name === 'road';
+      chunks.forEach((chunk, n) => {
+        if (watch && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK)) groundChanged.add(chunk);
+        copyChunkIn(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
+      });
+    }
+    if (groundChanged.size > 0) this.markBuildingsNear(groundChanged);
+  }
+
+  private chunkDiffers(dst: Typed, chunk: number, src: Typed, srcOffset: number): boolean {
+    const cx = (chunk % CHUNKS) * CHUNK, cy = ((chunk / CHUNKS) | 0) * CHUNK;
+    for (let y = 0; y < CHUNK; y++) for (let x = 0; x < CHUNK; x++) {
+      if (dst[(cy + y) * MAP + cx + x] !== src[srcOffset + y * CHUNK + x]) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Ground height and road-facing of a building depend on terrain and roads around it, so a changed height or road chunk
+   * dirties every building in that chunk and its eight neighbours.
+   */
+  private markBuildingsNear(changed: Set<number>): void {
+    const near = new Set<number>();
+    for (const c of changed) {
+      const cx = c % CHUNKS, cy = (c / CHUNKS) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (x >= 0 && y >= 0 && x < CHUNKS && y < CHUNKS) near.add(y * CHUNKS + x);
+      }
+    }
+    const t = this.table;
+    for (let s = 0; s < t.bArch.length; s++) {
+      if (t.bArch[s] && near.has(chunkIdx(t.bX[s]!, t.bY[s]!))) this.dirtyBuildings.add(s);
     }
   }
 
