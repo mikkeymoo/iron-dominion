@@ -72,8 +72,10 @@ export class RoadNet {
   /** graphEpoch value at which each cluster last changed; a path planned at epoch e is stale where this exceeds e. */
   readonly clusterEpoch = new Int32Array(NCL);
   readonly compRoot = new Int32Array(NCL * 256);
-  /** True when a sync changed the graph and the graphEpoch scalar has not been bumped yet (the roads system does that). */
-  pending = false;
+  /** Scratch queue for roadFlow so a call allocates nothing. */
+  readonly flowQueue = new Int32Array(TILES);
+  private readonly own =new Uint8Array(NCL);
+  private readonly touch = new Uint8Array(NCL);
   /** Clusters rebuilt by the most recent sync that changed anything, ascending. */
   lastRebuilt: number[] = [];
 
@@ -114,17 +116,17 @@ export class RoadNet {
     return net;
   }
 
-  /** graphEpoch as agents should see it: the scalar plus the bump the next roads system will apply. */
-  get epoch(): number { return this.world.scalars[S.graphEpoch]! + (this.pending ? 1 : 0); }
+  /** The committed graphEpoch scalar. */
+  get epoch(): number { return this.world.scalars[S.graphEpoch]!; }
 
   /**
    * Compare the road layer with the copy taken at the last sync and rebuild only the clusters that contain a changed tile
-   * or share a border with one. Idempotent: a second call with no road change does nothing. Returns true if it rebuilt.
-   * Cost with no change: one pass over 32k words.
+   * or share a border with one, then commit one graphEpoch bump to world state. Idempotent: a second call with no road
+   * change does nothing. Returns true if it rebuilt. Cost with no change: one pass over 32k words.
    */
   sync(): boolean {
     const a = this.road32, b = this.shadow32, road = this.road, shadow = this.shadow;
-    const own = new Uint8Array(NCL), touch = new Uint8Array(NCL);
+    const own = this.own, touch = this.touch;
     let any = false;
     for (let i = 0; i < a.length; i++) {
       if (a[i] === b[i]) continue;
@@ -140,7 +142,7 @@ export class RoadNet {
       }
     }
     if (!any) return false;
-    const label = this.world.scalars[S.graphEpoch]! + 1;
+    const label = ++this.world.scalars[S.graphEpoch]!;
     const rebuilt: number[] = [];
     for (let c = 0; c < NCL; c++) {
       if (!own[c] && !touch[c]) continue;
@@ -148,9 +150,10 @@ export class RoadNet {
       if (own[c] || changed) this.clusterEpoch[c] = label;
       rebuilt.push(c);
     }
+    own.fill(0);
+    touch.fill(0);
     shadow.set(road);
     this.computeComponents();
-    this.pending = true;
     this.lastRebuilt = rebuilt;
     return true;
   }

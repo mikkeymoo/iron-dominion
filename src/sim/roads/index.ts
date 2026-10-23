@@ -1,15 +1,15 @@
 import { MAP, S } from '../layers.ts';
 import type { PathMsg } from '../protocol.ts';
 import type { Sim } from '../world.ts';
-import { RoadNet } from './graph.ts';
-import { findPath, pathTiles } from './path.ts';
+import { INF, RoadNet } from './graph.ts';
+import { findPath, pathTiles, tilePathCost } from './path.ts';
 
 export { RoadNet, clusterOf, tileCost, ENTRANCE_SPACING, type TilePath } from './graph.ts';
 export * from './path.ts';
 export * from './access.ts';
 export * from './flow.ts';
 
-/** The sim's road network, brought up to date with the road layer (structure only; the epoch bump belongs to the roads system). */
+/** The sim's road network, brought up to date with the road layer; a change commits one graphEpoch bump into world state. */
 export function roadsOf(sim: Sim): RoadNet {
   if (!sim.roads || sim.roads.world !== sim.world) sim.roads = RoadNet.build(sim.world);
   else sim.roads.sync();
@@ -17,15 +17,11 @@ export function roadsOf(sim: Sim): RoadNet {
 }
 
 /**
- * Fixed-order system, right after commands: syncs the graph and publishes at most one graphEpoch bump per tick, however many
- * clusters or commands changed.
+ * Fixed-order system, right after commands (and after a paused drain): syncs the graph and commits at most one graphEpoch
+ * bump per call, however many clusters or commands changed.
  */
 export function roadsSystem(sim: Sim): void {
-  const net = roadsOf(sim);
-  if (net.pending) {
-    sim.world.scalars[S.graphEpoch]!++;
-    net.pending = false;
-  }
+  roadsOf(sim);
 }
 
 /** Debug-only query behind the requestPath message: sync, plan, fully refine, report. */
@@ -40,6 +36,6 @@ export function queryPath(sim: Sim, id: number, from: { x: number; y: number }, 
   const h = findPath(net, a, b);
   if (!h) return miss('unreachable');
   const tiles = pathTiles(net, h);
-  if (!tiles) return miss('unreachable');
+  if (!tiles || tilePathCost(net, tiles) >= INF) return miss('unreachable');
   return { type: 'path', id, ok: true, cost: h.cost, epoch: h.epoch, tiles: Array.from(tiles) };
 }

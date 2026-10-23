@@ -3,6 +3,8 @@ import {
   PROTOCOL_VERSION, type AgentsMsg, type EventsMsg, type FromWorker, type PathMsg, type Speed, type Stats, type ToWorker,
 } from './protocol.ts';
 
+const PATH_TIMEOUT_MS = 10000;
+
 export type ClientState = 'loading' | 'ready' | 'failed';
 
 export interface ClientOptions {
@@ -103,9 +105,13 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
     },
     loadSnapshot: (data) => send({ type: 'loadSnapshot', data }, [data.buffer]),
     requestPath(from, to) {
+      if (state !== 'ready') return Promise.reject(new Error(state === 'failed' ? 'sim failed' : 'sim not ready'));
       const id = nextPath++;
-      if (state === 'failed') return Promise.reject(new Error('sim failed'));
-      return new Promise<PathMsg>((res, rej) => { paths.set(id, { res, rej }); send({ type: 'requestPath', id, from, to }); });
+      return new Promise<PathMsg>((res, rej) => {
+        const timer = setTimeout(() => { paths.delete(id); rej(new Error('path request timed out')); }, PATH_TIMEOUT_MS);
+        paths.set(id, { res: (m) => { clearTimeout(timer); res(m); }, rej: (e) => { clearTimeout(timer); rej(e); } });
+        send({ type: 'requestPath', id, from, to });
+      });
     },
     returnAgents: (m) => send({ type: 'agentsReturn', pos: m.pos, ids: m.ids }, [m.pos.buffer, m.ids.buffer]),
     terminate() {

@@ -97,8 +97,11 @@ export function refineNext(net: RoadNet, h: PathHandle): Int32Array | null {
   const a = h.waypoints[h.cursor]!, b = h.waypoints[h.cursor + 1]!;
   const ca = clusterOf(a);
   let seg: Int32Array | null;
-  if (ca !== clusterOf(b)) seg = Int32Array.of(a, b);
-  else seg = net.tileAStar(a, b, ca)?.tiles ?? null;
+  if (ca !== clusterOf(b)) {
+    let step = false;
+    for (let d = 0; d < 4 && !step; d++) step = neighbor(net.road, a, d) === b;
+    seg = step ? Int32Array.of(a, b) : null;
+  } else seg = net.tileAStar(a, b, ca)?.tiles ?? null;
   if (seg) h.cursor++;
   return seg;
 }

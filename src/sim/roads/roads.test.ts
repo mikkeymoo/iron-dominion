@@ -151,7 +151,6 @@ describe('incremental update', () => {
     drawRoads(world, ['####'], 10, 10);
     expect(net.sync()).toBe(true);
     expect(net.sync()).toBe(false);
-    expect(net.pending).toBe(true);
     expect(net.epoch).toBe(1);
   });
 });
@@ -349,6 +348,17 @@ describe('path handle validity', () => {
     expect(replan(net, h2)).toBeNull();
   });
 
+  it('a cluster changed after the path was planned invalidates it, one changed before does not', () => {
+    const { world, net } = layout();
+    setRoad(world, 100, 100, 0);
+    net.sync();
+    const h = findPath(net, tile(10, 104), tile(200, 104))!;
+    expect(isValid(net, h)).toBe(true);
+    setRoad(world, 150, 104, 0);
+    net.sync();
+    expect(isValid(net, h)).toBe(false);
+  });
+
   it('ignores clusters the agent already left behind', () => {
     const { world, net } = layout();
     const h = findPath(net, tile(10, 100), tile(200, 100))!;
@@ -386,10 +396,45 @@ describe('debug path query', () => {
     const { x, y } = findLandWindow(sim.world, 32);
     apply(sim, { id: 1, tick: 0, type: 'placeRoad', ax: x, ay: y, bx: x + 5, by: y, cls: 1 });
     drainCommands(sim);
-    expect(sim.world.scalars[S.graphEpoch]).toBe(0);
-    expect(queryPath(sim, 1, { x, y }, { x: x + 5, y }).ok).toBe(true);
+    expect(sim.world.scalars[S.graphEpoch]).toBe(1);
+    const reply = queryPath(sim, 1, { x, y }, { x: x + 5, y });
+    expect(reply.ok).toBe(true);
+    expect(reply.epoch).toBe(sim.world.scalars[S.graphEpoch]);
     step(sim);
     expect(sim.world.scalars[S.graphEpoch]).toBe(1);
+  });
+
+  it('a paused edit, snapshot, restore and step equals the straight run (hash and graphEpoch)', () => {
+    const make = () => { const s = createSim(42); runTicks(s, 5); return s; };
+    const a = make(), b = make();
+    const { x, y } = findLandWindow(a.world, 32);
+    const cmd = { id: 1, tick: 0, type: 'placeRoad' as const, ax: x, ay: y, bx: x + 8, by: y, cls: 1 };
+    apply(a, cmd); step(a);
+    apply(b, cmd); drainCommands(b);
+    const resumed = restore(snapshot(b));
+    step(resumed);
+    expect(resumed.world.scalars[S.graphEpoch]).toBe(a.world.scalars[S.graphEpoch]);
+    expect(stateHash(resumed)).toBe(stateHash(a));
+    runTicks(resumed, 20); runTicks(a, 20);
+    expect(stateHash(resumed)).toBe(stateHash(a));
+  });
+
+  it('refineNext and queryPath refuse a path whose crossing step was removed behind the handle', () => {
+    const { world, net } = fresh();
+    drawRoads(world, ['#'.repeat(40)], 4, 20);
+    net.sync();
+    const h = findPath(net, tile(4, 20), tile(43, 20))!;
+    setRoad(world, 16, 20, 0);
+    net.sync();
+    expect(isValid(net, h)).toBe(false);
+    expect(pathTiles(net, h)).toBeNull();
+    const copy = { ...h, cursor: 0 };
+    let got: Int32Array | null = Int32Array.of(0);
+    while (got && copy.cursor < copy.waypoints.length - 1) got = refineNext(net, copy);
+    expect(got).toBeNull();
+    const crossing = { epoch: 0, waypoints: Int32Array.of(tile(15, 20), tile(16, 20)), cursor: 0, cost: 0 };
+    expect(refineNext(net, crossing)).toBeNull();
+    expect(crossing.cursor).toBe(0);
   });
 });
 

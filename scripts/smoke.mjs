@@ -458,8 +458,8 @@ async function roadGraphChecks(open) {
   const laid = await until(page, ({ a, d }) => (window.__iron.tools.peek('road', a.x, a.y) & 7) !== 0 && (window.__iron.tools.peek('road', d.x, d.y) & 7) !== 0, { a: A, d: D });
   add('two dragged street segments are accepted and reach the mirror', accepted && laid ? null : `commands ${id1}, ${id2}; accepted ${accepted}; mirror ${laid}`);
 
-  const epoch0 = await page.evaluate(() => window.__iron.roads.graphEpoch);
   const p1 = await page.evaluate(({ a, d }) => window.__iron.roads.requestPath(a, d), { a: A, d: D });
+  const epoch0 = p1.epoch;
   add('requestPath across the turn returns a non-empty path', p1.ok && p1.tiles.length === 15 ? null : JSON.stringify(p1));
   add('the path starts at the first tile and ends at the far end', p1.ok && p1.tiles[0] === idx(A) && p1.tiles[p1.tiles.length - 1] === idx(D) ? null : `ends ${p1.tiles?.[0]} .. ${p1.tiles?.[p1.tiles.length - 1]}, want ${idx(A)} .. ${idx(D)}`);
   add('the path turns at the corner tile', p1.ok && p1.tiles.includes(idx(B)) ? null : 'corner tile missing from the path');
@@ -468,9 +468,10 @@ async function roadGraphChecks(open) {
   const bd = await page.evaluate((m) => { const t = window.__iron.tools; t.select('bulldoze'); return t.dragTiles(m, m); }, M);
   const cut = bd > 0 && await until(page, (m) => (window.__iron.tools.peek('road', m.x, m.y) & 7) === 0, M);
   add('bulldozing the middle tile removes it from the mirror', cut ? null : `bulldoze command ${bd}, tile cleared ${cut}`);
-  const bumped = await until(page, (e) => window.__iron.roads.graphEpoch > e, epoch0, 10000);
-  add('graphEpoch increases after the bulldoze', bumped ? null : `graphEpoch ${await page.evaluate(() => window.__iron.roads.graphEpoch)}, was ${epoch0}`);
   const p2 = await page.evaluate(({ a, d }) => window.__iron.roads.requestPath(a, d), { a: A, d: D });
+  add('graphEpoch (read from the path reply) increases after the bulldoze', p2.epoch > epoch0 ? null : `epoch ${p2.epoch}, was ${epoch0}`);
+  const statsCaught = await until(page, (e) => window.__iron.roads.graphEpoch >= e, p2.epoch, 10000);
+  add('the Stats graphEpoch catches up to the path reply epoch', statsCaught ? null : `stats ${await page.evaluate(() => window.__iron.roads.graphEpoch)}, want ${p2.epoch}`);
   add('the same path query now fails as unreachable', !p2.ok && p2.reason === 'unreachable' && p2.tiles.length === 0 ? null : JSON.stringify(p2));
   const p3 = await page.evaluate(({ b, d }) => window.__iron.roads.requestPath(b, d), { b: B, d: D });
   add('the intact segment still routes', p3.ok && p3.tiles.length === 8 ? null : JSON.stringify(p3));

@@ -18,7 +18,7 @@ export interface RoadFlow {
 export function roadFlow(net: RoadNet, sources: ArrayLike<number>, maxDist: number, out?: Uint16Array): RoadFlow {
   const dist = out ?? new Uint16Array(TILES);
   dist.fill(UNREACHED);
-  const queue = new Int32Array(TILES);
+  const queue = net.flowQueue;
   let head = 0, tail = 0;
   for (let i = 0; i < sources.length; i++) {
     const s = sources[i]!;
