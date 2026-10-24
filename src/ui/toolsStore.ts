@@ -40,6 +40,10 @@ const REASONS: Record<string, string> = {
   'no-road': 'A project needs a road along one edge so the robots can reach it.',
   exists: 'That project is already built or under construction.',
   requirements: 'The city does not meet that project\'s requirements yet. See the Projects panel.',
+  'no-bridges': 'This scenario bans bridges: roads cannot cross water.',
+  'tax-cap': 'This scenario caps taxes at 12 percent.',
+  'scenario-locked': 'This scenario locks the power plant. Build solar or fusion power.',
+  'not-ready': 'Earn at least one star first.',
 };
 
 /** Plain-words text for a sim or estimate rejection reason. */
@@ -163,6 +167,7 @@ export class ToolsRuntime {
       case 'victory': this.showBanner('Victory! The Space Elevator reaches orbit.', true); break;
       case 'directiveReady': this.toast(`UNIT-0: ${copyOf(DIRECTIVES[e.index]?.id ?? '')?.done ?? 'Directive done.'} Claim your reward.`, 'good'); break;
       case 'directiveClaimed': this.toast(`UNIT-0 paid ${money(e.reward)}`, 'good'); break;
+      case 'scenarioStar': this.toast(`Star ${e.stars} of 3 earned!`, 'good'); break;
       case 'firstBuilding': this.toast('Your first building is finished! The bots are cheering.', 'good'); break;
     }
   }

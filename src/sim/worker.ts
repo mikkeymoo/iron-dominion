@@ -8,6 +8,8 @@ import { answerInfo } from './info.ts';
 import { invalidateIssues, issuesOf } from './issues.ts';
 import { firmwareStats } from './firmware.ts';
 import { milestoneStats } from './milestones.ts';
+import { scenarioStats } from './scenarioRun.ts';
+import { specFor } from './scenarios.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
 import { serviceStats } from './services/index.ts';
@@ -120,6 +122,7 @@ function flush(now: number, force = false): void {
       milestone: milestoneStats(sim.world),
       directives: directiveStats(sim.world),
       firmware: firmwareStats(sim.world),
+      scenario: scenarioStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);
@@ -175,7 +178,12 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
         fail(`build mismatch: worker ${BUILD_HASH}, app ${m.buildHash} (stale cache? reload the page)`);
         return;
       }
-      sim = createSim(m.seed ?? 1, { debug: m.debug === true, disasters: m.disasters, starter: true });
+      const scenario = m.scenario ? specFor(m.scenario.id, m.scenario.key) : undefined;
+      if (m.scenario && !scenario) {
+        fail(`unknown scenario ${m.scenario.id}`);
+        return;
+      }
+      sim = createSim(m.seed ?? 1, { debug: m.debug === true, disasters: m.disasters, starter: true, scenario });
       haltAt = m.haltAt ?? 0;
       hashEvery = m.hashEvery ?? 0;
       handshaken = true;

@@ -1,7 +1,8 @@
 import { ARCH, archetype, BFLAG, type Archetype } from './catalog.ts';
 import { DEPOT_START_STOCK } from './robots/constants.ts';
 import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
-import { grantRp, invalidateModuleCache, researchNode, setModule, toggleEdictCard } from './firmware.ts';
+import { grantRp, invalidateModuleCache, mods, researchNode, setModule, toggleEdictCard } from './firmware.ts';
+import { debugScenario, finishScenario } from './scenarioRun.ts';
 import { clearJob } from './robots/pool.ts';
 import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
@@ -50,7 +51,11 @@ export type CommandBody =
   /** Fit module `module` (MODULE, 0 clears) into slot `index` (0 or 1) of the depot in building slot `slot`. Pays its price, refunds half the one it replaces. */
   | { type: 'setDepotModule'; slot: number; index: number; module: number }
   /** Debug-only: add research points. */
-  | { type: 'debugRp'; amount: number };
+  | { type: 'debugRp'; amount: number }
+  /** Scenario: end it now as won with the stars earned so far (at least one). */
+  | { type: 'finishScenario' }
+  /** Debug-only: treat the scenario goal's metric as `value` and evaluate at once. */
+  | { type: 'debugScenario'; value: number };
 
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
 export type Command = { id: number; tick: number } & CommandBody;
@@ -380,6 +385,7 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
 function setTax(sim: Sim, c: Extract<Command, { type: 'setTax' }>): void {
   if (!isInts(c.rate) || (c.zone !== undefined && !isInts(c.zone))) reject('invalid');
   if (c.rate < 0 || c.rate > TAX_MAX) reject('bounds');
+  if (c.rate > mods(sim.world).taxCap) reject('tax-cap');
   if (c.zone !== undefined && (c.zone < 1 || c.zone > 3)) reject('bounds');
   for (const z of c.zone === undefined ? [1, 2, 3] : [c.zone!]) sim.world.scalars[TAX_SCALAR[z - 1]!] = c.rate;
 }
@@ -437,6 +443,8 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'undo': undo(sim, cmd); break;
       case 'claimDirective': claimDirective(sim, cmd); break;
       case 'research': case 'toggleEdict': case 'setDepotModule': case 'debugRp': firmwareCommand(sim, cmd); break;
+      case 'finishScenario': { const why = finishScenario(sim); if (why) reject(why); break; }
+      case 'debugScenario': { const why = debugScenario(sim, cmd.value); if (why) reject(why); break; }
       default: reject('unknown-command');
     }
     sim.events.push(journal ? { type: 'accepted', cmd: cmd.id, tick, journal } : { type: 'accepted', cmd: cmd.id, tick });
