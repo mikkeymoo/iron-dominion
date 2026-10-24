@@ -4,6 +4,8 @@
 export const SLOT = { CONCRETE: 0, GLASS: 1, ROOF: 2, METAL: 3, ACCENT: 4, FOLIAGE: 5 } as const;
 export const SLOT_COUNT = 6;
 export type Slot = (typeof SLOT)[keyof typeof SLOT];
+/** Accent vertices with a window id at or above this pulse (megaproject plasma cores, beacons); window ids stay far below it. */
+export const PULSE_WID = 700;
 
 export type V3 = readonly [number, number, number];
 export type RGB = readonly [number, number, number];
@@ -61,10 +63,12 @@ export class Geo {
   smoke: [number, number, number][] = [];
   /** Running window id so every window quad hashes to its own lit state. */
   nextWid = 1;
+  /** Window id given to vertices that would get none. The building material reads a value of PULSE_WID or more on an accent surface as a pulsing glow. */
+  wmark = 0;
 
   private v(p: Part, x: number, y: number, z: number, n: V3, c: RGB, ao: number, u: number, vv: number, wid: number): number {
     const i = p.pos.length / 3;
-    p.pos.push(x, y, z); p.nor.push(n[0], n[1], n[2]); p.col.push(c[0], c[1], c[2]); p.uv.push(u, vv); p.ao.push(ao); p.wid.push(wid);
+    p.pos.push(x, y, z); p.nor.push(n[0], n[1], n[2]); p.col.push(c[0], c[1], c[2]); p.uv.push(u, vv); p.ao.push(ao); p.wid.push(wid || this.wmark);
     if (y > this.maxY) this.maxY = y;
     return i;
   }

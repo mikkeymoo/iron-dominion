@@ -1,5 +1,6 @@
 import { BFLAG, CATALOG, isRci } from '../catalog.ts';
 import { BMAX, MAP, ROAD, S, TILES, ZONE, isWaterTerrain, type World } from '../layers.ts';
+import { megaAuras, type Aura } from '../megaprojects.ts';
 import { markDirty, type Sim } from '../world.ts';
 import {
   LV_BASE_BY_TERRAIN, LV_CYCLE, LV_HILL_MAX, LV_POLLUTION_SHIFT, LV_ROAD_BONUS, LV_ROWS, LV_SERVICE_SHIFT, LV_WATER_MAX,
@@ -32,7 +33,7 @@ export const serviceBonus = (w: World, i: number): number =>
  * sampled every fourth tile within 8, 3 points each), road access (nearest road within 2), minus pollution, plus serviceBonus,
  * minus the utilities penalties (LV_NO_WATER, LV_NO_POWER). Water is 0.
  */
-export function landValueAt(w: World, x: number, y: number): number {
+export function landValueAt(w: World, x: number, y: number, auras: readonly Aura[] = megaAuras(w)): number {
   const i = y * MAP + x;
   if (wet(w, i)) return 0;
   let v = LV_BASE_BY_TERRAIN[w.terrain[i]!]! + Math.min(LV_HILL_MAX, Math.max(0, w.height[i]!) >> 5);
@@ -61,6 +62,10 @@ export function landValueAt(w: World, x: number, y: number): number {
 
   v -= w.pollution[i]! >> LV_POLLUTION_SHIFT;
   v += serviceBonus(w, i);
+  for (const a of auras) {
+    const d = Math.max(Math.abs(x - a.cx), Math.abs(y - a.cy));
+    if (d < a.radius) v += Math.floor((a.value * (a.radius - d)) / a.radius);
+  }
   // Utilities, once the city models them: no water reach costs the tile land value, and so does standing under a dark building.
   if ((w.scalars[S.grid]! & GRID_WATER) !== 0 && w.waterOn[i] !== 1 && w.waterOn[i] !== 2) v -= LV_NO_WATER;
   if (w.bId[i] !== 0 && (w.bFlags[w.bId[i]! - 1]! & BFLAG.UNPOWERED) !== 0) v -= LV_NO_POWER;
@@ -68,9 +73,9 @@ export function landValueAt(w: World, x: number, y: number): number {
 }
 
 function landValueRows(sim: Sim, y0: number, y1: number): void {
-  const w = sim.world;
+  const w = sim.world, auras = megaAuras(w);
   for (let y = y0; y < y1; y++) for (let x = 0; x < MAP; x++) {
-    const i = y * MAP + x, v = landValueAt(w, x, y);
+    const i = y * MAP + x, v = landValueAt(w, x, y, auras);
     if (w.landValue[i] !== v) { w.landValue[i] = v; markDirty(sim, 'overlay', x, y); }
   }
 }

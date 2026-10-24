@@ -16,11 +16,14 @@ export interface Archetype {
   pollution?: number;
   /** Utility buildings: which network they belong to. The tool sheet groups them under Utilities. */
   utility?: 'power' | 'water';
-  /** Listed but not yet buildable (U13 unlocks it): placeBuilding and its estimate refuse with `locked`. */
-  locked?: boolean;
+  /** Population tier (unlocks.ts TIERS index) the city must have reached before this can be placed; placeBuilding and its estimate refuse with `locked` until then. */
+  unlock?: number;
 }
 
-export const ARCH = { DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4, SOLAR_FARM: 5, WATER_TOWER: 6, FUSION_REACTOR: 7 } as const;
+export const ARCH = { DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4, SOLAR_FARM: 5, WATER_TOWER: 6, FUSION_REACTOR: 7,
+  /** Megaprojects (megaprojects.ts): ids sit after the 27 RCI archetypes so the RCI range stays contiguous. */
+  FUSION_SPIRE: 43, ARCOLOGY: 44, MECH_ARENA: 45, SPACE_ELEVATOR: 46,
+} as const;
 
 /**
  * RCI archetype ids are stable and never renumbered: ids 1-15 are services and utilities, 16-42 are the 27 grown
@@ -72,7 +75,11 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.FIRE_STATION, name: 'fireStation', w: 3, h: 3, cost: 1200, placeable: true, upkeep: 60 },
   { id: ARCH.SOLAR_FARM, name: 'solarFarm', w: 4, h: 4, cost: 2400, placeable: true, upkeep: 50, utility: 'power' },
   { id: ARCH.WATER_TOWER, name: 'waterTower', w: 2, h: 2, cost: 900, placeable: true, upkeep: 25, utility: 'water' },
-  { id: ARCH.FUSION_REACTOR, name: 'fusionReactor', w: 4, h: 4, cost: 12000, placeable: true, upkeep: 260, utility: 'power', locked: true },
+  { id: ARCH.FUSION_REACTOR, name: 'fusionReactor', w: 4, h: 4, cost: 12000, placeable: true, upkeep: 260, utility: 'power', unlock: 3 },
+  { id: ARCH.FUSION_SPIRE, name: 'fusionSpire', w: 5, h: 5, cost: 60000, placeable: true, upkeep: 900, unlock: 4 },
+  { id: ARCH.ARCOLOGY, name: 'arcology', w: 7, h: 7, cost: 120000, placeable: true, upkeep: 700, unlock: 4 },
+  { id: ARCH.MECH_ARENA, name: 'mechArena', w: 6, h: 6, cost: 80000, placeable: true, upkeep: 600, unlock: 4 },
+  { id: ARCH.SPACE_ELEVATOR, name: 'spaceElevator', w: 6, h: 6, cost: 400000, placeable: true, upkeep: 2500, unlock: 5 },
   ...rciArchetypes(),
 ];
 

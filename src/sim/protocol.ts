@@ -2,7 +2,7 @@ import type { Command } from './commands.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export type Speed = 0 | 1 | 2 | 4 | 'max';
 export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float32Array | Float64Array | Int8Array | Int32Array;
@@ -98,6 +98,28 @@ export interface Workforce {
   /** Material units held by depots and industry. */
   stock: number;
 }
+/** One requirement of a megaproject: what the city has now, what is needed, and whether it is met. */
+export interface RequirementStatus { have: number; need: number; ok: boolean }
+export interface ProjectStatus {
+  arch: number;
+  state: 'none' | 'building' | 'done';
+  /** Stage under construction (0-based), or the stage count once done. */
+  stage: number;
+  stages: number;
+  /** 0..1 over all stages. */
+  progress: number;
+  /** Completed at some point (survives the building being bulldozed). */
+  everBuilt: boolean;
+  req: { pop: RequirementStatus; power: RequirementStatus; water: RequirementStatus };
+  met: boolean;
+}
+export interface MilestoneStats {
+  tier: number;
+  /** Population of the next tier, or null at the top. */
+  nextAt: number | null;
+  projects: ProjectStatus[];
+  victory: boolean;
+}
 export interface Stats {
   type: 'stats';
   workforce: Workforce;
@@ -136,6 +158,7 @@ export interface Stats {
   unwatered: number;
   /** True once the city has a finished power (water) producer; until then that network is not modelled and nothing is dark. */
   modelled: { power: boolean; water: boolean };
+  milestone: MilestoneStats;
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }

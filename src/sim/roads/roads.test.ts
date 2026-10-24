@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { apply, createSim, drainCommands, restore, snapshot, stateHash, step } from '../engine.ts';
 import { MAP, ROAD, S, TILES } from '../layers.ts';
 import { findLandWindow, runTicks } from '../testkit.ts';
+import { MAX_TIER } from '../unlocks.ts';
 import { allocWorld } from '../world.ts';
 import { RoadNet, clusterOf, ENTRANCE_SPACING } from './graph.ts';
 import { UNREACHED, roadFlow } from './flow.ts';
@@ -243,6 +244,7 @@ describe('hierarchical path vs tile A* oracle', () => {
 describe('determinism', () => {
   function cityWithRoads() {
     const sim = createSim(42, { debug: true });
+    sim.world.scalars[S.tier] = MAX_TIER;
     const { x, y } = findLandWindow(sim.world, 32);
     apply(sim, { id: 1, tick: 0, type: 'placeRoad', ax: x, ay: y + 4, bx: x + 30, by: y + 4, cls: 1 });
     apply(sim, { id: 2, tick: 0, type: 'placeRoad', ax: x + 15, ay: y + 4, bx: x + 15, by: y + 28, cls: 2 });

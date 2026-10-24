@@ -6,6 +6,7 @@ import {
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
 import { bytesOf, fnv1a } from '../hash.ts';
 import { BMAX, MAP, ROAD, S, TERRAIN, ZONE, isWaterTerrain, type World } from '../layers.ts';
+import { isMega, megaBit, megaStageNeed, megaStages } from '../megaprojects.ts';
 import { roadsOf } from '../roads/index.ts';
 import type { RoadNet } from '../roads/graph.ts';
 import type { Sim } from '../world.ts';
@@ -127,6 +128,30 @@ export function cancelJob(sim: Sim, slot: number): void {
   sim.dirty.buildings.add(slot);
 }
 
+/**
+ * A megaproject stage pass finished. While stages remain, bLevel (the stage index) advances and the job restarts with the next
+ * pass's material need: `have` and `progress` reset, so the next stage again needs robots and hauled material. Returns false
+ * after the last stage, when the building is complete (bLevel = stage count, the finished model).
+ */
+function advanceMega(sim: Sim, s: number): boolean {
+  const w = sim.world, arch = w.bArch[s]!, stages = megaStages(arch), done = w.bLevel[s]!, tick = w.scalars[S.tick]!;
+  const at = { x: w.bX[s]!, y: w.bY[s]!, w: w.bW[s]!, h: w.bH[s]! };
+  if (done + 1 < stages) {
+    w.bLevel[s] = done + 1; w.bProg[s] = 0;
+    w.jProg[s] = 0; w.jHave[s] = 0; w.jInbound[s] = 0; w.jNeed[s] = megaStageNeed(arch, done + 1);
+    sim.dirty.buildings.add(s);
+    sim.events.push({ type: 'megaStage', tick, arch, slot: s, stage: done, stages, ...at });
+    return true;
+  }
+  w.bLevel[s] = stages;
+  const bit = megaBit(arch);
+  const first = (w.scalars[S.mega]! & bit) === 0;
+  w.scalars[S.mega] = w.scalars[S.mega]! | bit;
+  sim.events.push({ type: 'megaComplete', tick, arch, slot: s, ...at });
+  if (first && arch === ARCH.SPACE_ELEVATOR) sim.events.push({ type: 'victory', tick });
+  return false;
+}
+
 /** Mirror job progress into the building table and finish what is done. Runs after the robots have worked this tick. */
 export function settleJobs(sim: Sim): void {
   const w = sim.world;
@@ -137,6 +162,7 @@ export function settleJobs(sim: Sim): void {
     if (kind === JOB.DEMOLISH) {
       if (w.jProg[s] === 0) { releaseLot(sim, s); continue; }
     } else if (w.jProg[s]! >= JOB_MAX) {
+      if (kind === JOB.BUILD && isMega(w.bArch[s]!) && advanceMega(sim, s)) continue;
       w.bFlags[s] = w.bFlags[s]! & ~(BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING);
       w.bProg[s] = 255;
       clearJob(w, s);
@@ -173,12 +199,13 @@ export function materialSystem(sim: Sim): void {
 export function adoptOrphans(sim: Sim, net: RoadNet, anchors: readonly number[] | null): void {
   const w = sim.world;
   for (let s = 0; s < BMAX; s++) {
-    if (w.bArch[s] === 0 || w.jKind[s] !== 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) === 0 || zoneOfArch(w.bArch[s]!) === 0) continue;
+    const mega = isMega(w.bArch[s]!);
+    if (w.bArch[s] === 0 || w.jKind[s] !== 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) === 0 || (zoneOfArch(w.bArch[s]!) === 0 && !mega)) continue;
     const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
     if (access < 0) continue;
     const prog = w.bProg[s]! << 8;
     if ((w.bFlags[s]! & BFLAG.DEMOLISHING) !== 0) { openJob(sim, s, JOB.DEMOLISH, 0, prog, access); continue; }
-    const need = materialFor(w.bW[s]! * w.bH[s]!, w.bLevel[s]!);
+    const need = mega ? megaStageNeed(w.bArch[s]!, w.bLevel[s]!) : materialFor(w.bW[s]! * w.bH[s]!, w.bLevel[s]!);
     openJob(sim, s, JOB.BUILD, need, prog, access);
     w.jHave[s] = Math.min(need, Math.ceil((need * prog) / JOB_MAX));
   }
@@ -193,7 +220,8 @@ export function refreshAccess(sim: Sim, net: RoadNet, anchors: readonly number[]
     const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
     if (access >= 0) { w.jAccess[s] = access; w.jStuck[s] = 0; continue; }
     w.jStuck[s] = Math.min(0xffff, w.jStuck[s]! + GROWTH_PERIOD);
-    if (w.jStuck[s]! >= JOB_STUCK_TICKS) cancelJob(sim, s);
+    // A megaproject cost a fortune: it waits for the road to come back instead of being cancelled.
+    if (w.jStuck[s]! >= JOB_STUCK_TICKS && !isMega(w.bArch[s]!)) cancelJob(sim, s);
   }
 }
 

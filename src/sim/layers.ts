@@ -186,6 +186,8 @@ export const S = {
   jobsC: 22, jobsI: 23, employed: 24, unemployment: 25,
   // Budget months completed so far, consecutive months ending with a negative treasury, and the pollution sum of the last pass.
   month: 26, lowMonths: 27, pollTotal: 28,
+  // Population tier reached (unlocks.ts; only ever rises) and a bit mask of the megaproject archetypes ever completed (megaprojects.ts megaBit).
+  tier: 29, mega: 30,
   // Bit 0: power is modelled (the city has a producer or a power line); bit 1: water is (a source or a pipe). Set by utilities/solve.ts.
   grid: 31,
 } as const;

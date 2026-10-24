@@ -3,6 +3,7 @@
 import type { CommandBody } from '../../sim/commands.ts';
 import { ARCH, rciFootprint, rciId } from '../../sim/catalog.ts';
 import { HEIGHT_SCALE, MAP, TERRAIN } from '../../sim/layers.ts';
+import { MAX_TIER } from '../../sim/unlocks.ts';
 
 export const SHOWCASE_W = 48;
 export const SHOWCASE_H = 26;
@@ -60,6 +61,7 @@ export function planShowcase(l: Terrain): ShowcasePlan | null {
   const commands: CommandBody[] = [];
   let buildings = 0;
   const gridW = LOTS_X * PITCH, gridH = LOTS_Y * PITCH;
+  commands.push({ type: 'debugTier', tier: MAX_TIER });
   commands.push({ type: 'debugLevel', x0: ox, y0: oy, x1: ox + SHOWCASE_W - 1, y1: oy + SHOWCASE_H - 1, margin: 10 });
 
   for (let r = 0; r <= LOTS_Y; r++) {

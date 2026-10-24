@@ -8,6 +8,9 @@ import type { SimEvent } from '../sim/world.ts';
 import { ToolController, type ToolAction, type ToolWorld } from '../render/tools/controller.ts';
 import { findFlatSite, findWaterTile } from '../render/tools/sites.ts';
 import { buildingAnchor, selectionFrom, type KeyAction, type Tile } from '../render/tools/toolSpec.ts';
+import { MEGA } from '../sim/megaprojects.ts';
+import { TIERS } from '../sim/unlocks.ts';
+import { money, projectLabel } from './projects.ts';
 import { UndoStack } from './undoStack.ts';
 
 const REASONS: Record<string, string> = {
@@ -29,13 +32,19 @@ const REASONS: Record<string, string> = {
   invalid: 'That order was not valid.',
   'max-loans': 'You already have three loans. Repay one first.',
   'no-loan': 'That loan has already been repaid.',
-  locked: 'That is not unlocked yet.',
+  locked: 'That is not unlocked yet. Grow the city to the next milestone.',
+  'no-road': 'A project needs a road along one edge so the robots can reach it.',
+  exists: 'That project is already built or under construction.',
+  requirements: 'The city does not meet that project\'s requirements yet. See the Projects panel.',
 };
 
 /** Plain-words text for a sim or estimate rejection reason. */
 export const reasonText = (reason: string): string => REASONS[reason] ?? 'That could not be done.';
 
-export interface Toast { id: number; text: string }
+/** `good` marks a celebration (milestone, project progress) so it is not styled like a refusal. */
+export interface Toast { id: number; text: string; good?: boolean }
+/** A large centred announcement (a megaproject finished, the game won); shown for BANNER_MS. */
+export interface Banner { id: number; text: string; victory: boolean }
 export interface FloatText { id: number; text: string; x: number; y: number; gain: boolean }
 
 interface Pending {
@@ -55,6 +64,7 @@ export interface ToolsRuntimeDeps {
 }
 
 const TOAST_MS = 4000;
+export const BANNER_MS = 6000;
 const FLOAT_MS = 1600;
 
 const labelOf = (cmd: CommandBody): string =>
@@ -68,6 +78,7 @@ export class ToolsRuntime {
   readonly controller: ToolController;
   readonly undo = new UndoStack();
   toasts: Toast[] = [];
+  banner: Banner | null = null;
   floats: FloatText[] = [];
   lastEvent: SimEvent | null = null;
   private readonly pending = new Map<number, Pending>();
@@ -93,11 +104,28 @@ export class ToolsRuntime {
     this.timers.add(t);
   }
 
-  toast(text: string): void {
+  toast(text: string, good = false): void {
     const id = this.seq++;
-    this.toasts = [...this.toasts.slice(-2), { id, text }];
+    this.toasts = [...this.toasts.slice(-2), good ? { id, text, good } : { id, text }];
     this.later(TOAST_MS, () => { this.toasts = this.toasts.filter((t) => t.id !== id); });
     this.notify();
+  }
+
+  showBanner(text: string, victory = false): void {
+    const id = this.seq++;
+    this.banner = { id, text, victory };
+    this.later(BANNER_MS, () => { if (this.banner?.id === id) this.banner = null; });
+    this.notify();
+  }
+
+  /** Milestones and megaproject progress become toasts; a finished project (and the win) also gets a banner. */
+  private celebrate(e: SimEvent): void {
+    switch (e.type) {
+      case 'milestone': this.toast(`${TIERS[e.tier]!.name} reached! +${money(e.bonus)} bonus`, true); break;
+      case 'megaStage': this.toast(`${projectLabel(e.arch)}: ${MEGA[e.arch]!.stages[e.stage]!.name} done (${e.stage + 1}/${e.stages})`, true); break;
+      case 'megaComplete': this.showBanner(`${projectLabel(e.arch)} complete!`); break;
+      case 'victory': this.showBanner('Victory! The Space Elevator reaches orbit.', true); break;
+    }
   }
 
   private float(text: string, at: { x: number; y: number }, gain: boolean): void {
@@ -119,7 +147,7 @@ export class ToolsRuntime {
     let changed = false;
     for (const e of events) {
       if (e.type === 'accepted' || e.type === 'rejected') for (const fn of this.eventListeners) fn(e);
-      if (e.type !== 'accepted' && e.type !== 'rejected') continue;
+      if (e.type !== 'accepted' && e.type !== 'rejected') { this.celebrate(e); continue; }
       const p = this.pending.get(e.cmd);
       if (!p) continue;
       this.pending.delete(e.cmd);
@@ -152,6 +180,9 @@ export class ToolsRuntime {
 
   get canUndo(): boolean { return this.undo.canUndo; }
 
+  /** Population tier the city has reached, as the mirror last heard it. */
+  get tier(): number { return this.deps.world.scalars[S.tier] ?? 0; }
+
   /** The sim state was replaced (snapshot loaded): journal ids and in-flight commands from before mean nothing now. */
   reset(): void {
     this.undo.clear();
@@ -159,6 +190,7 @@ export class ToolsRuntime {
     this.lastEvent = null;
     this.floats = [];
     this.toasts = [];
+    this.banner = null;
     this.controller.cancel();
     this.notify();
   }

@@ -1,6 +1,7 @@
 import { ARCH } from '../catalog.ts';
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
 import { AMAX, BMAX, MAP, S, ZONE, type World } from '../layers.ts';
+import { MEGA_BUILDERS, isMega, megaRate } from '../megaprojects.ts';
 import { lotAccess, nearestRoad, type RoadNet } from '../roads/index.ts';
 import type { Sim } from '../world.ts';
 import {
@@ -99,7 +100,7 @@ function work(sim: Sim, net: RoadNet, w: World, a: number): void {
     return;
   }
   const kind = w.jKind[j]!;
-  const rate = rateFor(bw * bh, w.bLevel[j]!);
+  const rate = isMega(w.bArch[j]!) ? megaRate(w.bArch[j]!, w.bLevel[j]!) : rateFor(bw * bh, w.bLevel[j]!);
   if (kind === JOB.DEMOLISH) {
     w.jProg[j] = Math.max(0, w.jProg[j]! - rate * DEMOLISH_SPEED);
     return;
@@ -218,7 +219,8 @@ export function dispatch(sim: Sim, net: RoadNet): void {
   for (const j of jobs) {
     const kind = w.jKind[j]!, target = w.jAccess[j]!;
     let have = assigned.get(j) ?? 0;
-    while (have < MAX_BUILDERS_PER_JOB && budget > 0 && idleB.length > 0) {
+    const crew = isMega(w.bArch[j]!) ? MEGA_BUILDERS : MAX_BUILDERS_PER_JOB;
+    while (have < crew && budget > 0 && idleB.length > 0) {
       if (have > 0 && kind !== JOB.DEMOLISH && w.jHave[j] === 0) break;
       let best = -1, bestD = Infinity, bestAcc = -1;
       for (let i = 0; i < idleB.length; i++) {

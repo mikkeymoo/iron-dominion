@@ -10,7 +10,14 @@ export type SimEvent =
   | { type: 'lightning'; tick: number; x: number; y: number }
   | { type: 'weather'; tick: number; weather: number }
   /** The treasury has ended `months` consecutive budget months below zero (3 or more); services will degrade later. */
-  | { type: 'bankruptcy'; tick: number; months: number };
+  | { type: 'bankruptcy'; tick: number; months: number }
+  /** The city reached population tier `tier` (once per tier) and was paid `bonus`. */
+  | { type: 'milestone'; tick: number; tier: number; bonus: number }
+  /** Megaproject stage `stage` (0-based) of `stages` finished; the footprint is in tiles. */
+  | { type: 'megaStage'; tick: number; arch: number; slot: number; stage: number; stages: number; x: number; y: number; w: number; h: number }
+  | { type: 'megaComplete'; tick: number; arch: number; slot: number; x: number; y: number; w: number; h: number }
+  /** The Space Elevator was completed for the first time. */
+  | { type: 'victory'; tick: number };
 
 export interface DirtySets {
   geometry: Set<number>;

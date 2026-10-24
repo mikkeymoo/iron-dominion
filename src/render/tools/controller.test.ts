@@ -8,6 +8,7 @@ import { ToolController, type ToolAction, type ToolWorld } from './controller.ts
 import { findFlatSite, findWaterTile } from './sites.ts';
 import { createToolInput } from './pointer.ts';
 import { tileReadOf } from '../../sim/estimate.ts';
+import { MAX_TIER } from '../../sim/unlocks.ts';
 
 function setup(treasury = 100000) {
   const w = allocWorld();
@@ -15,6 +16,7 @@ function setup(treasury = 100000) {
   w.height.fill(160);
   for (let y = 60; y < 70; y++) for (let x = 60; x < 70; x++) w.terrain[tileIdx(x, y)] = TERRAIN.WATER;
   w.scalars[S.treasury] = treasury;
+  w.scalars[S.tier] = MAX_TIER;
   const world: ToolWorld = { layers: w as unknown as Record<string, ArrayLike<number>>, scalars: w.scalars, tick: 0 };
   const sent: CommandBody[] = [];
   const actions: ToolAction[] = [];
@@ -24,6 +26,24 @@ function setup(treasury = 100000) {
 }
 
 describe('tool controller', () => {
+  it('plans a locked item with reason "locked", refuses it on release, and plans it fine once the tier is reached', () => {
+    const { c, w, sent, actions } = setup();
+    w.scalars[S.tier] = 1;
+    c.select({ tool: 'road', cls: 2 });
+    c.begin({ x: 10, y: 10 });
+    c.move({ x: 20, y: 10 });
+    expect(c.plan?.est.reason).toBe('locked');
+    expect(c.end()).toBe(0);
+    expect(sent).toEqual([]);
+    expect(actions.at(-1)).toMatchObject({ kind: 'refused', reason: 'locked' });
+    w.scalars[S.tier] = 2;
+    c.sync();
+    c.begin({ x: 10, y: 10 });
+    c.move({ x: 20, y: 10 });
+    expect(c.plan?.est.reason).toBeUndefined();
+    expect(c.end()).toBeGreaterThan(0);
+  });
+
   it('does nothing without a tool', () => {
     const { c, sent } = setup();
     expect(c.begin({ x: 5, y: 5 })).toBe(false);

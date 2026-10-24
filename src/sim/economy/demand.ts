@@ -35,7 +35,7 @@ export function demandTargets(world: World, t: Totals): [number, number, number]
   const r = R_BASE + Math.floor((vacRatio * R_VAC_W) / ONE) - Math.floor((unRatio * R_UNEMP_W) / ONE)
     + (TAX_NEUTRAL - taxRate(world, 1)) * TAX_SLOPE[0];
 
-  const wantC = Math.floor((t.population * C_PER_POP) / ONE) + Math.floor((t.jobsI * C_PER_IJOB) / ONE);
+  const wantC = Math.floor(((t.population + (t.tourists ?? 0)) * C_PER_POP) / ONE) + Math.floor((t.jobsI * C_PER_IJOB) / ONE);
   const c = clamp(Math.floor(((wantC - t.jobsC) * ONE) / (wantC + C_SOFT)), -ONE, ONE)
     + (TAX_NEUTRAL - taxRate(world, 2)) * TAX_SLOPE[1];
 

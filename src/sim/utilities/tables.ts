@@ -1,5 +1,6 @@
 import { ARCH, CATALOG, isRci } from '../catalog.ts';
 import { S, type World } from '../layers.ts';
+import { MEGA, MEGA_ARCHS, isMega } from '../megaprojects.ts';
 
 // Every balancing constant of the power and water networks. Units are abstract: power in MW, water in ML per day. All sim math
 // here is integer or fixed point (Q10: ONE = 1024), like the economy.
@@ -67,6 +68,11 @@ producerOf[ARCH.FUSION_REACTOR] = PRODUCER.PLANT; fixedMw[ARCH.FUSION_REACTOR] =
 producerOf[ARCH.SOLAR_FARM] = PRODUCER.SOLAR;
 producerOf[ARCH.WATER_PUMP] = PRODUCER.PUMP;
 producerOf[ARCH.WATER_TOWER] = PRODUCER.TOWER;
+for (const arch of MEGA_ARCHS) {
+  const m = MEGA[arch]!;
+  if (m.mw > 0) { producerOf[arch] = PRODUCER.PLANT; fixedMw[arch] = m.mw; }
+  powerUse[arch] = m.powerUse; waterUse[arch] = m.waterUse;
+}
 powerUse[ARCH.DEPOT] = POWER_USE_DEPOT; waterUse[ARCH.DEPOT] = WATER_USE_DEPOT;
 powerUse[ARCH.FIRE_STATION] = POWER_USE_FIRE; waterUse[ARCH.FIRE_STATION] = WATER_USE_FIRE;
 for (const a of CATALOG) {
@@ -83,8 +89,8 @@ export const waterUseOf = (arch: number): number => waterUse[arch] ?? 0;
 export const fixedMwOf = (arch: number): number => fixedMw[arch] ?? 0;
 export const isPowerProducer = (arch: number): boolean => producerOf[arch] === PRODUCER.PLANT || producerOf[arch] === PRODUCER.SOLAR;
 export const isWaterSource = (arch: number): boolean => producerOf[arch] === PRODUCER.PUMP || producerOf[arch] === PRODUCER.TOWER;
-/** Services (non-RCI consumers) are served before houses and businesses when a network browns out. */
-export const isService = (arch: number): boolean => !isRci(arch);
+/** Services (non-RCI consumers) are served before houses and businesses when a network browns out; a megaproject queues with the businesses. */
+export const isService = (arch: number): boolean => !isRci(arch) && !isMega(arch);
 
 /** Sun elevation as Q10 from the day fraction: zero at night, a parabola peaking at noon (dayFrac 0.5). No trig, so no engine drift. */
 export function sunQ(dayFrac: number): number {

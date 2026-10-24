@@ -1,6 +1,7 @@
 import { execute } from './commands.ts';
 import { DAY_TICKS, MAP, S, WEATHER } from './layers.ts';
 import { economySystem } from './economy/index.ts';
+import { milestonesSystem } from './milestones.ts';
 import { roadsSystem } from './roads/index.ts';
 import { robotsSystem } from './robots/index.ts';
 import { nextFloat, nextInt } from './rng.ts';
@@ -57,6 +58,7 @@ const utilities: System = utilitiesSystem;
 const traffic: System = () => {};
 const services: System = () => {};
 const disasters: System = () => {};
+const milestones: System = milestonesSystem;
 
 /** Fixed system order: later units fill the hooks, they never reorder. */
 export const SYSTEMS: readonly { name: string; run: System }[] = [
@@ -69,6 +71,7 @@ export const SYSTEMS: readonly { name: string; run: System }[] = [
   { name: 'traffic', run: traffic },
   { name: 'services', run: services },
   { name: 'disasters', run: disasters },
+  { name: 'milestones', run: milestones },
 ];
 
 export function runTick(sim: Sim): void {

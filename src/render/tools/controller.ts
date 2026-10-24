@@ -83,13 +83,13 @@ export class ToolController {
     else {
       const cmd = commandFor(this.sel, this.drag ? this.drag.from : t, t, this.rot, this.deps.underground?.() ?? false);
       const w = this.deps.world;
-      this.plan = { cmd, est: estimate(tileReadOf(w.layers), cmd, w.scalars[S.treasury]), tile: t };
+      this.plan = { cmd, est: estimate(tileReadOf(w.layers, w.scalars), cmd, w.scalars[S.treasury]), tile: t };
     }
     this.lastKey = this.mirrorKey();
     return planKey(this.plan) !== before;
   }
 
-  private mirrorKey(): string { return `${this.deps.world.tick}|${this.deps.world.scalars[S.treasury]}`; }
+  private mirrorKey(): string { return `${this.deps.world.tick}|${this.deps.world.scalars[S.treasury]}|${this.deps.world.scalars[S.tier]}`; }
 
   select(sel: ToolSel | null): void {
     this.sel = sel;

@@ -105,7 +105,7 @@ export function App() {
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
           rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths, workforce: st.workforce,
-          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled,
+          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled, milestone: st.milestone,
         });
       },
     });

@@ -106,3 +106,29 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .budget-table th, .budget-table td { padding: 3px 6px; text-align: right; border-bottom: 1px solid rgba(230, 237, 243, 0.12); }
 .budget-table thead th { opacity: 0.7; font-weight: 600; }
 .budget-table tbody th { text-align: left; font-weight: 400; }
+
+/* Milestones and projects panel, the completion banner and the lock badges (U13). */
+.milestones { position: absolute; top: calc(env(safe-area-inset-top) + 64px); right: calc(env(safe-area-inset-right) + 6px); bottom: calc(env(safe-area-inset-bottom) + 6px); width: min(26rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 12px)); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 10px; background: rgba(11, 17, 22, 0.95); border: 1px solid rgba(230, 237, 243, 0.25); border-radius: 8px; color: #e6edf3; font-size: 0.85rem; }
+.milestones h2, .milestones h3 { margin: 0; }
+.milestones h3 { margin: 12px 0 4px; font-size: 0.95rem; }
+.milestones .panel-head { display: flex; justify-content: space-between; align-items: center; }
+.milestones .tier-line { margin: 4px 0 6px; opacity: 0.8; }
+.meter { height: 10px; background: rgba(230, 237, 243, 0.14); border-radius: 5px; overflow: hidden; }
+.meter > i { display: block; height: 100%; background: linear-gradient(90deg, #3fb950, #58a6ff); }
+.milestones ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.milestones .tier { display: grid; gap: 1px; opacity: 0.6; }
+.milestones .tier.reached { opacity: 1; }
+.milestones .tier em { opacity: 0.7; font-style: normal; }
+.milestones .tier-unlocks { padding-left: 1.2rem; opacity: 0.85; }
+.milestones .proj { padding: 8px; background: rgba(230, 237, 243, 0.06); border-radius: 6px; display: grid; gap: 4px; }
+.milestones .proj-head { display: flex; justify-content: space-between; gap: 8px; }
+.milestones .proj-blurb, .milestones .proj-state { margin: 0; opacity: 0.85; }
+.milestones .proj-state.done { color: #7ee787; opacity: 1; }
+.milestones .reqs { gap: 2px; }
+.milestones .req { display: flex; justify-content: space-between; gap: 8px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.milestones .req.ok { color: #7ee787; opacity: 1; }
+.hud > .banner { position: absolute; top: 28%; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 24px); padding: 14px 28px; text-align: center; font-size: clamp(1.2rem, 4vw, 2rem); font-weight: 700; letter-spacing: 0.02em; color: #fff; background: linear-gradient(135deg, rgba(20, 60, 110, 0.92), rgba(90, 40, 130, 0.92)); border: 1px solid rgba(160, 220, 255, 0.7); border-radius: 12px; box-shadow: 0 0 40px rgba(90, 190, 255, 0.5); pointer-events: none; animation: banner-pop 0.5s ease-out; }
+.hud > .banner.victory { background: linear-gradient(135deg, rgba(120, 80, 10, 0.94), rgba(160, 60, 20, 0.94)); border-color: rgba(255, 220, 140, 0.9); box-shadow: 0 0 50px rgba(255, 190, 80, 0.6); }
+@keyframes banner-pop { from { opacity: 0; transform: translateX(-50%) scale(0.85); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+.lock { margin-left: 0.3em; font-size: 0.85em; opacity: 0.85; }
+.tool-toast.good { background: rgba(21, 78, 40, 0.94); border-color: #3fb950; }

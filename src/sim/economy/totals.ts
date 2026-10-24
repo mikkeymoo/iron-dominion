@@ -1,5 +1,6 @@
 import { BFLAG, CATALOG, isRci } from '../catalog.ts';
 import { BMAX, MAP, S, ZONE, type World } from '../layers.ts';
+import { megaSums } from '../megaprojects.ts';
 import { JOBS_C, JOBS_I, LABOR_SHIFT, ONE, RESIDENTS } from './tables.ts';
 
 const OCCUPANCY = new Int32Array(256);
@@ -31,9 +32,10 @@ export function footprintMean(world: World, layer: Uint8Array, slot: number): nu
   return Math.floor(sum / (bw * bh));
 }
 
-export interface Totals { population: number; jobsC: number; jobsI: number; employed: number; labor: number }
+/** `tourists` is present only while a megaproject draws visitors: they add commercial demand without living or working here. */
+export interface Totals { population: number; jobsC: number; jobsI: number; employed: number; labor: number; tourists?: number }
 
-/** Recount population and jobs from the building table without touching the world. */
+/** Recount population and jobs from the building table without touching the world. Operating megaprojects add their residents and jobs. */
 export function countTotals(world: World): Totals {
   let population = 0, jobsC = 0, jobsI = 0;
   for (let s = 0; s < BMAX; s++) {
@@ -44,8 +46,13 @@ export function countTotals(world: World): Totals {
     else if (z === ZONE.C) jobsC += OCCUPANCY[arch]!;
     else jobsI += OCCUPANCY[arch]!;
   }
+  const mega = megaSums(world);
+  population += mega.residents;
+  jobsC += mega.jobsC;
   const labor = population >> LABOR_SHIFT;
-  return { population, jobsC, jobsI, employed: Math.min(labor, jobsC + jobsI), labor };
+  const t: Totals = { population, jobsC, jobsI, employed: Math.min(labor, jobsC + jobsI), labor };
+  if (mega.visitors > 0) t.tourists = mega.visitors;
+  return t;
 }
 
 /** countTotals written into the population, jobs, employed and unemployment scalars. Only the economy system calls this. */
