@@ -223,6 +223,12 @@ export function estimateSite(v: TileRead, a: Archetype, x: number, y: number, ro
   return withFunds({ cost, validTiles: valid, invalidTiles: invalid }, treasury);
 }
 
+/** Depots (the robots come from them) and megaprojects (own requirements) are placed directly, never planned. */
+export const isBlueprintable = (arch: number): boolean => {
+  const a = archetype(arch);
+  return a !== undefined && a.placeable && arch !== ARCH.DEPOT && !isMega(arch);
+};
+
 function estimateBuilding(v: TileRead, c: Extract<CommandBody, { type: 'placeBuilding' }>, treasury?: number): Estimate {
   if (!isInts(c.arch, c.x, c.y, c.rot) || c.rot < 0 || c.rot > 3) return fail('invalid');
   const a = archetype(c.arch);
@@ -311,6 +317,12 @@ export function estimate(v: TileRead, cmd: CommandBody, treasury?: number): Esti
   switch (cmd.type) {
     case 'placeRoad': return withFunds(estimateRoad(v, cmd), treasury);
     case 'placeBuilding': return estimateBuilding(v, cmd, treasury);
+    // A blueprint is checked like the building but costs nothing now: the price is paid when the robots start it.
+    case 'placeBlueprint': {
+      const e = estimateBuilding(v, { type: 'placeBuilding', arch: cmd.arch, x: cmd.x, y: cmd.y, rot: cmd.rot });
+      if (!e.reason && !isBlueprintable(cmd.arch)) e.reason = 'no-blueprint';
+      return { ...e, cost: 0 };
+    }
     case 'placeLine': return withFunds(estimateLine(v, cmd), treasury);
     case 'zone': case 'bulldoze': case 'terraform': {
       const e = withFunds(cmd.type === 'zone' ? estimateZone(v, cmd) : cmd.type === 'bulldoze' ? estimateBulldoze(v, cmd) : estimateTerraform(v, cmd), treasury);

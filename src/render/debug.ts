@@ -32,6 +32,8 @@ export interface RenderDebug {
   readonly outageIcons: number;
   /** The icons drawn after the last refresh and how many of each kind name. */
   readonly statusIcons: { count: number; byKind: Record<string, number> };
+  /** Blueprint holograms standing in the scene. */
+  readonly blueprints: number;
   /** Canvas-relative CSS pixel of a world point (x, height, z in tile units), or null behind the camera. */
   project(x: number, y: number, z: number): { px: number; py: number } | null;
   /** Chase one robot or vehicle by its agent key (the Follow button on its card); false when it is gone. */

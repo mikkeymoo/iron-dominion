@@ -14,7 +14,8 @@ import { milestoneStats } from './milestones.ts';
 import { scenarioStats } from './scenarioRun.ts';
 import { specFor } from './scenarios.ts';
 import { queryPath } from './roads/index.ts';
-import { workforceOf } from './robots/index.ts';
+import { blueprintStats } from './blueprints.ts';
+import { productionStats, workforceOf } from './robots/index.ts';
 import { hallOfBots } from './robots/names.ts';
 import { serviceStats } from './services/index.ts';
 import { trafficStats } from './traffic/index.ts';
@@ -119,6 +120,8 @@ function flush(now: number, force = false): void {
       treasury: s[S.treasury]!, population: s[S.population]!, dayFrac: s[S.dayFrac]!, day: s[S.day]!,
       weather: s[S.weather]!, weatherIntensity: s[S.weatherIntensity]!, graphEpoch: s[S.graphEpoch]!,
       workforce: workforceOf(sim.world),
+      blueprints: blueprintStats(sim.world),
+      production: productionStats(sim.world),
       traffic: trafficStats(sim.world),
       ...econStats(sim.world),
       ...utilStats(sim),

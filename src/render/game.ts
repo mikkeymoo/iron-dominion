@@ -526,6 +526,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     },
     get outageIcons() { return world.icons.icons; },
     get statusIcons() { return { count: world.status.count, byKind: { ...world.status.byKind } }; },
+    get blueprints() { return world.blueprints.count; },
     project(x, y, z) { const q = project(x, y, z); return q ? { px: q.px, py: q.py } : null; },
     followAgent,
     setOverlay(mode) { if (!deps.view || !isOverlayMode(mode)) return false; deps.view.setOverlay(mode); return true; },

@@ -9,7 +9,8 @@ import { mods } from './firmware.ts';
 import { archLabel, capitalise } from './labels.ts';
 import { BMAX, MAP, RMAX, S, TILES, type World } from './layers.ts';
 import type { Issue, IssueCategory, IssueKind, IssueOverlay } from './protocol.ts';
-import { AKIND, AST, BUILDER_COST, DEPOT_WORK_RADIUS, JOB, RES, RES_COUNT, RES_NAMES, SPAWN_RESERVE } from './robots/constants.ts';
+import { isMega, megaOf } from './megaprojects.ts';
+import { AKIND, AST, BUILDER_COST, DEPOT_WORK_RADIUS, IMPORT_PRICE, JOB, RES, RES_COUNT, RES_NAMES, SPAWN_RESERVE } from './robots/constants.ts';
 import { available, countAgents, disasterOwned, nearestTileOf } from './robots/pool.ts';
 import { reachableStock } from './robots/stock.ts';
 import { nearestRoad, roadFlow, roadsOf, UNREACHED, type RoadNet } from './roads/index.ts';
@@ -250,7 +251,7 @@ function resourceIssues(w: World): Issue[] {
   for (let res = RES.ALLOY; res < RES_COUNT; res++) {
     let n = 0, first = -1, short = 0;
     for (let s = 0; s < BMAX; s++) {
-      if (w.bArch[s] === 0 || w.jGen[s] !== w.bGen[s] || (w.jKind[s] !== JOB.BUILD && w.jKind[s] !== JOB.LEVEL) || w.jRes[s] !== res) continue;
+      if (w.bArch[s] === 0 || w.jGen[s] !== w.bGen[s] || (w.jKind[s] !== JOB.BUILD && w.jKind[s] !== JOB.LEVEL) || w.jRes[s] !== res || isMega(w.bArch[s]!)) continue;
       const left = w.jNeed[s]! - w.jHave[s]! - w.jInbound[s]!;
       if (left <= 0) continue;
       n++; short += left;
@@ -259,6 +260,21 @@ function resourceIssues(w: World): Issue[] {
     if (n === 0 || reachableStock(w, res) >= short) continue;
     const fix = res === RES.ALLOY ? 'Build a Mine and a Smelter' : 'Build a Factory';
     out.push(make('resource', 'robots', 52 + Math.min(20, n * 2), n, centreOf(w, first), `${RES_NAMES[res]} shortage blocks ${plural(n, 'upgrade', 'upgrades')}. ${fix}, or depots import it slowly.`, 'none', `resource-${res}`));
+  }
+  return out;
+}
+
+/** A megaproject stage needs Components; one issue per project whose stage wants more than the depots and Factories hold. */
+function megaWaitIssues(w: World): Issue[] {
+  const out: Issue[] = [];
+  for (let s = 0; s < BMAX; s++) {
+    const arch = w.bArch[s]!, spec = megaOf(arch);
+    if (!spec || w.jGen[s] !== w.bGen[s] || w.jKind[s] !== JOB.BUILD || w.jRes[s] !== RES.PARTS) continue;
+    const left = w.jNeed[s]! - w.jHave[s]! - w.jInbound[s]!;
+    if (left <= 0 || reachableStock(w, RES.PARTS) >= left) continue;
+    const stage = spec.stages[Math.min(w.bLevel[s]!, spec.stages.length - 1)]!.name;
+    out.push(make('resource', 'robots', 62, 1, centreOf(w, s),
+      `The ${archLabel(arch)} stage "${stage}" waits on ${plural(left, 'Component', 'Components')}. Build a Factory, or depots import them at $${IMPORT_PRICE[RES.PARTS]} each.`, 'none', `resource-mega-${arch}`));
   }
   return out;
 }
@@ -415,7 +431,7 @@ export function deriveIssues(sim: Sim): Issue[] {
     fireIssue(w), budgetIssue(w), depotIssue(sim, c, anchors),
     outageIssue(w, BFLAG.UNPOWERED, w.powerOn, 'power'), outageIssue(w, BFLAG.UNWATERED, w.waterOn, 'water'),
     stuckIssue(sim, net), jobsIssue(sim, net, c, anchors), commuteIssue(w), crimeIssue(w), fireCoverIssue(w), abandonedIssue(w), hazardIssue(w),
-    ...landIssues(sim, c), ...councilIssues(w), ...resourceIssues(w), ...needsIssues(w),
+    ...landIssues(sim, c), ...councilIssues(w), ...resourceIssues(w), ...megaWaitIssues(w), ...needsIssues(w),
   ];
   const list = found.filter((i): i is Issue => i !== null);
   list.sort((a, b) => b.severity - a.severity || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || (a.y * MAP + a.x) - (b.y * MAP + b.x) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

@@ -15,11 +15,11 @@ export * from './constants.ts';
 export * from './pool.ts';
 export { startTrip, stepAgent, pathOf } from './move.ts';
 export { dispatch, spawnPass, updateAgent, depotAccess, goHome } from './agents.ts';
-export { chainSystem, chainProduction, goodsPass, importFallback, outstandingNeed } from './chain.ts';
+export { chainSystem, chainProduction, goodsPass, importFallback, outstandingNeed, productionStats } from './chain.ts';
 export * from './stock.ts';
 export {
-  adoptOrphans, canLevelUp, cancelJob, growthDirector, materialSystem, refreshAccess, releaseLot, sanitizeJobs, scanStats, settleJobs, startBuild,
-  startDemolish, startLevelUp,
+  adoptOrphans, canLevelUp, cancelJob, growthDirector, materialSystem, megaStageUnits, refreshAccess, releaseLot, sanitizeJobs, scanStats, settleJobs,
+  startBlueprint, startBuild, startDemolish, startLevelUp,
 } from './jobs.ts';
 
 /**

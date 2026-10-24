@@ -1,14 +1,15 @@
 import { ARCH } from '../catalog.ts';
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
-import { BMAX, S, ZONE } from '../layers.ts';
+import { BMAX, S, ZONE, type World } from '../layers.ts';
+import type { ProductionStat, ProductionStats } from '../protocol.ts';
 import { lotAccess, roadsOf } from '../roads/index.ts';
 import type { Sim } from '../world.ts';
 import {
   CH, CHAIN_PERIOD, DEPOT_STOCK_CAP, EXPORT_CAP, FACTORY_BUFFER, FACTORY_IN, FACTORY_OUT, GOODS_PERIOD, GOODS_REACH, IMPORT_PERIOD, IMPORT_PRICE, JOB, MINE_OUT,
-  OUTPUT_CAP, RES, SELL_PRICE, SMELTER_BUFFER, SMELT_IN, SMELT_OUT,
+  OUTPUT_CAP, PRODUCTION_CAP, RES, SELL_PRICE, SMELTER_BUFFER, SMELT_IN, SMELT_OUT,
 } from './constants.ts';
 import { SPEND, available } from './pool.ts';
-import { chainRunning, finishedStore, made, producedBy, reachableStock, stockLayer, used } from './stock.ts';
+import { chainRunning, finishedStore, isChainArch, made, producedBy, reachableStock, stockLayer, used } from './stock.ts';
 
 // The production chain: Mines dig Ore, Smelters turn 4 Ore into 2 Alloy, Factories turn 2 Alloy into 1 Component. Haulers move the
 // stock (robots/agents.ts); this file is the buildings' side: production, the month-close export, the depot import fallback and the goods
@@ -149,6 +150,27 @@ export function goodsPass(sim: Sim): void {
     w.bParts[best]! -= take;
     used(w, RES.PARTS, take);
   }
+}
+
+/**
+ * The production overlay's list. A finished chain building is `starved` when it cannot work (dark, abandoned, no input for its next
+ * cycle), `full` when its output sits at OUTPUT_CAP (it stops until a hauler or the month-close export clears room), else `filling`. Starved first, then slot order,
+ * at most PRODUCTION_CAP entries; `total` counts every finished chain building.
+ */
+export function productionStats(w: World): ProductionStats {
+  const all: ProductionStat[] = [];
+  for (let s = 0; s < BMAX; s++) {
+    const arch = w.bArch[s]!;
+    if (!isChainArch(arch) || !finishedStore(w, s)) continue;
+    const res = producedBy(arch), input = arch === ARCH.SMELTER ? RES.ORE : RES.ALLOY;
+    const needs = arch === ARCH.SMELTER ? SMELT_IN : arch === ARCH.FACTORY ? FACTORY_IN : 0;
+    const starved = !chainRunning(w, s) || (needs > 0 && w.bIn[s * 3 + input]! < needs);
+    const state = starved ? 'starved' : stockLayer(w, res)[s]! >= OUTPUT_CAP ? 'full' : 'filling';
+    all.push({ slot: s, arch, x: w.bX[s]!, y: w.bY[s]!, state });
+  }
+  const rank = (p: ProductionStat): number => (p.state === 'starved' ? 0 : 1);
+  const list = all.sort((a, b) => rank(a) - rank(b) || a.slot - b.slot).slice(0, PRODUCTION_CAP);
+  return { total: all.length, list };
 }
 
 /** The chain's slice of the robots system. Producers and the goods pass run on their own periods; the import fallback checks its own. */

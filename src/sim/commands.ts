@@ -1,3 +1,4 @@
+import { cancelBlueprint, moveBlueprint, placeBlueprint } from './blueprints.ts';
 import { ARCH, archetype, BFLAG, type Archetype } from './catalog.ts';
 import { DEPOT_START_STOCK } from './robots/constants.ts';
 import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
@@ -30,6 +31,12 @@ export type CommandBody =
   /** A power line or water pipe along the road-style L path (along x at ay from ax to bx, then along y at bx). Undoable. */
   | { type: 'placeLine'; kind: 'power' | 'water'; ax: number; ay: number; bx: number; by: number }
   | { type: 'placeBuilding'; arch: number; x: number; y: number; rot: number }
+  /** Plan a building as a blueprint at the back of the queue: no cost and no tiles reserved until the robots start it (sim/blueprints.ts). */
+  | { type: 'placeBlueprint'; arch: number; x: number; y: number; rot: number }
+  /** Move blueprint `slot` to queue position `to` (0 is the front: "Build next"). */
+  | { type: 'moveBlueprint'; slot: number; to: number }
+  /** Drop blueprint `slot` from the queue. Nothing was paid, so nothing is refunded. */
+  | { type: 'cancelBlueprint'; slot: number }
   /** (x0, y0) is where the drag began: `level` flattens to that tile's height. Not undoable (the journal holds roads and zones only). */
   | { type: 'terraform'; mode: 'raise' | 'lower' | 'level'; x0: number; y0: number; x1: number; y1: number }
   /** `stage` (megaprojects only) is the stage a project under construction is at. */
@@ -304,11 +311,11 @@ function placeSite(sim: Sim, a: Archetype, x: number, y: number, rot: number, o:
 }
 
 /** Robot growth: reserve a free site for a grown building (free of charge, not undoable). Returns the slot, or -1 when the site is not valid. */
-export function reserveBuilding(sim: Sim, a: Archetype, x: number, y: number, level: number, prog: number, flags: number): number {
+export function reserveBuilding(sim: Sim, a: Archetype, x: number, y: number, level: number, prog: number, flags: number, rot = 0): number {
   const slotsBefore = sim.world.bArch.indexOf(0);
   if (slotsBefore < 0) return -1;
   try {
-    placeSite(sim, a, x, y, 0, { level, prog, flags, cost: 0, journal: false });
+    placeSite(sim, a, x, y, rot, { level, prog, flags, cost: 0, journal: false });
   } catch (e) {
     if (e instanceof Reject) return -1;
     throw e;
@@ -518,6 +525,13 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'placeLine': journal = placeLine(sim, cmd); break;
       case 'bulldoze': bulldoze(sim, cmd); break;
       case 'placeBuilding': journal = placeBuilding(sim, cmd); break;
+      case 'placeBlueprint': case 'moveBlueprint': case 'cancelBlueprint': {
+        const w = sim.world;
+        const why = cmd.type === 'placeBlueprint' ? placeBlueprint(w, cmd.arch, cmd.x, cmd.y, cmd.rot)
+          : cmd.type === 'moveBlueprint' ? moveBlueprint(w, cmd.slot, cmd.to) : cancelBlueprint(w, cmd.slot);
+        if (why) reject(why);
+        break;
+      }
       case 'terraform': terraform(sim, cmd); break;
       case 'debugGrow': debugGrow(sim, cmd); break;
       case 'debugLevel': debugLevel(sim, cmd); break;

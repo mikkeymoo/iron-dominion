@@ -1,6 +1,8 @@
 import { ARCH, BFLAG, archetype, rciId, type Archetype } from '../catalog.ts';
+import { dropBlueprint, queueOf } from '../blueprints.ts';
 import { clearBuilding, reserveBuilding } from '../commands.ts';
 import { refundRebuild } from '../disasters/rebuild.ts';
+import { estimate, footprintOf } from '../estimate.ts';
 import {
   abandonedBuildings, growthCandidates, levelUpCandidates, reachAnchors, reachableAccess, zoneDemand, type Lot,
 } from '../economy/index.ts';
@@ -24,6 +26,9 @@ import { liveChainJobs, outstandingNeed } from './chain.ts';
 import { SPEND, available, clearJob, refOf } from './pool.ts';
 import { made, reachableStock } from './stock.ts';
 
+/** Components a megaproject stage pass asks for: a quarter of its material, rounded up (an Ore-equivalent price of 4 per Component). */
+export const megaStageUnits = (arch: number, stage: number): number => resUnits(megaStageNeed(arch, stage), RES.PARTS);
+
 /** Drop job rows whose building was freed or reused since the job began. */
 export function sanitizeJobs(sim: Sim): void {
   const w = sim.world;
@@ -41,11 +46,40 @@ function openJob(sim: Sim, slot: number, kind: number, need: number, prog: numbe
 }
 
 /** Reserve the lot (foundation shows at once) and open a construction job for it. Returns false when the site is not valid. */
-export function startBuild(sim: Sim, a: Archetype, x: number, y: number, access: number, level = a.level ?? 1): boolean {
-  const slot = reserveBuilding(sim, a, x, y, level, 0, BFLAG.CONSTRUCTING);
+export function startBuild(sim: Sim, a: Archetype, x: number, y: number, access: number, level = a.level ?? 1, rot = 0): boolean {
+  const slot = reserveBuilding(sim, a, x, y, level, 0, BFLAG.CONSTRUCTING, rot);
   if (slot < 0) return false;
   openJob(sim, slot, JOB.BUILD, materialFor(a.w * a.h, level), 0, access);
   return true;
+}
+
+/**
+ * Start the first blueprint in the queue that can start. A site that is no longer valid is dropped with a `blueprintSkipped` event and
+ * nothing is paid; one with no road to a depot yet stays queued and the next is tried; one the treasury cannot pay for yet holds the
+ * whole queue, so a pinned blueprint is never overtaken by a cheaper one. Returns whether a job was started.
+ */
+export function startBlueprint(sim: Sim, net: RoadNet, anchors: readonly number[]): boolean {
+  const w = sim.world, tick = w.scalars[S.tick]!;
+  for (const bp of queueOf(w)) {
+    const arch = w.bpArch[bp]!, x = w.bpX[bp]!, y = w.bpY[bp]!, rot = w.bpRot[bp]!, a = archetype(arch)!;
+    const e = estimate(w, { type: 'placeBuilding', arch, x, y, rot });
+    if (e.reason) {
+      dropBlueprint(w, bp);
+      sim.events.push({ type: 'blueprintSkipped', tick, arch, x, y, reason: e.reason });
+      continue;
+    }
+    const f = footprintOf(a, rot);
+    const access = reachableAccess(net, anchors, x, y, f.w, f.h);
+    if (access < 0) continue;
+    if (available(w) < a.cost) return false;
+    if (!startBuild(sim, a, x, y, access, a.level ?? 1, rot)) return false;
+    const slot = w.bId[y * MAP + x]! - 1;
+    w.scalars[S.treasury]! -= a.cost;
+    dropBlueprint(w, bp);
+    sim.events.push({ type: 'blueprintStarted', tick, arch, slot, x, y, cost: a.cost });
+    return true;
+  }
+  return false;
 }
 
 /** Give a lot's tiles back to the zone it was built on (a no-op for a lot that was never zoned). */
@@ -151,7 +185,7 @@ function advanceMega(sim: Sim, s: number): boolean {
   const at = { x: w.bX[s]!, y: w.bY[s]!, w: w.bW[s]!, h: w.bH[s]! };
   if (done + 1 < stages) {
     w.bLevel[s] = done + 1; w.bProg[s] = 0;
-    w.jProg[s] = 0; w.jHave[s] = 0; w.jInbound[s] = 0; w.jNeed[s] = megaStageNeed(arch, done + 1);
+    w.jProg[s] = 0; w.jHave[s] = 0; w.jInbound[s] = 0; w.jNeed[s] = megaStageUnits(arch, done + 1); w.jRes[s] = RES.PARTS;
     sim.dirty.buildings.add(s);
     sim.events.push({ type: 'megaStage', tick, arch, slot: s, stage: done, stages, ...at });
     return true;
@@ -279,8 +313,8 @@ export function adoptOrphans(sim: Sim, net: RoadNet, anchors: readonly number[] 
     if (access < 0) continue;
     const prog = w.bProg[s]! << 8;
     if ((w.bFlags[s]! & BFLAG.DEMOLISHING) !== 0) { openJob(sim, s, JOB.DEMOLISH, 0, prog, access); continue; }
-    const need = mega ? megaStageNeed(w.bArch[s]!, w.bLevel[s]!) : materialFor(w.bW[s]! * w.bH[s]!, w.bLevel[s]!);
-    openJob(sim, s, JOB.BUILD, need, prog, access);
+    const need = mega ? megaStageUnits(w.bArch[s]!, w.bLevel[s]!) : materialFor(w.bW[s]! * w.bH[s]!, w.bLevel[s]!);
+    openJob(sim, s, JOB.BUILD, need, prog, access, mega ? RES.PARTS : RES.ORE);
     w.jHave[s] = Math.min(need, Math.ceil((need * prog) / JOB_MAX));
   }
 }
@@ -359,7 +393,10 @@ export function growthDirector(sim: Sim, builders: number): void {
   // One job per builder keeps the crews together (up to three bots on a site) instead of spreading thin over many foundations.
   // Parallel fabrication adds one job slot per depot.
   const depots = m.extraJobsPerDepot > 0 ? countDepots(w) : 0;
-  if (jobs < Math.min(MAX_JOBS, Math.max(2, builders) + m.extraJobsPerDepot * depots)) {
+  const room = jobs < Math.min(MAX_JOBS, Math.max(2, builders) + m.extraJobsPerDepot * depots);
+  // The player's blueprints go before anything the city grows on its own.
+  if (room && startBlueprint(sim, net, anchors)) return;
+  if (room) {
     for (const { z } of order) {
       for (const lot of candidatesFor(sim, z)) {
         const a = archetype(rciId(z, lot.density, 1));

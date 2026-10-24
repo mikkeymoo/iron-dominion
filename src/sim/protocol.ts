@@ -307,8 +307,20 @@ export interface ScenarioStats {
   score: number;
   endedAt: number;
 }
+/** One queued blueprint (sim/blueprints.ts), front of the queue first. `order` is its position, `etaSec` a rough start-to-finish estimate at 1x. */
+export interface BlueprintStat {
+  slot: number; order: number; arch: number; name: string; x: number; y: number; w: number; h: number; rot: number; cost: number; etaSec: number;
+}
+/** What a Mine, Smelter or Factory is doing: `starved` is idle for want of power or input, `full` has a full output and sells the overflow. */
+export type ProductionState = 'filling' | 'starved' | 'full';
+export interface ProductionStat { slot: number; arch: number; x: number; y: number; state: ProductionState }
+/** Chain buildings for the production overlay: `list` holds at most PRODUCTION_CAP of `total`, starved ones first. */
+export interface ProductionStats { total: number; list: ProductionStat[] }
 export interface Stats {
   type: 'stats';
+  /** The blueprint queue, in order (sim/blueprints.ts). */
+  blueprints: BlueprintStat[];
+  production: ProductionStats;
   /** Up to 8 ranked problems, refreshed about every 2 s of sim time. */
   issues: Issue[];
   services: ServiceStats;

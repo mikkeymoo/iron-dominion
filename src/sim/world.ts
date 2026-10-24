@@ -56,6 +56,10 @@ export type SimEvent =
   | { type: 'festival'; tick: number; phase: 'start' | 'end'; festival: number; x: number; y: number; ticks: number }
   /** Approval has stayed under 15 for 3 months running. A warning only: nothing ends the game. */
   | { type: 'approvalWarning'; tick: number; approval: number; months: number }
+  /** The robots took a blueprint off the queue: the foundation is down in building `slot` and `cost` was paid. */
+  | { type: 'blueprintStarted'; tick: number; arch: number; slot: number; x: number; y: number; cost: number }
+  /** A blueprint could not be started (something was built there since, the ground changed) and was dropped; nothing was paid. */
+  | { type: 'blueprintSkipped'; tick: number; arch: number; x: number; y: number; reason: string }
   /** A building of archetype `arch` was finished at (x, y) (a new build, not a level-up or a megaproject stage). Feeds the while-you-were-away journal. */
   | { type: 'buildingDone'; tick: number; arch: number; x: number; y: number }
   /** A robot finished its NAMED_JOBS-th job and earned `name` (robots/names.ts); `slot` and `gen` give its agent key. */

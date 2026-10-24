@@ -2,6 +2,7 @@ import { BFLAG } from '../sim/catalog.ts';
 import { ABANDON_DESIRABILITY } from '../sim/economy/tables.ts';
 import { zoneOfArch } from '../sim/economy/totals.ts';
 import { BMAX, MAP, S } from '../sim/layers.ts';
+import { PRODUCTION_CAP } from '../sim/robots/constants.ts';
 import type { IconAnchor } from './instances.ts';
 import type { RenderMirror } from './mirror.ts';
 
@@ -9,18 +10,25 @@ import type { RenderMirror } from './mirror.ts';
 // the choice, the zoom cut-off and the cap are unit-tested; outageIcons.ts draws what this picks.
 
 /** Icon kinds, also the shape index in the shader. */
-export const ICON = { POWER: 0, WATER: 1, FIRE: 2, JOBS: 3, CRIME: 4, SMOG: 5, UPGRADE: 6 } as const;
+export const ICON = { POWER: 0, WATER: 1, FIRE: 2, JOBS: 3, CRIME: 4, SMOG: 5, UPGRADE: 6, FILLING: 7, STARVED: 8, FULL: 9 } as const;
 export type IconKind = (typeof ICON)[keyof typeof ICON];
-export const ICON_NAMES = ['power', 'water', 'fire', 'jobs', 'crime', 'smog', 'upgrade'] as const;
+export const ICON_NAMES = ['power', 'water', 'fire', 'jobs', 'crime', 'smog', 'upgrade', 'filling', 'starved', 'full'] as const;
 
-/** When a building qualifies for several icons, the highest priority is the one it shows. */
-export const ICON_PRIORITY: Record<IconKind, number> = { [ICON.FIRE]: 70, [ICON.POWER]: 60, [ICON.WATER]: 50, [ICON.JOBS]: 40, [ICON.CRIME]: 30, [ICON.SMOG]: 20, [ICON.UPGRADE]: 10 };
+/**
+ * When a building qualifies for several icons, the highest priority is the one it shows. The last three are the production overlay's
+ * (chain buildings filling, starved, full and selling); they only show in that overlay, in place of the mood icons.
+ */
+export const ICON_PRIORITY: Record<IconKind, number> = {
+  [ICON.FIRE]: 70, [ICON.POWER]: 60, [ICON.WATER]: 50, [ICON.JOBS]: 40, [ICON.CRIME]: 30, [ICON.SMOG]: 20, [ICON.UPGRADE]: 10,
+  [ICON.STARVED]: 45, [ICON.FILLING]: 25, [ICON.FULL]: 24,
+};
+const PRODUCTION_ICON = { filling: ICON.FILLING, starved: ICON.STARVED, full: ICON.FULL } as const;
 
 /** Camera distance (tiles) beyond which icons hide: the mood icons first, the three outage-grade ones (fire, power, water) later. */
 export const ICON_FAR = { mood: 60, critical: 180 } as const;
 export const isCritical = (k: IconKind): boolean => k === ICON.FIRE || k === ICON.POWER || k === ICON.WATER;
-/** What still shows past ICON_FAR.mood: the outage-grade icons and crime. */
-const showsFar = (k: IconKind): boolean => isCritical(k) || k === ICON.CRIME;
+/** What still shows past ICON_FAR.mood: the outage-grade icons, crime and the production overlay's icons. */
+const showsFar = (k: IconKind): boolean => isCritical(k) || k === ICON.CRIME || k >= ICON.FILLING;
 /** 0 everything shows, 1 only fire, power, water and crime, 2 nothing. */
 export const farLevel = (cameraDist: number): 0 | 1 | 2 => (cameraDist > ICON_FAR.critical ? 2 : cameraDist > ICON_FAR.mood ? 1 : 0);
 
@@ -108,12 +116,14 @@ export class StatusIconSystem {
   /** Icons drawn after the last refresh, and how many of each kind name; for the debug hook and tests. */
   count = 0;
   byKind: Record<string, number> = {};
+  /** The production overlay is on: show the chain buildings' icons (from the mirror's production list) instead of the mood icons. */
+  production = false;
 
   constructor(private readonly mirror: RenderMirror, private readonly anchors: () => ReadonlyMap<number, IconAnchor>, private readonly anchorVersion: () => number) {}
 
   refresh(focus: { x: number; z: number }, cameraDist: number, nowMs: number): StatusRec[] | null {
     const m = this.mirror, far = farLevel(cameraDist);
-    const key = `${m.buildingVersion}|${m.overlayVersion}|${this.anchorVersion()}|${far}|${Math.round(focus.x / FOCUS_CELL)}|${Math.round(focus.z / FOCUS_CELL)}`;
+    const key = `${m.buildingVersion}|${m.overlayVersion}|${this.anchorVersion()}|${far}|${Math.round(focus.x / FOCUS_CELL)}|${Math.round(focus.z / FOCUS_CELL)}|${this.production ? m.productionVersion : -1}`;
     if (key === this.key) return null;
     if (far === this.lastFar && nowMs - this.lastScan < SCAN_MS) return null;
     this.key = key;
@@ -126,7 +136,14 @@ export class StatusIconSystem {
     const m = this.mirror, t = m.table, L = m.layers, anchors = this.anchors();
     const unemployment = m.scalars[S.unemployment]!;
     const recs: (StatusRec & { slot: number })[] = [];
-    if (farLevel(cameraDist) < 2) {
+    if (this.production) {
+      if (farLevel(cameraDist) < 2) {
+        for (const p of m.production.list) {
+          const a = anchors.get(p.slot);
+          if (a) recs.push({ slot: p.slot, x: a.x, y: a.y, z: a.z, kind: PRODUCTION_ICON[p.state] });
+        }
+      }
+    } else if (farLevel(cameraDist) < 2) {
       for (let s = 0; s < BMAX; s++) {
         const arch = t.bArch[s]!;
         if (arch === 0) continue;
@@ -144,7 +161,7 @@ export class StatusIconSystem {
         if (kind !== -1) recs.push({ slot: s, x: a.x, y: a.y, z: a.z, kind });
       }
     }
-    const out = selectIcons(recs, cameraDist, focus);
+    const out = selectIcons(recs, cameraDist, focus, this.production ? PRODUCTION_CAP : VISIBLE_ICONS);
     this.count = out.length;
     this.byKind = {};
     for (const r of out) this.byKind[ICON_NAMES[r.kind]!] = (this.byKind[ICON_NAMES[r.kind]!] ?? 0) + 1;

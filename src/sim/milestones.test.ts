@@ -9,7 +9,7 @@ import { estimate, tileReadOf } from './estimate.ts';
 import { S, type World } from './layers.ts';
 import { MEGA, MEGA_ARCHS, megaBit, megaStages } from './megaprojects.ts';
 import { megaRequirements, milestoneStats, powerBalance, projectStatuses, waterBalance } from './milestones.ts';
-import { AKIND, AST, DEPOT_START_STOCK, JOB, JOB_MAX } from './robots/constants.ts';
+import { AKIND, AST, DEPOT_START_STOCK, JOB, JOB_MAX, RES } from './robots/constants.ts';
 import { depot, flatSim, road, tickOf } from './robots/testkit.ts';
 import { solveUtilities } from './utilities/index.ts';
 import { DENSITY_UNLOCK, MAX_TIER, ROAD_UNLOCK, TIERS, tierOfPopulation, unlockList } from './unlocks.ts';
@@ -303,7 +303,7 @@ describe('megaproject construction', () => {
         stepLog(sim, 1, log);
         if ((w.bFlags[slot]! & BFLAG.CONSTRUCTING) !== 0 && w.jKind[slot] === JOB.BUILD) {
           const need = w.jNeed[slot]!, have = w.jHave[slot]!;
-          expect(need).toBe(20);
+          expect(need).toBe(5);
           expect(have).toBeLessThanOrEqual(need);
           expect(w.jProg[slot]).toBeLessThanOrEqual(have >= need ? JOB_MAX : Math.floor((have * JOB_MAX) / need));
         }
@@ -317,7 +317,7 @@ describe('megaproject construction', () => {
     } finally { undo(); }
   });
 
-  it('restarts the job at each stage with that stage\'s material need', () => {
+  it('restarts the job at each stage with that stage\'s Components need: a quarter of its material, rounded up', () => {
     const arch = ARCH.ARCOLOGY, stages = MEGA[arch]!.stages;
     const saved = stages.map((s) => ({ ...s }));
     stages.forEach((s, i) => { s.material = 10 + i; s.work = 300; });
@@ -329,11 +329,11 @@ describe('megaproject construction', () => {
       stepLog(sim, 60);
       expect(w.jKind[slot]).toBe(JOB.BUILD);
       for (let k = 0; k < stages.length - 1; k++) {
-        expect([w.bLevel[slot], w.jNeed[slot]]).toEqual([k, 10 + k]);
+        expect([w.bLevel[slot], w.jNeed[slot], w.jRes[slot]]).toEqual([k, Math.ceil((10 + k) / 4), RES.PARTS]);
         w.jHave[slot] = w.jNeed[slot]!; w.jProg[slot] = JOB_MAX;
         const log = stepLog(sim, 1);
         expect(log.filter((e) => e.type === 'megaStage')).toHaveLength(1);
-        expect([w.bLevel[slot], w.jNeed[slot], w.jHave[slot], w.jProg[slot], w.bProg[slot]]).toEqual([k + 1, 10 + k + 1, 0, 0, 0]);
+        expect([w.bLevel[slot], w.jNeed[slot], w.jHave[slot], w.jProg[slot], w.bProg[slot], w.jRes[slot]]).toEqual([k + 1, Math.ceil((10 + k + 1) / 4), 0, 0, 0, RES.PARTS]);
       }
     } finally { stages.forEach((s, i) => Object.assign(s, saved[i])); }
   });

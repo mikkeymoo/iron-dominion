@@ -1,5 +1,5 @@
 import type { CommandBody } from '../../sim/commands.ts';
-import { estimate, tileReadOf, type Estimate } from '../../sim/estimate.ts';
+import { estimate, isBlueprintable, tileReadOf, type Estimate } from '../../sim/estimate.ts';
 import { MAP, S } from '../../sim/layers.ts';
 import type { DistrictStat } from '../../sim/protocol.ts';
 import { commandFor, type Tile, type ToolSel } from './toolSpec.ts';
@@ -54,6 +54,8 @@ const inMap =(t: Tile): boolean => t.x >= 0 && t.y >= 0 && t.x < MAP && t.y < MA
 export class ToolController {
   sel: ToolSel | null = null;
   rot = 0;
+  /** The Plan toggle in the tool options: buildings are queued as blueprints instead of placed. Kept across tool changes. */
+  planning = false;
   plan: Plan | null = null;
   /** Last pointer position in canvas pixels, for the cost label. */
   screen = { x: 0, y: 0 };
@@ -84,7 +86,9 @@ export class ToolController {
     const t = this.drag ? this.drag.to : this.hoverTile;
     if (!this.sel || !t || !inMap(t)) this.plan = null;
     else {
-      const cmd = commandFor(this.sel, this.drag ? this.drag.from : t, t, this.rot, this.deps.underground?.() ?? false);
+      let cmd = commandFor(this.sel, this.drag ? this.drag.from : t, t, this.rot, this.deps.underground?.() ?? false);
+      // With Plan on, a building goes to the blueprint queue instead of being placed: no cost until the robots start it.
+      if (this.planning && cmd.type === 'placeBuilding' && isBlueprintable(cmd.arch)) cmd = { type: 'placeBlueprint', arch: cmd.arch, x: cmd.x, y: cmd.y, rot: cmd.rot };
       const w = this.deps.world;
       this.plan = { cmd, est: estimate(tileReadOf(w.layers, w.scalars), cmd, w.scalars[S.treasury]), tile: t };
     }
@@ -105,6 +109,13 @@ export class ToolController {
   /** Re-plan after something outside the controller changed what the tool would do (the underground view toggled). */
   refresh(): void {
     if (!this.sel) return;
+    this.recompute();
+    this.changed();
+  }
+
+  setPlanning(on: boolean): void {
+    if (on === this.planning) return;
+    this.planning = on;
     this.recompute();
     this.changed();
   }

@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useState, type ReactNode } from 'react';
 import { archetype, PIPE_COST, POWER_LINE_COST, ROAD_COST } from '../sim/catalog.ts';
+import { isBlueprintable } from '../sim/estimate.ts';
 import { WATER_REACH } from '../sim/utilities/tables.ts';
 import { DENSITY_UNLOCK, ROAD_UNLOCK, TIERS } from '../sim/unlocks.ts';
 import { isEditableTarget } from '../render/editable.ts';
@@ -230,6 +231,12 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
                 ))}
                 {sel.tool === 'service' && <button type="button" className="tb" onClick={() => c.rotate()} title="Rotate (R)">Rotate</button>}
               </>
+            )}
+            {sel.tool === 'service' && isBlueprintable(sel.arch) && (
+              <button
+                type="button" className="tb plan-toggle" aria-pressed={c.planning} data-testid="plan-toggle"
+                title="Plan: queue it as a blueprint. It costs nothing until the robots start it, and you can reorder the queue." onClick={() => c.setPlanning(!c.planning)}
+              >Plan</button>
             )}
             {sel.tool === 'terraform' && TERRAFORM_MODES.map((mode) => (
               <button key={mode} type="button" className="tb" aria-pressed={sel.mode === mode} onClick={() => pick({ tool: 'terraform', mode })}>{MODE_LABELS[mode]}</button>

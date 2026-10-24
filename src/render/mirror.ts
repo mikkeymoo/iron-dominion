@@ -1,6 +1,6 @@
 import { districtOfFootprint } from '../sim/districts.ts';
 import { CHUNK, CHUNKS, DMAX, F, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, TILES, isTileLayer, type LayerName } from '../sim/layers.ts';
-import type { BuildingRec, DistrictStat, FromWorker, Typed } from '../sim/protocol.ts';
+import type { BlueprintStat, BuildingRec, DistrictStat, FromWorker, ProductionStats, Typed } from '../sim/protocol.ts';
 import { chunkIdx, copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
 import type { SimEvent } from '../sim/world.ts';
 
@@ -38,6 +38,11 @@ export class RenderMirror {
    */
   readonly depotReach = new Uint8Array(TILES);
   depotReachVersion = 0;
+  /** The blueprint queue and the production-overlay list, as the last Stats carried them; each version bumps when its list changed. */
+  blueprints: BlueprintStat[] = [];
+  blueprintVersion = 0;
+  production: ProductionStats = { total: 0, list: [] };
+  productionVersion = 0;
   /** The named districts from the newest Stats message (the sim keeps the table; only the district id per tile is a mirrored layer). */
   districts: readonly DistrictStat[] = [];
   /** Bumped when a district's style changed or a district appeared or went: the ground wash and the building tints follow it. */
@@ -119,6 +124,8 @@ export class RenderMirror {
         this.scalars[S.day] = m.day;
         this.scalars[S.weather] = m.weather;
         this.scalars[S.weatherIntensity] = m.weatherIntensity;
+        if (m.blueprints && JSON.stringify(m.blueprints) !== JSON.stringify(this.blueprints)) { this.blueprints = m.blueprints; this.blueprintVersion++; }
+        if (m.production && JSON.stringify(m.production) !== JSON.stringify(this.production)) { this.production = m.production; this.productionVersion++; }
         if (m.milestone) this.scalars[S.tier] = m.milestone.tier;
         if (m.hazards) this.scalars[S.season] = m.hazards.yearPos;
         return true;

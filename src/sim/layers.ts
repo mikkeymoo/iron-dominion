@@ -14,6 +14,8 @@ export const AMAX = RMAX + VMAX;
 /** Longest trip a vehicle stores, in tiles; a longer route counts as a failed trip (sim/traffic). */
 export const PATH_CAP = 160;
 export const UMAX = 16;
+/** Blueprints the queue holds at once. */
+export const BP_MAX = 64;
 export const UCELLS = 4096;
 export const MAX_LOANS = 3;
 export const BUDGET_MONTHS = 12;
@@ -194,6 +196,14 @@ export const SPEC = {
   // [0] export income accrued in the running month (paid into industrial income at month close), [1..3] units ever created per
   // resource, [4..6] units ever consumed or sold per resource: stock + carried = created - consumed, which the tests check every tick.
   chain: L(Float64Array, 8, false, 'none'),
+
+  // Blueprint queue (sim/blueprints.ts): a planned building the robots have not started. bpArch 0 is a free slot; bpSeq is the queue
+  // order (lowest first, always renumbered 0..n-1 by a reorder). A blueprint reserves nothing and costs nothing until a job starts.
+  bpArch: L(Uint8Array, BP_MAX, false, 'none'),
+  bpX: L(Uint16Array, BP_MAX, false, 'none'),
+  bpY: L(Uint16Array, BP_MAX, false, 'none'),
+  bpRot: L(Uint8Array, BP_MAX, false, 'none'),
+  bpSeq: L(Uint32Array, BP_MAX, false, 'none'),
 
   scalars: L(Float64Array, 48, false, 'none'),
   rng: L(Uint32Array, 4, false, 'none'),

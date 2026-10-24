@@ -81,15 +81,18 @@ export class OutageIcons {
     const bang = box(p, -0.05, 0.05, -0.07, 0.3).add(disc(p, [0, -0.2], 0.065)).clamp(0, 1);
     const cloud = disc(p, [-0.13, -0.03], 0.13).add(disc(p, [0.12, -0.04], 0.14)).add(disc(p, [0, 0.07], 0.15)).add(box(p, -0.24, 0.24, -0.17, -0.03)).clamp(0, 1);
     const arrow = tri(p, [0, 0.32], [-0.21, 0.04], [0.21, 0.04]).add(box(p, -0.075, 0.075, -0.3, 0.05)).clamp(0, 1);
-    const glyph = pickF([bolt, dropShape, flame, cross, bang, cloud, arrow]);
+    // A coin for "full and selling": a disc with a smaller hole.
+    const coin = disc(p, [0, 0], 0.24).sub(disc(p, [0, 0], 0.12).mul(0.75)).clamp(0, 1);
+    // The production overlay's three (filling: an up arrow, starved: an exclamation mark, full: a coin) reuse shapes above.
+    const glyph = pickF([bolt, dropShape, flame, cross, bang, cloud, arrow, arrow, bang, coin]);
 
-    const rim = pickV([[1, 0.78, 0.2], [0.3, 0.72, 1], [1, 0.45, 0.1], [0.75, 0.6, 0.95], [0.95, 0.25, 0.25], [0.62, 0.58, 0.5], [0.35, 0.9, 0.45]]);
-    const fill = pickV([[0.07, 0.06, 0.04], [0.04, 0.07, 0.12], [0.12, 0.04, 0.02], [0.08, 0.06, 0.12], [0.12, 0.04, 0.04], [0.09, 0.08, 0.07], [0.04, 0.1, 0.05]]);
-    const ink = pickV([[1, 0.86, 0.3], [0.85, 0.96, 1], [1, 0.7, 0.2], [0.92, 0.85, 1], [1, 0.8, 0.8], [0.85, 0.82, 0.75], [0.8, 1, 0.82]]);
+    const rim = pickV([[1, 0.78, 0.2], [0.3, 0.72, 1], [1, 0.45, 0.1], [0.75, 0.6, 0.95], [0.95, 0.25, 0.25], [0.62, 0.58, 0.5], [0.35, 0.9, 0.45], [1, 0.78, 0.2], [0.95, 0.25, 0.25], [0.35, 0.9, 0.45]]);
+    const fill = pickV([[0.07, 0.06, 0.04], [0.04, 0.07, 0.12], [0.12, 0.04, 0.02], [0.08, 0.06, 0.12], [0.12, 0.04, 0.04], [0.09, 0.08, 0.07], [0.04, 0.1, 0.05], [0.07, 0.06, 0.04], [0.12, 0.04, 0.04], [0.04, 0.1, 0.05]]);
+    const ink = pickV([[1, 0.86, 0.3], [0.85, 0.96, 1], [1, 0.7, 0.2], [0.92, 0.85, 1], [1, 0.8, 0.8], [0.85, 0.82, 0.75], [0.8, 1, 0.82], [1, 0.86, 0.3], [1, 0.8, 0.8], [0.8, 1, 0.82]]);
     const colour: N = mix(mix(fill, rim, ring), ink, glyph);
     // A new random on/off about eight times a second, biased on, with a short dim between the flashes; only the outage-grade icons flicker.
     const beat = hash(floor(this.clock.mul(8)).add(iP.x.mul(13.1)).add(iP.z.mul(7.7)));
-    const flickers = is(ICON.POWER).add(is(ICON.WATER)).add(is(ICON.FIRE));
+    const flickers = is(ICON.POWER).add(is(ICON.WATER)).add(is(ICON.FIRE)).add(is(ICON.STARVED));
     const flicker = mix(float(1), mix(float(0.35), float(1), step(0.28, beat)), flickers);
     m.colorNode = vec4(colour.mul(flicker.mul(0.5).add(0.55)), 1);
     m.opacityNode = body.mul(0.92).mul(flicker.mul(0.6).add(0.4));

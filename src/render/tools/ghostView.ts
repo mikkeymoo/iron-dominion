@@ -23,6 +23,19 @@ function overlayGeometry(): BufferGeometry {
   return g;
 }
 
+/** The merged kit model of a building as one geometry (position, normal, colour with ambient occlusion in alpha); the caller owns and disposes it. */
+export function buildModelGeometry(arch: number): BufferGeometry {
+  const m = mergeParts(cachedModel(arch, 0).parts);
+  const g = new BufferGeometry();
+  const n = m.ao.length, color = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) { color[i * 4] = m.colors[i * 3]!; color[i * 4 + 1] = m.colors[i * 3 + 1]!; color[i * 4 + 2] = m.colors[i * 3 + 2]!; color[i * 4 + 3] = m.ao[i]!; }
+  g.setAttribute('position', new BufferAttribute(m.positions, 3));
+  g.setAttribute('normal', new BufferAttribute(m.normals, 3));
+  g.setAttribute('color', new BufferAttribute(color, 4));
+  g.setIndex(new BufferAttribute(m.indices, 1));
+  return g;
+}
+
 /**
  * The build ghost: a translucent tile overlay (green valid, red invalid, grey no-op) hugging the heightfield, plus for building
  * placement a translucent copy of the kit model on the footprint. It only reads the controller and the mirror height grid.
@@ -66,17 +79,7 @@ export class GhostView {
 
   private geometryFor(arch: number): BufferGeometry {
     let g = this.modelGeometry.get(arch);
-    if (!g) {
-      const m = mergeParts(cachedModel(arch, 0).parts);
-      g = new BufferGeometry();
-      const n = m.ao.length, color = new Float32Array(n * 4);
-      for (let i = 0; i < n; i++) { color[i * 4] = m.colors[i * 3]!; color[i * 4 + 1] = m.colors[i * 3 + 1]!; color[i * 4 + 2] = m.colors[i * 3 + 2]!; color[i * 4 + 3] = m.ao[i]!; }
-      g.setAttribute('position', new BufferAttribute(m.positions, 3));
-      g.setAttribute('normal', new BufferAttribute(m.normals, 3));
-      g.setAttribute('color', new BufferAttribute(color, 4));
-      g.setIndex(new BufferAttribute(m.indices, 1));
-      this.modelGeometry.set(arch, g);
-    }
+    if (!g) { g = buildModelGeometry(arch); this.modelGeometry.set(arch, g); }
     return g;
   }
 
@@ -87,7 +90,7 @@ export class GhostView {
     const plan = c.plan;
     if (!plan || !c.sel) { this.overlay.visible = false; this.model.visible = false; this.painted = 0; return; }
 
-    const tints = ghostTints(plan.est);
+    const tints = ghostTints(plan.est, plan.cmd.type === 'placeBlueprint');
     const geo = this.overlay.geometry;
     const pos = geo.getAttribute('position') as BufferAttribute, col = geo.getAttribute('color') as BufferAttribute;
     let n = 0;
@@ -103,8 +106,9 @@ export class GhostView {
     this.overlay.visible = n > 0;
 
     const cmd = plan.cmd;
-    const a = cmd.type === 'placeBuilding' ? archetype(cmd.arch) : undefined;
-    if (cmd.type !== 'placeBuilding' || !a) { this.model.visible = false; return; }
+    if (cmd.type !== 'placeBuilding' && cmd.type !== 'placeBlueprint') { this.model.visible = false; return; }
+    const a = archetype(cmd.arch);
+    if (!a) { this.model.visible = false; return; }
     const { w, h } = footprintOf(a, cmd.rot);
     const cx = cmd.x + w / 2, cz = cmd.y + h / 2;
     const gy = surfaceHeight(this.heights, cx, cz);

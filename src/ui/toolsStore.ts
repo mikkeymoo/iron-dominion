@@ -5,6 +5,7 @@ import { tileReadOf } from '../sim/estimate.ts';
 import type { DistrictStat } from '../sim/protocol.ts';
 import { HAZARD_HELP, HAZARD_NAMES, READY_PHRASES, leadText } from '../sim/disasters/hazardNames.ts';
 import { placeName } from '../sim/disasters/names.ts';
+import { archLabel } from '../sim/labels.ts';
 import { BMAX, S } from '../sim/layers.ts';
 import type { ViewState } from '../render/viewState.ts';
 import { tileIdx } from '../sim/tiles.ts';
@@ -54,6 +55,9 @@ const REASONS: Record<string, string> = {
   'tax-cap': 'This scenario caps taxes at 12 percent.',
   'scenario-locked': 'This scenario locks the power plant. Build solar or fusion power.',
   'not-ready': 'Earn at least one star first.',
+  'no-blueprint': 'That cannot be planned. Place depots and projects directly.',
+  planned: 'A blueprint is already planned there.',
+  'queue-full': 'The build queue is full. Cancel a blueprint first.',
   'no-district': 'That district has no land left. Paint it again to bring it back.',
 };
 
@@ -128,7 +132,7 @@ const SANDBOX_REJECT: Record<string, string> = {
 const FLOAT_MS = 1600;
 
 const labelOf = (cmd: CommandBody): string =>
-  cmd.type === 'placeBuilding' ? (archetype(cmd.arch)?.name ?? 'building') : cmd.type === 'placeLine' ? (cmd.kind === 'power' ? 'power line' : 'water pipe') : cmd.type;
+  cmd.type === 'placeBuilding' || cmd.type === 'placeBlueprint' ? (archetype(cmd.arch)?.name ?? 'building') : cmd.type === 'placeLine' ? (cmd.kind === 'power' ? 'power line' : 'water pipe') : cmd.type;
 
 /**
  * Everything the tool UI and the smoke test share for one city: the controller, the player's undo stack, toasts and floating
@@ -213,6 +217,8 @@ export class ToolsRuntime {
       case 'council': this.councilToast(e); break;
       case 'festival': if (e.phase === 'start') this.toast(`${FESTIVALS[e.festival]?.name ?? 'Festival'} has begun!`, 'good'); break;
       case 'approvalWarning': this.toast(`The people are furious: approval has been under ${VERY_LOW} for ${e.months} months. Open the Council.`); break;
+      case 'blueprintStarted': this.toast(`The robots started the ${archLabel(e.arch)}: ${money(e.cost)} paid.`, 'hint'); break;
+      case 'blueprintSkipped': this.toast(`Blueprint dropped: the ${archLabel(e.arch)} could not be started. ${reasonText(e.reason)} Nothing was paid.`); break;
     }
   }
 
@@ -337,6 +343,7 @@ export class ToolsRuntime {
       dragTiles: (from, to) => rt.controller.dragTiles(from, to),
       undo: () => rt.undoLast(),
       cancel: () => rt.controller.cancel(),
+      plan: (on) => rt.controller.setPlanning(on),
       get lastEvent() { return rt.lastEvent; },
       get treasury() { return w.scalars[S.treasury]!; },
       get undoDepth() { return rt.undo.size; },
@@ -377,6 +384,8 @@ export interface ToolsDebug {
   dragTiles(from: Tile, to: Tile): number;
   undo(): number;
   cancel(): void;
+  /** The Plan toggle: with it on, building tools queue blueprints. */
+  plan(on: boolean): void;
   readonly lastEvent: SimEvent | null;
   readonly treasury: number;
   readonly undoDepth: number;

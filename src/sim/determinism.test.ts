@@ -25,8 +25,8 @@ interface Golden {
   traffic: { ticks: number; hash: number };
 }
 
-/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain), the hazard scheduler's two (hazard, hrng), the districts' two (district, districtTab), the named-bot and depot-paint pair (aJobs, bLivery), the Battery Bank charge (bCharge) and the edict month counters (edictTicks). */
-const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain', 'hazard', 'hrng', 'district', 'districtTab', 'aJobs', 'bLivery', 'bCharge', 'edictTicks']);
+/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain), the hazard scheduler's two (hazard, hrng), the districts' two (district, districtTab), the named-bot and depot-paint pair (aJobs, bLivery), the Battery Bank charge (bCharge), the edict month counters (edictTicks) and the blueprint queue's five (bpArch, bpX, bpY, bpRot, bpSeq). */
+const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain', 'hazard', 'hrng', 'district', 'districtTab', 'aJobs', 'bLivery', 'bCharge', 'edictTicks', 'bpArch', 'bpX', 'bpY', 'bpRot', 'bpSeq']);
 // The year-position scalar (S.season) did not exist either, so it is zeroed for the legacy hash, and so is the "directives scanned" bit of S.firsts.
 const legacyHash = (sim: Sim): number => {
   const s = sim.world.scalars, kept = s[S.season]!, keptFirsts = s[S.firsts]!;

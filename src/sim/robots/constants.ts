@@ -84,6 +84,8 @@ export const FACTORY_TARGET = 6;
 export const DEPOT_TARGET = 32;
 /** A depot gives up stock for transfers only above this reserve (jobs may still drain it). */
 export const DEPOT_RESERVE = 24;
+/** Chain buildings the Stats production list and the overlay's icons carry at most. */
+export const PRODUCTION_CAP = 64;
 export const GOODS_PERIOD = 600;
 /** Manhattan reach of a commercial lot to its goods supplier, and of a home to a shop (zone needs). */
 export const GOODS_REACH = 40;

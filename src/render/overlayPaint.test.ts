@@ -23,6 +23,7 @@ function city() {
   w.traffic[at(70, 70)] = 255; w.traffic[at(71, 70)] = 40; w.traffic[at(11, 12)] = 200;
   w.pollution[at(50, 50)] = 200; w.pollution[at(51, 50)] = 20; w.pollution[at(11, 11)] = 255;
   w.covFire[at(70, 70)] = 255; w.covFire[at(71, 70)] = 60; w.covPolice[at(72, 70)] = 255; w.covHealth[at(73, 70)] = 255; w.covEdu[at(74, 70)] = 255;
+  w.terrain[at(78, 70)] = TERRAIN.ORE;
   w.covPark[at(75, 70)] = 255; w.crime[at(76, 70)] = 255; w.crime[at(77, 70)] = 40; w.covFire[at(11, 11)] = 255;
   return w;
 }

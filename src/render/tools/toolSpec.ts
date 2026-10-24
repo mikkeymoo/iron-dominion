@@ -153,13 +153,15 @@ const GREEN: Rgba = [0.2, 0.85, 0.35, 0.45];
 const RED: Rgba = [0.95, 0.2, 0.18, 0.55];
 const RED_DIM: Rgba = [0.95, 0.2, 0.18, 0.3];
 const GREY: Rgba = [0.7, 0.72, 0.75, 0.3];
+const CYAN: Rgba = [0.25, 0.85, 1, 0.45];
 
 /**
  * Tile colours for an estimate. A command the sim would refuse paints even its otherwise-fine tiles red; one that would do
- * nothing paints grey; otherwise good tiles are green and the tiles that get skipped or block it are red.
+ * nothing paints grey; otherwise good tiles are green and the tiles that get skipped or block it are red. A blueprint's good tiles are cyan,
+ * the colour of the hologram it becomes.
  */
-export function ghostTints(est: Estimate): GhostTints {
+export function ghostTints(est: Estimate, blueprint = false): GhostTints {
   if (est.reason === 'noop') return { valid: GREY, invalid: RED };
   if (est.reason) return { valid: RED_DIM, invalid: RED };
-  return { valid: GREEN, invalid: RED };
+  return { valid: blueprint ? CYAN : GREEN, invalid: RED };
 }

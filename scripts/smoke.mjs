@@ -1311,6 +1311,14 @@ async function chainChecks(open) {
   add(`a Mine (${ore ? 'on a patch of ore' : 'no 3x3 ore patch on this map, on the flat site'}) and a Smelter are placed with the debug command`, placed ? null : JSON.stringify(await page.evaluate(() => window.__iron.tools.buildings())));
   await page.waitForTimeout(1500);
 
+  // The production overlay tints ore ground and puts a state icon on each chain building: the Mine fills, the Smelter has no ore yet.
+  const overlaid = await page.evaluate(() => window.__iron.render.setOverlay('production'));
+  const stateIcons = await until(page, () => { const k = window.__iron.render.statusIcons.byKind; return (k.starved ?? 0) + (k.filling ?? 0) + (k.full ?? 0) >= 2; }, null, 15000);
+  add('the production overlay shows a state icon on the Mine and the Smelter', overlaid && stateIcons ? null : JSON.stringify(await page.evaluate(() => ({ overlay: window.__iron.render.overlay.mode, icons: window.__iron.render.statusIcons }))));
+  const listed = await page.evaluate(() => window.__iron.economy.stats?.production);
+  add('and Stats lists both chain buildings (at most 64)', listed && listed.total >= 2 && listed.list.length >= 2 && listed.list.length <= 64 ? null : JSON.stringify(listed));
+  await page.evaluate(() => window.__iron.render.setOverlay('none'));
+
   await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 1.5, z: s.y + 1.5, dist: 36, pitch: 1.0 }), smelter);
   const f0 = await frames(page);
   await waitFrames(page, f0 + 6, 8000);
@@ -1328,6 +1336,71 @@ async function chainChecks(open) {
   return out;
 }
 // ---- end chain block ----
+// ---- Blueprints: two planned buildings, the second pinned to the front, and the robots start the pinned one first (webgl2 low; desktop, debug session) ----
+async function blueprintChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`blueprints: ${name}`, problem]);
+  const page = await open(TRAFFIC_QUERY(0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  const site = up ? await siteWhenReady(page, 14) : null;
+  if (!site) { add('city boots with a build site', 'renderer, tools or site missing'); await page.close(); return out; }
+  // Paused, so the depot, both blueprints and the pin all land before the robots' first growth pass.
+  await page.locator('button[title="Pause (0)"]').click();
+  const treasuryOf = () => page.evaluate(() => window.__iron.tools.treasury);
+  const queue = () => page.evaluate(() => (window.__iron.economy.stats?.blueprints ?? []).map((b) => ({ arch: b.arch, order: b.order, cost: b.cost })));
+  const laid = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    const drag = (tool, opts, a, b) => { t.select(tool, opts); return t.dragTiles(a, b); };
+    const depot = t.tileFor('depot', { x: s.x + 2, y: s.y + 2 });
+    const ids = [drag('service', { name: 'depot' }, depot, depot), drag('road', { cls: 1 }, { x: s.x + 1, y: s.y + 4 }, { x: s.x + 12, y: s.y + 4 })];
+    t.cancel();
+    return ids;
+  }, site);
+  add('a depot with a street at its door is placed', laid.every((id) => id > 0) ? null : `command ids ${JSON.stringify(laid)}`);
+  await page.waitForTimeout(800);
+  const before = await treasuryOf();
+  const planned = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    t.plan(true);
+    const ids = [];
+    for (const [name, at] of [['clinic', { x: s.x + 2, y: s.y + 5 }], ['school', { x: s.x + 6, y: s.y + 5 }]]) {
+      t.select('service', { name });
+      const c = t.tileFor(name, at);
+      ids.push(t.dragTiles(c, c));
+    }
+    t.cancel();
+    t.plan(false);
+    return ids;
+  }, site);
+  add('the Plan toggle sends two blueprints (clinic, school) through the tool', planned.every((id) => id > 0) ? null : `command ids ${JSON.stringify(planned)}`);
+  const queued = await until(page, () => window.__iron.economy.stats?.blueprints?.length === 2, null, 10000);
+  const q0 = await queue();
+  add('they queue in placement order and cost nothing yet', queued && q0.map((b) => b.arch).join() === '9,11' && (await treasuryOf()) === before ? null : JSON.stringify({ q0, before, now: await treasuryOf() }));
+  const holo = await until(page, () => window.__iron.render.blueprints === 2, null, 10000);
+  add('both are drawn as holograms', holo ? null : `holograms ${await page.evaluate(() => window.__iron.render.blueprints)}`);
+  const rows = await until(page, () => document.querySelectorAll('[data-testid="bp-row"]').length === 2, null, 10000);
+  add('the build queue panel lists both rows', rows ? null : 'panel rows missing');
+  const small = await page.evaluate(() => [...document.querySelectorAll('[data-testid="bp-queue"] .bp-row button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.getAttribute('aria-label') ?? b.textContent, w: r.width, h: r.height }; }).filter((t) => t.w < 43.5 || t.h < 43.5));
+  add('every queue button is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
+
+  await page.locator('[data-testid="bp-row"]', { hasText: 'School' }).locator('[data-testid="bp-next"]').click();
+  const pinned = await until(page, () => (window.__iron.economy.stats?.blueprints ?? []).map((b) => b.arch).join() === '11,9', null, 10000);
+  add('Build next on the school moves it to the front', pinned ? null : JSON.stringify(await queue()));
+
+  // Resume at 1x: one blueprint starts per growth pass (2 s apart), so the first foundation to appear is the pinned one.
+  await page.locator('button[title="1x (1)"]').click();
+  const first = await until(page, () => window.__iron.tools.buildings().some((b) => b.arch === 9 || b.arch === 11), null, 90000);
+  const started = await page.evaluate(() => window.__iron.tools.buildings().filter((b) => b.arch === 9 || b.arch === 11).map((b) => b.arch));
+  add('the robots start the pinned school before the clinic', first && started.join() === '11' ? null : JSON.stringify(started));
+  const both = await until(page, () => window.__iron.tools.buildings().filter((b) => b.arch === 9 || b.arch === 11).length === 2 && (window.__iron.economy.stats?.blueprints?.length ?? 1) === 0, null, 60000);
+  add('then the clinic, and the queue empties', both ? null : JSON.stringify({ q: await queue(), b: await page.evaluate(() => window.__iron.tools.buildings().map((b) => b.arch)) }));
+  const after = await treasuryOf();
+  add('the price was paid only now: exactly the clinic and the school', after === before - 900 - 1400 ? null : `treasury ${before} -> ${after}`);
+  add('the queue panel is gone once the queue is empty', (await until(page, () => document.querySelectorAll('[data-testid="bp-queue"]').length === 0, null, 10000)) ? null : 'panel still mounted');
+  await page.close();
+  return out;
+}
+// ---- end blueprint block ----
 // ---- Council: approval chip, a debug-triggered request that is accepted and met, the festival gate (webgl2 low; desktop, debug session) ----
 async function councilChecks(open) {
   const out = [];
@@ -1923,6 +1996,7 @@ try {
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await awayChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await firmwareChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await chainChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await blueprintChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await hazardChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await councilChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await scenarioChecks(open));

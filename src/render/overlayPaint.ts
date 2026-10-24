@@ -2,7 +2,7 @@
 // Pure: no three, no DOM. The terrain shader blends the texture over the ground colour by its alpha.
 import { trafficRamp } from '../sim/traffic/ramp.ts';
 import { TILE_DARK } from '../sim/utilities/tables.ts';
-import { CHUNK, CHUNKS, MAP, isWaterTerrain } from '../sim/layers.ts';
+import { CHUNK, CHUNKS, MAP, TERRAIN, isWaterTerrain } from '../sim/layers.ts';
 import type { OverlayMode } from './viewState.ts';
 
 export interface OverlayLayers {
@@ -47,6 +47,7 @@ const WATER_OK: Rgba = [58, 150, 255, 120];
 const WATER_SHORT: Rgba = [255, 160, 60, 140];
 const WATER_BUILDING: Rgba = [120, 205, 255, 195];
 const PIPE: Rgba = [150, 225, 255, 225];
+const ORE_TINT: Rgba = [255, 168, 38, 170];
 
 const LV_STOPS: readonly (readonly [number, number, number, number])[] = [
   [0, 178, 34, 52], [64, 236, 120, 46], [128, 232, 206, 70], [192, 140, 214, 80], [255, 46, 190, 110],
@@ -101,6 +102,8 @@ function colour(mode: OverlayMode, L: OverlayLayers, i: number): Rgba {
       const v = L.depotReach[i]!;
       return v === 0 || !dry(L, i) ? NONE : [60, 214, 255, Math.min(200, Math.round(40 + v * 0.6))];
     }
+    // Ore ground tinted amber, so the player sees where a Mine can go; the chain buildings' own state is drawn as icons (statusIcons.ts).
+    case 'production': return L.terrain[i] === TERRAIN.ORE ? ORE_TINT : NONE;
     case 'crime': {
       const c = L.crime[i]!;
       if (c === 0 || !dry(L, i)) return NONE;

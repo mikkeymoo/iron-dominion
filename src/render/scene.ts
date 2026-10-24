@@ -2,6 +2,7 @@ import { PerspectiveCamera, Scene, type WebGPURenderer } from 'three/webgpu';
 import { CAMERA, type Pose } from './camera.ts';
 import type { RenderMirror } from './mirror.ts';
 import type { AgentStore } from './agentStore.ts';
+import { BlueprintView } from './blueprints.ts';
 import { BuildingsView } from './buildings.ts';
 import { RobotsView } from './robots.ts';
 import { TrafficView } from './traffic.ts';
@@ -27,6 +28,8 @@ export class WorldScene {
   /** Chooses which buildings show which status icon; `icons` draws them. */
   readonly status: StatusIconSystem;
   readonly overlay: OverlayView;
+  /** Queued blueprints as cyan holograms. */
+  readonly blueprints: BlueprintView;
   private viewVersion = -1;
   private under = false;
   readonly robots: RobotsView;
@@ -44,6 +47,8 @@ export class WorldScene {
     this.scene.add(this.lines.group);
     this.icons = new OutageIcons();
     this.scene.add(this.icons.mesh);
+    this.blueprints = new BlueprintView(mirror, mirror.layers.height!);
+    this.scene.add(this.blueprints.group);
     this.status = new StatusIconSystem(mirror, () => this.buildings.anchors, () => this.buildings.anchorVersion);
     this.overlay = new OverlayView(mirror, this.terrain.slots);
     this.robots = new RobotsView(agents, mirror, {
@@ -70,11 +75,14 @@ export class WorldScene {
       this.terrain.setCutaway(this.under);
       this.lines.setUnderground(this.under);
       this.buildings.group.visible = !this.under;
+      this.blueprints.group.visible = !this.under;
       if (this.fx.foliage) this.fx.foliage.group.visible = !this.under;
       this.icons.setVisible(!this.under);
     }
     this.overlay.update(view?.effectiveOverlay ?? 'none');
     this.lines.update(nowSec);
+    this.blueprints.update(nowSec);
+    this.status.production = view?.effectiveOverlay === 'production';
     const recs = this.status.refresh(focus, cameraDist, nowSec * 1000);
     if (recs) this.icons.setRecords(recs);
     this.icons.tick(nowSec, cameraDist);
@@ -139,6 +147,7 @@ export class WorldScene {
     this.robots.dispose();
     this.fx.dispose();
     this.icons.dispose();
+    this.blueprints.dispose();
     this.lines.dispose();
     this.buildings.dispose();
     this.terrain.dispose();
