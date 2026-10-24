@@ -74,8 +74,9 @@ describe('EdictsPanel', () => {
     }
     const night = screen.getByTestId(`edict-${EDICT.NIGHT_SHIFT}`);
     expect(night.querySelectorAll('.up')).toHaveLength(1);
-    expect(night.querySelectorAll('.down')).toHaveLength(1);
+    expect(night.querySelectorAll('.down')).toHaveLength(2);
     expect(night.textContent).toContain('+40% build speed at night');
+    expect(night.textContent).toContain('-3 pts approval');
     expect(screen.getByTestId(`edict-${EDICT.CURFEW}`).textContent).toContain('-25% crime');
     expect(screen.getByTestId(`edict-${EDICT.CURFEW}`).textContent).toContain('-10% commercial income');
   });

@@ -10,6 +10,7 @@ import type { SimEvent } from '../sim/world.ts';
 import { ToolController, type ToolAction, type ToolWorld } from '../render/tools/controller.ts';
 import { findFlatSite, findWaterTile } from '../render/tools/sites.ts';
 import { buildingAnchor, selectionFrom, type KeyAction, type Tile } from '../render/tools/toolSpec.ts';
+import { FESTIVALS, GROUP_NAMES, VERY_LOW } from '../sim/council/tables.ts';
 import { DIRECTIVES } from '../sim/directives.ts';
 import { MEGA } from '../sim/megaprojects.ts';
 import { copyOf } from './directiveCopy.ts';
@@ -37,6 +38,12 @@ const REASONS: Record<string, string> = {
   'max-loans': 'You already have three loans. Repay one first.',
   'no-loan': 'That loan has already been repaid.',
   locked: 'That is not unlocked yet. Grow the city to the next milestone.',
+  approval: 'The people are not happy enough for a festival. Approval must be above 70.',
+  busy: 'A festival is already on.',
+  cooldown: 'That festival needs more time to rest.',
+  night: 'Fireworks only work after dark.',
+  'no-city': 'There is nothing to celebrate yet.',
+  'no-request': 'That request is gone.',
   'no-road': 'A project needs a road along one edge so the robots can reach it.',
   exists: 'That project is already built or under construction.',
   requirements: 'The city does not meet that project\'s requirements yet. See the Projects panel.',
@@ -164,6 +171,19 @@ export class ToolsRuntime {
       case 'directiveReady': this.toast(`UNIT-0: ${copyOf(DIRECTIVES[e.index]?.id ?? '')?.done ?? 'Directive done.'} Claim your reward.`, 'good'); break;
       case 'directiveClaimed': this.toast(`UNIT-0 paid ${money(e.reward)}`, 'good'); break;
       case 'firstBuilding': this.toast('Your first building is finished! The bots are cheering.', 'good'); break;
+      case 'council': this.councilToast(e); break;
+      case 'festival': if (e.phase === 'start') this.toast(`${FESTIVALS[e.festival]?.name ?? 'Festival'} has begun!`, 'good'); break;
+      case 'approvalWarning': this.toast(`The people are furious: approval has been under ${VERY_LOW} for ${e.months} months. Open the Council.`); break;
+    }
+  }
+
+  private councilToast(e: Extract<SimEvent, { type: 'council' }>): void {
+    const who = GROUP_NAMES[e.group] ?? 'Citizens';
+    switch (e.phase) {
+      case 'posted': this.toast(`${who} have a request. Open the Council.`, 'hint'); break;
+      case 'completed': this.toast(`${who} are pleased: +${money(e.cash)}, +${e.approval} approval, +${e.rp} RP`, 'good'); break;
+      case 'failed': this.toast(`${who} are angry: approval ${e.approval}`); break;
+      case 'expired': this.toast(`${who} gave up waiting for an answer.`, 'hint'); break;
     }
   }
 

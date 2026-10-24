@@ -24,6 +24,8 @@ const ICONS: Record<IssueKind | 'ok', () => ReactNode> = {
   noFire: () => <Svg><path d="M12 3c1 4 5 5.5 5 10a5 5 0 01-10 0c0-2 1-3 2-4 .3 1.5 1 2 2 2 0-3-.5-5 1-8z" /><path d="M4 4l16 16" /></Svg>,
   noLand: () => <Svg><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><path d="M13 16.5h7M16.5 13v7" /></Svg>,
   abandoned: () => <Svg><path d="M4 20V10l8-6 8 6v10z" /><path d="M9 11l6 6M15 11l-6 6" /></Svg>,
+  request: () => <Svg><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4M9 12h7M9 16h5" /></Svg>,
+  approval: () => <Svg><circle cx="12" cy="12" r="9" /><path d="M8.5 16.5c1-1.5 2.2-2.2 3.5-2.2s2.5.7 3.5 2.2M9 9.5h.01M15 9.5h.01" /></Svg>,
 };
 
 export function IssueIcon({ kind }: { kind: IssueKind | 'ok' }) {

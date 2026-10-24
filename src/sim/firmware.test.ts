@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, archetype, rciId } from './catalog.ts';
 import { execute, type Command, type CommandBody } from './commands.ts';
+import { approvalTarget } from './council/index.ts';
 import { destroyBuilding } from './disasters/index.ts';
 import { closeMonth, computeBudget, countTotals, demandTargets, emissionOf, landValueAt } from './economy/index.ts';
 import { createSim, restore, snapshot, stateHash, step } from './engine.ts';
@@ -102,13 +103,13 @@ describe('mods(): each node and each edict changes exactly its documented consta
     [NODE.PRIORITY_LANES]: { jamSlow: 0 },
   };
   const EDICT_EFFECT: Record<number, Partial<Mods>> = {
-    [EDICT.NIGHT_SHIFT]: { nightBuild: 1.4, depotPollution: 60 },
+    [EDICT.NIGHT_SHIFT]: { nightBuild: 1.4, depotPollution: 60, approval: -3 },
     [EDICT.OVERCLOCK]: { haulerSpeed: 1.3, breakdown: 262, breakdownTicks: 30, edictCost: 100 },
-    [EDICT.ROBO_TAXIS]: { taxiShare: 85, commuteRescue: 0.4, edictCost: 400 },
-    [EDICT.SMOG_PERMIT]: { industryOutput: 1.5, industryPollution: 1.5, demandI: 154 },
-    [EDICT.CURFEW]: { crime: 0.75, incomeC: 0.9, edictCost: 150 },
-    [EDICT.GREEN_ROOFS]: { landValue: 5, greenUpkeep: 2 },
-    [EDICT.TAX_HOLIDAY]: { demandR: 205, incomeR: 0.7 },
+    [EDICT.ROBO_TAXIS]: { taxiShare: 85, commuteRescue: 0.4, edictCost: 400, approval: 5 },
+    [EDICT.SMOG_PERMIT]: { industryOutput: 1.5, industryPollution: 1.5, demandI: 154, approval: -5 },
+    [EDICT.CURFEW]: { crime: 0.75, incomeC: 0.9, edictCost: 150, approval: -6 },
+    [EDICT.GREEN_ROOFS]: { landValue: 5, greenUpkeep: 2, approval: 3 },
+    [EDICT.TAX_HOLIDAY]: { demandR: 205, incomeR: 0.7, approval: 4 },
     [EDICT.RECYCLING]: { recycle: 0.5, edictCost: 150 },
   };
 
@@ -667,10 +668,18 @@ const withinTolerance = (measured: number, shown: number): boolean => Math.abs(m
 describe('edict effects match the numbers on their cards (within 15%)', () => {
   const N = EDICT_NUMBERS;
   const pct = (on: number, off: number): number => (on / off - 1) * 100;
+  /** Points the monthly approval target moves when the edict is enacted in the same finished city. */
+  const approvalShift = (id: number): number => {
+    const sim = economyCity();
+    const off = approvalTarget(sim.world);
+    enacted(sim, id);
+    return approvalTarget(sim.world) - off;
+  };
 
   /** Measure every effect of one edict; the key is the one in EDICTS[...].effects. */
   const MEASURE: Record<number, Record<string, () => number>> = {
     [EDICT.NIGHT_SHIFT]: {
+      approval: () => approvalShift(EDICT.NIGHT_SHIFT),
       nightBuild: () => {
         const off = buildPerBuilderTick(() => {}, pinClock(NIGHT));
         const on = buildPerBuilderTick((s) => enacted(s, EDICT.NIGHT_SHIFT), pinClock(NIGHT));
@@ -704,6 +713,7 @@ describe('edict effects match the numbers on their cards (within 15%)', () => {
       },
     },
     [EDICT.ROBO_TAXIS]: {
+      approval: () => approvalShift(EDICT.ROBO_TAXIS),
       taxiShare: () => {
         const share = (s: number): number => { let n = 0; for (let k = 0; k < 30000; k++) if (isTaxi(42, k, k * 13 + 1, s)) n++; return n / 30000; };
         return pct(share(computeMods(0, bit(EDICT.ROBO_TAXIS)).taxiShare), share(BASE.taxiShare));
@@ -716,6 +726,7 @@ describe('edict effects match the numbers on their cards (within 15%)', () => {
       },
     },
     [EDICT.SMOG_PERMIT]: {
+      approval: () => approvalShift(EDICT.SMOG_PERMIT),
       industryOutput: () => {
         const produced = (on: boolean): number => {
           const sim = flatSim(42, true);
@@ -748,6 +759,7 @@ describe('edict effects match the numbers on their cards (within 15%)', () => {
       },
     },
     [EDICT.CURFEW]: {
+      approval: () => approvalShift(EDICT.CURFEW),
       crime: () => {
         const sim = economyCity();
         const slot = sim.world.bId[60 * MAP + 60]! - 1;
@@ -765,6 +777,7 @@ describe('edict effects match the numbers on their cards (within 15%)', () => {
       },
     },
     [EDICT.GREEN_ROOFS]: {
+      approval: () => approvalShift(EDICT.GREEN_ROOFS),
       landValue: () => {
         const sim = economyCity();
         const off = landValueAt(sim.world, 100, 100);
@@ -779,6 +792,7 @@ describe('edict effects match the numbers on their cards (within 15%)', () => {
       },
     },
     [EDICT.TAX_HOLIDAY]: {
+      approval: () => approvalShift(EDICT.TAX_HOLIDAY),
       demandR: () => {
         const sim = economyCity();
         const off = demandTargets(sim.world, countTotals(sim.world))[0];

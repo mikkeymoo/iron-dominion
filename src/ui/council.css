@@ -1,0 +1,43 @@
+/* Approval chip in the HUD strip and the Council panel. Every control is at least 44 px tall in the panel. */
+.money-row { display: inline-flex; align-items: center; gap: 8px; }
+.approval-chip { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 10px; font: inherit; font-size: 0.82rem; font-variant-numeric: tabular-nums; color: #8fd3ff; background: rgba(230, 237, 243, 0.08); border: 1px solid currentColor; border-radius: 22px; cursor: pointer; }
+.approval-chip .face { flex: 0 0 auto; }
+.approval-chip[data-level="high"] { color: #8fe3a4; }
+.approval-chip[data-level="good"] { color: #8fd3ff; }
+.approval-chip[data-level="low"] { color: #f2a33a; }
+.approval-chip[data-level="veryLow"] { color: #ff7a5c; animation: approval-pulse 1.6s ease-in-out infinite; }
+@keyframes approval-pulse { 50% { box-shadow: 0 0 0 3px rgba(255, 122, 92, 0.35); } }
+@media (prefers-reduced-motion: reduce) { .approval-chip[data-level="veryLow"] { animation: none; } }
+.topbar[data-layout="phone"] .approval-chip { flex: 0 0 auto; flex-direction: column; gap: 0; padding: 0 6px; font-size: 0.74rem; line-height: 1.1; }
+
+.council-meter { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 4px 10px; margin: 8px 0 2px; }
+.council-meter strong { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.council-meter .face { width: 30px; height: 30px; }
+.council-meter[data-level="high"] { color: #8fe3a4; }
+.council-meter[data-level="good"] { color: #8fd3ff; }
+.council-meter[data-level="low"] { color: #f2a33a; }
+.council-meter[data-level="veryLow"] { color: #ff7a5c; }
+.council-level { font-size: 0.9rem; }
+.council-bar { grid-column: 1 / -1; position: relative; height: 10px; border-radius: 5px; background: rgba(230, 237, 243, 0.14); }
+.council-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: currentColor; }
+.council-bar b { position: absolute; top: -3px; width: 2px; height: 16px; background: rgba(230, 237, 243, 0.7); }
+.council-trend { grid-column: 1 / -1; font-size: 0.8rem; color: #e6edf3; opacity: 0.8; }
+.council-factors { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.council-factors .up { color: #8fe3a4; }
+.council-factors .down { color: #ffb8a6; }
+.council-panel h3 { margin: 10px 0 6px; }
+.council-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.council-request, .council-festival { padding: 8px; border: 1px solid rgba(230, 237, 243, 0.22); border-radius: 8px; background: rgba(230, 237, 243, 0.05); }
+.council-request[data-state="accepted"] { border-color: rgba(143, 211, 255, 0.6); }
+.council-request[data-urgent="true"] { border-color: rgba(242, 163, 58, 0.9); }
+.council-request[data-done="true"] { border-color: rgba(143, 227, 164, 0.8); }
+.council-festival[data-blocked=""] { border-color: rgba(143, 227, 164, 0.6); }
+.council-text, .council-reward, .council-progress { margin: 4px 0; font-size: 0.82rem; }
+.council-reward { opacity: 0.85; }
+.council-progress { color: #8fd3ff; }
+.council-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.council-actions .tb.wide, .council-festival .tb.wide { flex: 1 1 7rem; min-height: 44px; white-space: normal; }
+.council-festival .tb.wide { width: 100%; margin-top: 4px; }
+@media (max-width: 640px) {
+  .council-factors { grid-template-columns: 1fr; }
+}

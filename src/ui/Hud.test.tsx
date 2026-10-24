@@ -268,6 +268,42 @@ describe('focus mode and the grab headers', () => {
   });
 });
 
+describe('approval chip', () => {
+  const council = { approval: 41, level: 'good' as const, target: 44, factors: [], requests: [], festivals: [], running: null, completed: 0, failed: 0 };
+
+  it('sits beside the money on a desktop and opens the council panel', () => {
+    const onPanel = vi.fn();
+    mount('desktop', { stats: { ...stats, council }, panel: null, onPanel });
+    const chip = screen.getByTestId('approval-chip');
+    expect(screen.getByTestId('approval-value').textContent).toBe('41');
+    expect(chip.parentElement).toBe(screen.getByTestId('money').parentElement);
+    fireEvent.click(chip);
+    expect(onPanel).toHaveBeenLastCalledWith('council');
+  });
+
+  it('is a 44 px strip item of its own on a phone, outside the stacked readouts, and closes the panel when open', () => {
+    const onPanel = vi.fn();
+    mount('phone', { stats: { ...stats, council }, panel: 'council', onPanel });
+    const chip = screen.getByTestId('approval-chip');
+    expect(chip.closest('[data-testid="readouts"]')).toBeNull();
+    expect(bar().contains(chip)).toBe(true);
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(chip);
+    expect(onPanel).toHaveBeenLastCalledWith(null);
+  });
+
+  it('is absent before the first Stats message and has a menu row once it arrives', () => {
+    const { unmount } = mount('desktop');
+    expect(screen.queryByTestId('approval-chip')).toBeNull();
+    unmount();
+    const onPanel = vi.fn();
+    mount('desktop', { stats: { ...stats, council }, panel: 'menu', onPanel });
+    fireEvent.click(screen.getByTestId('council-menu'));
+    expect(onPanel).toHaveBeenLastCalledWith('council');
+    expect(screen.getByTestId('council-menu').textContent).toBe('Council (41% approval)');
+  });
+});
+
 describe('shared HUD behaviour', () => {
   it('resets the tips from the menu', () => {
     const { calls } = mount('phone');

@@ -1,4 +1,5 @@
 import { execute } from './commands.ts';
+import { councilSystem } from './council/index.ts';
 import { DAY_TICKS, MAP, S, WEATHER } from './layers.ts';
 import { directivesSystem } from './directives.ts';
 import { disastersSystem } from './disasters/index.ts';
@@ -76,6 +77,7 @@ export const SYSTEMS: readonly { name: string; run: System }[] = [
   { name: 'disasters', run: disasters },
   { name: 'milestones', run: milestones },
   { name: 'directives', run: directivesSystem },
+  { name: 'council', run: councilSystem },
 ];
 
 export function runTick(sim: Sim): void {

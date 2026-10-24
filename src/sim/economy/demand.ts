@@ -1,3 +1,4 @@
+import { approvalDemand } from '../council/effects.ts';
 import { mods } from '../firmware.ts';
 import { S, type World } from '../layers.ts';
 import {
@@ -45,8 +46,8 @@ export function demandTargets(world: World, t: Totals): [number, number, number]
   const i = I_BASE + Math.floor((gap * I_GAP_W) / ONE) + Math.floor((unRatio * I_UNEMP_W) / ONE)
     + (TAX_NEUTRAL - taxRate(world, 3)) * TAX_SLOPE[2];
 
-  const m = mods(world);
-  return [r + m.demandR, c, i + m.demandI];
+  const m = mods(world), ad = approvalDemand(world);
+  return [r + m.demandR + ad[0], c + ad[1], i + m.demandI + ad[2]];
 }
 
 /**

@@ -4,6 +4,7 @@ import { makeSample, type AgentStore } from './agentStore.ts';
 import type { SimClient } from '../sim/client.ts';
 import { CAMERA, CameraRig, pixelToNdc, rayFromPose } from './camera.ts';
 import { celebrate, type CelebrateDeps } from './celebrate.ts';
+import { FestivalFx } from './festival.ts';
 import { CinematicPlayer, flyTo, megaOrbit, pickTourStops, planTour, swoop, type Path } from './cinematic.ts';
 import { cachedModel } from './instances.ts';
 import { megaStages } from '../sim/megaprojects.ts';
@@ -332,6 +333,13 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       playPath(megaOrbit(home, t), (completed) => { if (!completed) { Object.assign(rig.state, home); rig.version++; } });
     },
   };
+  const festival = new FestivalFx({
+    emit: celebrations.emit,
+    ground: celebrations.ground,
+    road: () => mirror.layers.road!,
+  });
+  celebrations.festival = festival;
+  world.robots.parade = (out) => festival.parade(out);
   celebrations.swoop = (t) => {
     if (cinematic.active || rig.following || photo.active) return;
     const home = { ...rig.state };
@@ -379,6 +387,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     input.flush(dt);
     rig.step(dt);
     if (mirror.hasResync) celebrate(mirror.takeCelebrations(), celebrations);
+    festival.step(dt);
     const pose = rig.pose();
     // A quake or an impact shakes only what is drawn: picking and the view rect keep using the steady pose.
     const [sx, sy, sz] = world.fx.shakeOffset(now / 1000, pose, rig.state.dist);

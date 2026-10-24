@@ -2,6 +2,7 @@ import { ARCH, BFLAG } from './catalog.ts';
 import {
   BANKRUPT_MONTHS, CRIME_TOLERANCE, computeBudget, footprintMean, growthCandidates, isOperating, reachAnchors, zoneDemand, zoneOfArch,
 } from './economy/index.ts';
+import { approvalFactors, approvalOf, GROUP_NAMES, LOW, MONTH_TICKS, openRequests, overlayOf, progressOf, REQ_STATE, requestText, VERY_LOW } from './council/index.ts';
 import { mods } from './firmware.ts';
 import { archLabel, capitalise } from './labels.ts';
 import { BMAX, MAP, RMAX, S, TILES, type World } from './layers.ts';
@@ -35,7 +36,7 @@ const GAP_REACH = 12;
 /** Months of cash left (at the running month's net) under which the advisor warns before the treasury goes negative. */
 const RUNWAY_MONTHS = 4;
 
-const KIND_ORDER: readonly IssueKind[] = ['fire', 'budget', 'depot', 'power', 'water', 'stuck', 'jobs', 'commute', 'crime', 'noFire', 'noLand', 'abandoned'];
+const KIND_ORDER: readonly IssueKind[] = ['fire', 'budget', 'depot', 'power', 'water', 'stuck', 'jobs', 'commute', 'crime', 'noFire', 'noLand', 'abandoned', 'request', 'approval'];
 const ZONE_WORD = ['', 'homes', 'shops', 'industry'] as const;
 const ZONE_BUILDING = ['', 'residential', 'commercial', 'industrial'] as const;
 
@@ -312,6 +313,32 @@ function abandonedIssue(w: World): Issue | null {
   return make('abandoned', 'growth', 35 + Math.min(30, n * 3), n, centreOf(w, first), `${capitalise(plural(n, 'building is', 'buildings are'))} abandoned: ${why}.`, overlay);
 }
 
+const FACTOR_OVERLAY: Record<string, IssueOverlay> = { pollution: 'pollution', crime: 'crime', outages: 'power', commutes: 'traffic', services: 'none' };
+
+/** Council requests near their deadline or waiting for an answer, and approval low enough to cost money and build speed. */
+function councilIssues(w: World): Issue[] {
+  const out: Issue[] = [];
+  const tick = w.scalars[S.tick]!;
+  for (const r of openRequests(w)) {
+    const left = r.deadline - tick, who = GROUP_NAMES[r.group]!, p = progressOf(w, r);
+    if (r.state === REQ_STATE.ACCEPTED && left < MONTH_TICKS && !p.done) {
+      out.push(make('request', 'services', 50 + (1 - Math.max(0, left) / MONTH_TICKS) * 30, 1, r, `${who} deadline under a month away: ${requestText(r)} ${p.text}.`, overlayOf(r.kind), `request-${r.id}`));
+    } else if (r.state === REQ_STATE.PENDING) {
+      out.push(make('request', 'services', 28, 1, r, `${who} are waiting for an answer: ${requestText(r)}`, overlayOf(r.kind), `request-${r.id}`));
+    }
+  }
+  const a = approvalOf(w);
+  if (a < LOW) {
+    const worst = approvalFactors(w).reduce((m, f) => (f.value < m.value ? f : m));
+    const why = worst.value < 0 ? `${worst.label.toLowerCase()} is the biggest cause` : 'nothing stands out';
+    const text = a < VERY_LOW
+      ? `Approval is ${Math.round(a)}%, the people are furious: ${why}. Taxes are resisted and the robots are slowing down.`
+      : `Approval is ${Math.round(a)}%: ${why}. Taxes are resisted and the robots are slowing down.`;
+    out.push(make('approval', 'services', a < VERY_LOW ? 85 : 40 + (LOW - a) * 1.5, 1, cityCentre(w), text, FACTOR_OVERLAY[worst.key] ?? 'none'));
+  }
+  return out;
+}
+
 /** Every problem the world has right now, worst first, at most MAX_ISSUES. */
 export function deriveIssues(sim: Sim): Issue[] {
   const w = sim.world, net = netOf(sim), c = census(w);
@@ -320,7 +347,7 @@ export function deriveIssues(sim: Sim): Issue[] {
     fireIssue(w), budgetIssue(w), depotIssue(sim, c, anchors),
     outageIssue(w, BFLAG.UNPOWERED, w.powerOn, 'power'), outageIssue(w, BFLAG.UNWATERED, w.waterOn, 'water'),
     stuckIssue(sim, net), jobsIssue(sim, net, c, anchors), commuteIssue(w), crimeIssue(w), fireCoverIssue(w), abandonedIssue(w),
-    ...landIssues(sim, c),
+    ...landIssues(sim, c), ...councilIssues(w),
   ];
   const list = found.filter((i): i is Issue => i !== null);
   list.sort((a, b) => b.severity - a.severity || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || (a.y * MAP + a.x) - (b.y * MAP + b.x) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

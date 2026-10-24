@@ -1166,6 +1166,49 @@ async function firmwareChecks(open) {
 }
 // ---- end firmware block ----
 
+// ---- Council: approval chip, a debug-triggered request that is accepted and met, the festival gate (webgl2 low; desktop, debug session) ----
+async function councilChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`council: ${name}`, problem]);
+  const page = await open(TRAFFIC_QUERY(0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy?.stats?.council); }, null, 120000);
+  const site = up ? await (async () => { await until(page, () => window.__iron.tools.findSite(26) !== null, null, 20000); return page.evaluate(() => window.__iron.tools.findSite(26)); })() : null;
+  if (!site) { add('city boots with the council stats and a build site', 'renderer, economy stats or site missing'); await page.close(); return out; }
+  const council = () => page.evaluate(() => { const s = window.__iron.economy.stats; return { ...s.council, treasury: s.treasury }; });
+  const first = await council();
+  add('a new city opens at approval 50 with no requests', first.approval === 50 && first.requests.length === 0 && first.level === 'good' ? null : JSON.stringify(first));
+  add('the approval chip sits in the top bar showing 50', (await until(page, () => document.querySelector('[data-testid="approval-value"]')?.textContent === '50', null, 10000)) ? null : 'chip missing or wrong');
+
+  await page.locator('[data-testid="approval-chip"]').click();
+  add('tapping the chip opens the Council panel', (await until(page, () => !!document.querySelector('[data-testid="council-panel"]'), null, 5000)) ? null : 'no panel');
+  add('it shows 50, the empty request list and three festival buttons, all off', (await page.locator('[data-testid="council-approval"]').textContent()) === '50' && (await page.locator('[data-testid="council-empty"]').count()) === 1
+    && (await page.locator('[data-testid^="festival-hold-"]:disabled').count()) === 3 ? null : 'panel contents wrong');
+  const small = await page.evaluate(() => [...document.querySelectorAll('[data-testid="council-panel"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, w: r.width, h: r.height }; }).filter((t) => t.w < 43.5 || t.h < 43.5));
+  add('every Council panel button is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
+
+  await page.evaluate(() => window.__iron.economy.command({ type: 'debugCouncil', kind: 3 }));
+  add('a debug-triggered request shows up pending in the panel (Merchants, commercial jobs)', (await until(page, () => document.querySelector('[data-testid="request-0"]')?.dataset.state === 'pending', null, 10000))
+    && /Merchants/.test(await page.locator('[data-testid="request-0"]').textContent()) ? null : JSON.stringify(await council()));
+  await page.locator('[data-testid="request-accept-0"]').click();
+  add('Accept moves it to accepted', (await until(page, () => window.__iron.economy.stats.council.requests[0]?.state === 'accepted', null, 10000)) ? null : JSON.stringify(await council()));
+
+  const before = await council();
+  // A finished high-density shop block adds well over the 20 jobs asked; no cost, so the treasury only moves by the reward.
+  await page.evaluate((s) => window.__iron.economy.command({ type: 'debugGrow', x: s.x + 2, y: s.y + 2, archetype: 33, progress: 1 }), site);
+  const done = await until(page, () => window.__iron.economy.stats.council.completed === 1, null, 30000);
+  const after = await council();
+  add('meeting the goal completes the request', done ? null : JSON.stringify(after));
+  add('approval rose by the 5 point reward', after.approval > before.approval ? null : `approval ${before.approval} -> ${after.approval}`);
+  add('the treasury rose by the 800 reward', after.treasury > before.treasury ? null : `treasury ${before.treasury} -> ${after.treasury}`);
+  add('the request leaves the panel', (await until(page, () => !document.querySelector('[data-testid="request-0"]'), null, 5000)) ? null : 'card still shown');
+  add('festivals stay shut at approval 55', (await page.locator('[data-testid^="festival-hold-"]:disabled').count()) === 3 ? null : 'a festival button is enabled');
+  await page.keyboard.press('Escape');
+  add('Escape closes the Council panel', (await until(page, () => !document.querySelector('[data-testid="council-panel"]'), null, 3000)) ? null : 'still open');
+  await page.close();
+  return out;
+}
+// ---- end council block ----
+
 // ---- Why is this happening: advisor chip, jump to an issue, tap for details (webgl2 low; desktop) ----
 // A debug city with a power plant and one house that has no line to it: the sim names the house as an unpowered building, the advisor
 // chip shows a power issue, tapping the issue flies the camera to the house within a few tiles, and tapping the house shows its card.
@@ -1598,6 +1641,7 @@ try {
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await advisorChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await starterChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await firmwareChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await councilChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

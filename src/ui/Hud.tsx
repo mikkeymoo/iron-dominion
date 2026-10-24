@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DirectiveStats, FirmwareStats, LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { CouncilStats, DirectiveStats, FirmwareStats, LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
+import { ApprovalChip } from './Council';
 import { DemandBars } from './DemandBars';
 import { FirmwareMenuRows } from './FirmwarePanels';
 import { UtilityBars } from './UtilityBars';
@@ -61,6 +62,8 @@ export interface HudStats {
   directives?: DirectiveStats;
   /** Research points, owned firmware, active edicts and depot modules from the newest Stats message. */
   firmware?: FirmwareStats;
+  /** Approval, council requests and festivals from the newest Stats message. */
+  council?: CouncilStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -201,6 +204,7 @@ export function Hud({
   const noticeText = notice || (lc.lastError ? failText(lc.lastError) : '');
 
   const rciEl = <DemandBars demand={stats.rciDemand} />;
+  const approvalEl = stats.council ? <ApprovalChip council={stats.council} open={openPanel === 'council'} onClick={() => setOpenPanel(openPanel === 'council' ? null : 'council')} /> : null;
   const statusEl = (
     <button
       type="button" className={`tb icon status-chip${alert ? ' alert' : ''}`} data-testid="status-chip" aria-expanded={status} aria-haspopup="dialog"
@@ -240,7 +244,12 @@ export function Hud({
         )}
         <div className="readouts" data-testid="readouts" {...(phone ? readoutGestures : {})}>
           {has('clock') && <span>Day {stats.day} {clock(stats.dayFrac)}</span>}
-          {has('money') && <span className="money" data-testid="money">{usd(stats.treasury)}</span>}
+          {has('money') && (
+            <span className="money-row">
+              <span className="money" data-testid="money">{usd(stats.treasury)}</span>
+              {!phone && approvalEl}
+            </span>
+          )}
           {has('population') && <span className="pop" data-testid="population">Pop {Math.round(stats.population).toLocaleString('en-US')}</span>}
           {has('net') && (
             <span className={stats.lastNet < 0 ? 'net neg' : 'net'} data-testid="monthly-net" title="Net of the last budget month">
@@ -248,6 +257,7 @@ export function Hud({
             </span>
           )}
         </div>
+        {phone && has('money') && approvalEl}
         <div data-slot="advisor" />
         {has('workforce') && <WorkforceReadout w={stats.workforce} depots={facts.depots} />}
         {has('workforce') && <TrafficReadout t={stats.traffic} />}
@@ -300,6 +310,7 @@ export function Hud({
                 )}
                 {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
                 <button type="button" className="tb row" data-testid="services-menu" onClick={() => { onServices(); }}>City services</button>
+                {stats.council && <button type="button" className="tb row" data-testid="council-menu" onClick={() => setOpenPanel('council')}>Council ({stats.council.approval}% approval)</button>}
                 {onProjects && <button type="button" className="tb row" data-testid="projects-menu" onClick={() => { onProjects(); }}>Milestones and projects ({TIERS[stats.milestone?.tier ?? 0]!.name})</button>}
                 {onProjects && <FirmwareMenuRows stats={stats.firmware} onPanel={(p) => setOpenPanel(p)} />}
                 <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>

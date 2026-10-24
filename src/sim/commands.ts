@@ -3,6 +3,7 @@ import { DEPOT_START_STOCK } from './robots/constants.ts';
 import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
 import { grantRp, invalidateModuleCache, researchNode, setModule, toggleEdictCard } from './firmware.ts';
 import { clearJob } from './robots/pool.ts';
+import { debugPost, holdFestival, respond } from './council/index.ts';
 import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
@@ -50,7 +51,13 @@ export type CommandBody =
   /** Fit module `module` (MODULE, 0 clears) into slot `index` (0 or 1) of the depot in building slot `slot`. Pays its price, refunds half the one it replaces. */
   | { type: 'setDepotModule'; slot: number; index: number; module: number }
   /** Debug-only: add research points. */
-  | { type: 'debugRp'; amount: number };
+  | { type: 'debugRp'; amount: number }
+  /** Accept or decline the council request in `slot` (0 or 1; sim/council). Declining costs a little approval. */
+  | { type: 'councilRespond'; slot: number; accept: boolean }
+  /** Pay for a festival (FESTIVAL id; needs approval above 70, the festival off cooldown, and night for Fireworks). */
+  | { type: 'holdFestival'; festival: number }
+  /** Debug-only: post a council request of `kind` (council KIND) at once, whatever the city looks like; `accept` also accepts it. */
+  | { type: 'debugCouncil'; kind: number; accept?: boolean };
 
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
 export type Command = { id: number; tick: number } & CommandBody;
@@ -437,6 +444,12 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'undo': undo(sim, cmd); break;
       case 'claimDirective': claimDirective(sim, cmd); break;
       case 'research': case 'toggleEdict': case 'setDepotModule': case 'debugRp': firmwareCommand(sim, cmd); break;
+      case 'councilRespond': case 'holdFestival': case 'debugCouncil': {
+        const why = cmd.type === 'councilRespond' ? respond(sim, cmd.slot, cmd.accept)
+          : cmd.type === 'holdFestival' ? holdFestival(sim, cmd.festival) : debugPost(sim, cmd.kind, cmd.accept === true);
+        if (why) reject(why);
+        break;
+      }
       default: reject('unknown-command');
     }
     sim.events.push(journal ? { type: 'accepted', cmd: cmd.id, tick, journal } : { type: 'accepted', cmd: cmd.id, tick });

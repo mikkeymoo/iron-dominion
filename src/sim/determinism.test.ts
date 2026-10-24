@@ -24,8 +24,8 @@ interface Golden {
   traffic: { ticks: number; hash: number };
 }
 
-/** The two layers firmware added (bMod, firmware). */
-const FIRMWARE_LAYERS = new Set(['bMod', 'firmware']);
+/** The layers added after the first golden: firmware's two (bMod, firmware) and the council's (approval, requests, festivals). */
+const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'council']);
 const legacyHash = (sim: Sim): number => hashWorld(sim.world, (name) => !FIRMWARE_LAYERS.has(name));
 
 function compute(): Golden & { legacy: { scripted: number; idle: number; traffic: number } } {
@@ -48,8 +48,9 @@ function trafficTown(): ReturnType<typeof gridCity> {
 }
 
 describe('determinism', () => {
-  // The firmware unit added two layers (bMod, firmware), so every golden hash moved. `legacy` holds the hashes from before it, over
-  // every other layer: they must still match, which shows a city that buys no firmware, fits no module and enacts no edict plays exactly as it did.
+  // The firmware unit added two layers (bMod, firmware) and the council unit a third (council), so every golden hash moved. `legacy` holds the
+  // hashes from before them, over every other layer: they must still match, which shows a city that buys no firmware, fits no module, enacts no
+  // edict and keeps neutral approval (the golden runs end before the first budget month closes) plays exactly as it did.
   it('matches the golden hashes in golden.json (a deliberate change pastes the printed value there)', () => {
     const got = compute();
     expect(got, `golden.json should become: ${JSON.stringify(got)}`).toEqual(golden);
