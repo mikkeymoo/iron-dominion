@@ -4,7 +4,7 @@ import { createPlatformDb, openIdbAdapter } from '../platform/db.ts';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting } from '../platform/settings.ts';
 import { Ambience } from './ambience.ts';
 import { AudioEngine, DEFAULT_MIX } from './engine.ts';
-import { AudioDirector, mixOf } from './index.ts';
+import { AudioDirector, mixOf, type AudioSource } from './index.ts';
 import { asContext, FakeAudioContext, type FakeNode } from './fakeAudio.ts';
 import { AMBIENCE_LAYERS, W, ambienceWeights, busGains, nightness, populationLevel, thunderDelay, thunderLevel, type AmbienceInput } from './mix.ts';
 import { BEATS_PER_BAR, MusicScheduler, bpmOf } from './music.ts';
@@ -139,6 +139,39 @@ describe('director', () => {
     expect(amb.thunder(30)).toBe(true);
     expect(engine.playing.some((p) => p.name === 'thunder')).toBe(true);
     amb.dispose();
+  });
+
+  it('silences ambience and ducks music when the game screen goes away, and revives them for the next session', async () => {
+    const { engine } = engineWith();
+    await engine.unlock();
+    const d = new AudioDirector(engine, 4);
+    const noop = (): (() => void) => () => undefined;
+    const fakeSrc = (speed: number): AudioSource => ({
+      mirror: {}, agents: {},
+      tools: { controller: { onAction: noop, subscribe: noop, sel: null }, onCommandEvent: noop, subscribe: noop, toasts: [] },
+      lifecycle: { state: { visible: true, awaitingResume: false, speed }, subscribe: noop },
+    } as unknown as AudioSource);
+    const gains = (): number[] => Object.values((d.ambience as unknown as { outs: Record<string, { gain: { value: number } }> }).outs).map((n) => n.gain.value);
+    const loud = input({ weather: W.STORM, weatherIntensity: 1, population: 5000, camDist: 20, nearBuildings: 60 });
+
+    const off = d.attach(fakeSrc(1));
+    d.setActive(true);
+    for (let i = 0; i < 20; i++) d.ambience.update(loud, 0.25);
+    expect(Math.max(...gains())).toBeGreaterThan(0.05);
+    expect(d.engine.busLevels.music).toBeGreaterThan(0);
+
+    d.setActive(false);
+    expect(gains().every((g) => g === 0)).toBe(true);
+    expect(Object.values(d.ambience.weights).every((v) => v === 0)).toBe(true);
+    expect(d.engine.busLevels.music).toBeCloseTo(DEFAULT_MIX.music * 0.3);
+    off();
+
+    d.attach(fakeSrc(1));
+    d.setActive(true);
+    expect(d.engine.busLevels.music).toBe(DEFAULT_MIX.music);
+    for (let i = 0; i < 20; i++) d.ambience.update(loud, 0.25);
+    expect(Math.max(...gains())).toBeGreaterThan(0.05);
+    d.dispose();
   });
 
   it('maps settings to the engine mix', () => {

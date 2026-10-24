@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SlotMeta } from '../platform/db.ts';
+import { PROTOCOL_VERSION } from '../sim/protocol.ts';
 import { Title } from './Title';
 
 const slot = (id: string, name: string, updated: number): SlotMeta => ({ id, name, created: 1, updated, population: 1500, treasury: 9000, day: 12, byteSize: 250_000 });
@@ -22,6 +23,22 @@ describe('Title', () => {
     const f = setup([slot('b', 'Newer', 2), slot('a', 'Older', 1)]);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(f.onLoad).toHaveBeenCalledWith('b');
+  });
+
+  it('greys out a slot from an older version, disables its Load, and Continue skips it', () => {
+    const f = setup([{ ...slot('b', 'Newer', 2), protocol: PROTOCOL_VERSION - 1 }, { ...slot('a', 'Older', 1), protocol: PROTOCOL_VERSION }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(f.onLoad).toHaveBeenCalledWith('a');
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+    expect(screen.getByText(/old version/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Load Newer' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Load Older' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: 'Delete Newer' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('disables Continue when every save is from an older version', () => {
+    setup([{ ...slot('b', 'Only', 2), protocol: PROTOCOL_VERSION - 1 }]);
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('lists slot metadata and asks before deleting', () => {

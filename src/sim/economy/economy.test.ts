@@ -511,6 +511,22 @@ describe('abandonment and level-up candidates', () => {
     w.landValue[100 * MAP + 100] = 100;
     expect(levelUpCandidates(sim, ZONE.R, 10).map((c) => c.x)).toEqual([102]);
   });
+
+  it('skips burning and damaged buildings, which a level-up would extinguish and heal', () => {
+    const sim = flatSim();
+    const w = sim.world;
+    grow(sim, 100, 100, R1);
+    grow(sim, 102, 100, R1);
+    grow(sim, 104, 100, R1);
+    for (const x of [100, 102, 104]) w.landValue[100 * MAP + x] = 150;
+    w.scalars[S.demandR] = 0.5;
+    expect(levelUpCandidates(sim, ZONE.R, 10).map((c) => c.x)).toEqual([100, 102, 104]);
+    const burning = w.bId[100 * MAP + 100]! - 1, hurt = w.bId[100 * MAP + 102]! - 1;
+    w.bFlags[burning] = w.bFlags[burning]! | BFLAG.BURNING;
+    expect(levelUpCandidates(sim, ZONE.R, 10).map((c) => c.x)).toEqual([102, 104]);
+    w.bDmg[hurt] = 1;
+    expect(levelUpCandidates(sim, ZONE.R, 10).map((c) => c.x)).toEqual([104]);
+  });
 });
 
 describe('registry and persistence', () => {

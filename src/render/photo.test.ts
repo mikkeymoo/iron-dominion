@@ -57,6 +57,24 @@ describe('photo controller', () => {
     expect(h.applyLook).toHaveBeenCalledTimes(2);
   });
 
+  it('restores the view and rejects when renderAt throws, and a later capture still works', async () => {
+    let fail = true;
+    const h = hooks({ renderAt: vi.fn(() => { h.calls.push('renderAt'); if (fail) throw new Error('context lost'); }) });
+    const p = createPhoto(h);
+    p.enter();
+    const first = p.capture();
+    p.service();
+    await expect(first).rejects.toThrow(/context lost/);
+    expect(h.restore).toHaveBeenCalledTimes(1);
+    expect(h.encode).not.toHaveBeenCalled();
+    expect(p.capturing).toBe(false);
+    fail = false;
+    const second = p.capture();
+    p.service();
+    await expect(second).resolves.toMatchObject({ bytes: 1234 });
+    expect(h.restore).toHaveBeenCalledTimes(2);
+  });
+
   it('capture rejects when photo mode is off', async () => {
     await expect(createPhoto(hooks()).capture()).rejects.toThrow(/not active/);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { INITIAL_UPDATE, applyUpdate, createUpdateStore, installState, isIosSafari, reduceUpdate, type UpdateState } from './pwa.ts';
+import { INITIAL_UPDATE, applyUpdate, createUpdateStore, installState, isIosSafari, reduceUpdate, registerServiceWorker, type UpdateState } from './pwa.ts';
 
 describe('update state machine', () => {
   it('goes idle -> available -> saving -> reloading', () => {
@@ -66,6 +66,93 @@ describe('applyUpdate', () => {
     store.dispatch({ type: 'waiting' });
     await applyUpdate(async () => { throw new Error('boom'); }, store);
     expect(store.get()).toEqual({ kind: 'error', message: 'boom' });
+  });
+});
+
+describe('a tab left behind by an update applied elsewhere', () => {
+  it('goes stale on a controller change it did not ask for, and cannot be dismissed', () => {
+    for (const from of [INITIAL_UPDATE, reduceUpdate(INITIAL_UPDATE, { type: 'waiting' }), reduceUpdate(INITIAL_UPDATE, { type: 'dismiss' })]) {
+      const s = reduceUpdate(from, { type: 'controllerChanged' });
+      expect(s).toEqual({ kind: 'stale' });
+      expect(reduceUpdate(s, { type: 'dismiss' })).toBe(s);
+      expect(reduceUpdate(s, { type: 'waiting' })).toBe(s);
+    }
+  });
+
+  it('is not made stale by the controller change it requested itself', () => {
+    const reloading: UpdateState = { kind: 'reloading' };
+    expect(reduceUpdate(reloading, { type: 'controllerChanged' })).toBe(reloading);
+  });
+
+  it('keeps the stale mark through saving, a failed save and the retry', () => {
+    let s = reduceUpdate({ kind: 'stale' }, { type: 'reload' });
+    expect(s).toEqual({ kind: 'saving', stale: true });
+    s = reduceUpdate(s, { type: 'saveFailed', message: 'disk full' });
+    expect(s).toEqual({ kind: 'error', message: 'disk full', stale: true });
+    expect(reduceUpdate(s, { type: 'dismiss' })).toBe(s);
+    s = reduceUpdate(s, { type: 'reload' });
+    expect(s).toEqual({ kind: 'saving', stale: true });
+    expect(reduceUpdate(s, { type: 'saved' })).toEqual({ kind: 'reloading', stale: true });
+  });
+
+  it('applyUpdate saves, then reloads the page itself because no controller change will come', async () => {
+    const store = createUpdateStore();
+    store.dispatch({ type: 'controllerChanged' });
+    const reload = vi.fn();
+    await applyUpdate(async () => null, store, reload);
+    expect(store.get()).toEqual({ kind: 'reloading', stale: true });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('applyUpdate keeps a stale page open when the save fails', async () => {
+    const store = createUpdateStore();
+    store.dispatch({ type: 'controllerChanged' });
+    const reload = vi.fn();
+    await applyUpdate(async () => 'Save failed: storage', store, reload);
+    expect(store.get()).toEqual({ kind: 'error', message: 'Save failed: storage', stale: true });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  describe('registerServiceWorker', () => {
+    const boot = (controller: object | null, cityOpen: boolean) => {
+      const target = new EventTarget();
+      const sw = Object.assign(target, { controller, register: () => new Promise(() => undefined) });
+      const store = createUpdateStore();
+      const reload = vi.fn();
+      registerServiceWorker({ serviceWorker: sw as unknown as ServiceWorkerContainer }, store, { cityOpen: () => cityOpen, reload });
+      return { change: () => target.dispatchEvent(new Event('controllerchange')), store, reload };
+    };
+
+    it('shows the persistent prompt when a city is open', () => {
+      const t = boot({}, true);
+      t.change();
+      expect(t.store.get()).toEqual({ kind: 'stale' });
+      expect(t.reload).not.toHaveBeenCalled();
+    });
+
+    it('reloads at once when no city is open', () => {
+      const t = boot({}, false);
+      t.change();
+      expect(t.reload).toHaveBeenCalledTimes(1);
+      expect(t.store.get()).toBe(INITIAL_UPDATE);
+    });
+
+    it('ignores the claim of a first install (the page had no controller)', () => {
+      const t = boot(null, true);
+      t.change();
+      expect(t.store.get()).toBe(INITIAL_UPDATE);
+      expect(t.reload).not.toHaveBeenCalled();
+    });
+
+    it('reloads once for the controller change this tab asked for', () => {
+      const t = boot({}, true);
+      t.store.dispatch({ type: 'waiting' });
+      t.store.dispatch({ type: 'reload' });
+      t.store.dispatch({ type: 'saved' });
+      t.change();
+      t.change();
+      expect(t.reload).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

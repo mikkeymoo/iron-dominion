@@ -27,6 +27,8 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .slots li { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; background: #121b23; border: 1px solid #2a3947; border-radius: 6px; }
 .slot-info { display: grid; gap: 0.1rem; font-size: 0.85rem; }
 .slot-info .dim { opacity: 0.55; font-size: 0.75rem; }
+.slots li.slot-old .slot-info { opacity: 0.5; }
+.slot-tag { font-weight: 400; font-style: normal; }
 .slot-actions { display: flex; gap: 0.4rem; }
 .slot-actions .primary { margin: 0; padding: 0.4rem 0.9rem; }
 button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }

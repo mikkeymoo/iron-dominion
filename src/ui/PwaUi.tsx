@@ -9,12 +9,15 @@ export function UpdateToast() {
     <div className="pwa-toast" role="status" aria-live="polite" data-testid="update-toast">
       <span>
         {state.kind === 'available' && 'Update available — Reload'}
+        {state.kind === 'stale' && 'Reload to finish updating'}
         {state.kind === 'saving' && 'Saving your city'}
         {state.kind === 'reloading' && 'Reloading'}
         {state.kind === 'error' && state.message}
       </span>
       <button type="button" className="tb" disabled={busy} onClick={() => { void applyUpdate(saveOpenCity); }}>{state.kind === 'error' ? 'Retry' : 'Reload'}</button>
-      <button type="button" className="tb" disabled={busy} aria-label="Dismiss" onClick={() => updateStore.dispatch({ type: 'dismiss' })}>Later</button>
+      {state.kind !== 'stale' && !(state.kind === 'error' && state.stale) && (
+        <button type="button" className="tb" disabled={busy} aria-label="Dismiss" onClick={() => updateStore.dispatch({ type: 'dismiss' })}>Later</button>
+      )}
     </div>
   );
 }

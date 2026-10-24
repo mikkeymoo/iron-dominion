@@ -1,6 +1,7 @@
 import { fnv1a, hashWorld } from '../sim/hash.ts';
 import { S } from '../sim/layers.ts';
-import { decodeSnapshot } from '../sim/snapshot.ts';
+import { PROTOCOL_VERSION } from '../sim/protocol.ts';
+import { decodeSnapshot, snapshotProtocol } from '../sim/snapshot.ts';
 
 // Container (little endian):
 //   magic 'IDSV' | containerVersion u16 | created f64 (ms since epoch) | metaLen u32 | meta JSON utf8
@@ -22,6 +23,8 @@ export interface SaveMeta {
   treasury: number;
   day: number;
   thumbnail?: string;
+  /** Sim protocol version the snapshot was made with; absent in saves from before it was recorded. */
+  protocol?: number;
 }
 
 export interface Codec {
@@ -61,7 +64,8 @@ export const browserCodec: Codec = {
   decompress: (data, maxBytes) => pipe(data, new DecompressionStream('gzip'), maxBytes),
 };
 
-export type SaveErrorCode = 'magic' | 'version' | 'truncated' | 'checksum' | 'meta' | 'gzip' | 'snapshot';
+export type SaveErrorCode = 'magic' | 'version' | 'old' | 'truncated' | 'checksum' | 'meta' | 'gzip' | 'snapshot';
+export const OLD_VERSION_REASON = 'This save was made by an older version of the game and cannot be loaded.';
 export interface ParsedSave { meta: SaveMeta; created: number; snapshot: Uint8Array }
 export type ParseResult = { ok: true; value: ParsedSave } | { ok: false; code: SaveErrorCode; reason: string };
 
@@ -94,11 +98,12 @@ function readMeta(v: unknown): SaveMeta | undefined {
   if (m.thumbnail !== undefined && typeof m.thumbnail !== 'string') return undefined;
   const meta: SaveMeta = { name: m.name.slice(0, 80), population: m.population, treasury: m.treasury, day: m.day };
   if (typeof m.thumbnail === 'string') meta.thumbnail = m.thumbnail;
+  if (typeof m.protocol === 'number') meta.protocol = m.protocol;
   return meta;
 }
 
-/** Validates the container, then the sim snapshot inside. Never throws and never mutates anything. */
-export async function parseSave(bytes: Uint8Array, codec: Codec = browserCodec): Promise<ParseResult> {
+/** Validates the container and inflates the payload, without decoding the snapshot. Never throws. */
+async function openContainer(bytes: Uint8Array, codec: Codec): Promise<ParseResult> {
   if (bytes.byteLength < 4 || String.fromCharCode(bytes[0]!, bytes[1]!, bytes[2]!, bytes[3]!) !== SAVE_MAGIC) return bad('magic', 'not an Iron Dominion save file');
   if (bytes.byteLength < FIXED) return bad('truncated', 'save file is truncated');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -121,9 +126,27 @@ export async function parseSave(bytes: Uint8Array, codec: Codec = browserCodec):
   if (fnv1a(payload) !== checksum) return bad('checksum', 'save file is damaged (checksum mismatch)');
   let snapshot: Uint8Array;
   try { snapshot = await codec.decompress(payload, MAX_SNAPSHOT_BYTES); } catch (e) { return bad('gzip', `save data could not be decompressed: ${e instanceof Error ? e.message : String(e)}`); }
-  try { decodeSnapshot(snapshot); } catch (e) { return bad('snapshot', e instanceof Error ? e.message : String(e)); }
   return { ok: true, value: { meta, created, snapshot } };
 }
+
+/** Validates the container, then the sim snapshot inside. Never throws and never mutates anything. */
+export async function parseSave(bytes: Uint8Array, codec: Codec = browserCodec): Promise<ParseResult> {
+  const r = await openContainer(bytes, codec);
+  if (!r.ok) return r;
+  const proto = snapshotProtocol(r.value.snapshot);
+  if (proto !== undefined && proto < PROTOCOL_VERSION) return { ok: false, code: 'old', reason: OLD_VERSION_REASON };
+  try { decodeSnapshot(r.value.snapshot); } catch (e) { return bad('snapshot', e instanceof Error ? e.message : String(e)); }
+  return r;
+}
+
+/** Protocol version a stored save was made with, or undefined when the file is not a readable save. Used to mark old slots in the list. */
+export async function saveProtocol(bytes: Uint8Array, codec: Codec = browserCodec): Promise<number | undefined> {
+  const r = await openContainer(bytes, codec);
+  return r.ok ? snapshotProtocol(r.value.snapshot) : undefined;
+}
+
+/** True for a slot written by an older protocol: the sim refuses it, so the slot list greys it out instead of offering a failing load. */
+export const isOldVersion = (protocol: number | undefined): boolean => protocol !== undefined && protocol < PROTOCOL_VERSION;
 
 /** Tick, world hash and headline stats of a snapshot, read through the decoder the worker uses (throws SnapshotError). */
 export function inspectSnapshot(snapshot: Uint8Array): { tick: number; hash: number; population: number; treasury: number; day: number } {

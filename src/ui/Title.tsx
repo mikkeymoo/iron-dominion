@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { SlotMeta } from '../platform/db.ts';
+import { isOldVersion } from '../platform/save.ts';
 
 interface Props {
   worker: 'loading' | 'ready' | 'failed';
@@ -26,6 +27,7 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
   const down = worker === 'failed';
   const seedValue = seed.trim() === '' ? undefined : Number(seed);
   const seedBad = seedValue !== undefined && !Number.isInteger(seedValue);
+  const latest = slots.find((s) => !isOldVersion(s.protocol));
 
   return (
     <main className="title">
@@ -35,7 +37,7 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
       {!form && (
         <div className="title-actions">
           <button className="primary" type="button" disabled={down} onClick={() => { setForm(true); setList(false); }}>New city</button>
-          <button className="primary" type="button" disabled={down || slots.length === 0} onClick={() => onLoad(slots[0]!.id)}>Continue</button>
+          <button className="primary" type="button" disabled={down || latest === undefined} onClick={() => onLoad(latest!.id)}>Continue</button>
           <button className="primary" type="button" disabled={down || slots.length === 0} aria-expanded={list} onClick={() => setList((v) => !v)}>Load</button>
           <button className="primary" type="button" disabled={down} onClick={() => file.current?.click()}>Import file</button>
           <input ref={file} type="file" accept=".irondominion,application/octet-stream" hidden data-testid="import-input" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onImport(f); }} />
@@ -55,10 +57,12 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
 
       {list && !form && (
         <ul className="slots" aria-label="Saved cities">
-          {slots.map((s) => (
-            <li key={s.id}>
+          {slots.map((s) => {
+            const old = isOldVersion(s.protocol);
+            return (
+            <li key={s.id} className={old ? 'slot-old' : undefined} data-old={old || undefined}>
               <div className="slot-info">
-                <strong>{s.name}</strong>
+                <strong>{s.name}{old && <em className="slot-tag"> (old version)</em>}</strong>
                 <span>Day {s.day} - Pop {Math.round(s.population).toLocaleString('en-US')} - ${Math.round(s.treasury).toLocaleString('en-US')}</span>
                 <span className="dim">{when(s.updated)} - {kb(s.byteSize)}</span>
               </div>
@@ -69,12 +73,13 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
                 </div>
               ) : (
                 <div className="slot-actions">
-                  <button type="button" className="primary" onClick={() => onLoad(s.id)} aria-label={`Load ${s.name}`}>Load</button>
+                  <button type="button" className="primary" disabled={old} title={old ? 'Made by an older version of the game' : undefined} onClick={() => onLoad(s.id)} aria-label={`Load ${s.name}`}>Load</button>
                   <button type="button" className="primary" onClick={() => setConfirm(s.id)} aria-label={`Delete ${s.name}`}>Delete</button>
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

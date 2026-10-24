@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { cacheName, cachePrefix, precacheList, renderServiceWorker, validateManifest } from './pwa-build.mjs';
 import { renderIconPng } from './png.mjs';
 
@@ -86,6 +86,117 @@ describe('generated service worker', () => {
     expect(sw.self.skipped).toBeUndefined();
     sw.handlers.message({ data: { type: 'SKIP_WAITING' } });
     expect(sw.self.skipped).toBe(true);
+  });
+});
+
+describe('service worker fetch handling', () => {
+  const template = readFileSync('public/sw.js', 'utf8');
+  const source = renderServiceWorker(template, 'hash9', ['./', './app.js']);
+  const ORIGIN = 'https://x.test';
+
+  class FakeResponse {
+    constructor(body, ok = true) { this.body = body; this.ok = ok; this.type = 'basic'; }
+    clone() { return new FakeResponse(this.body, this.ok); }
+    static error() { const r = new FakeResponse('error', false); r.failed = true; return r; }
+  }
+
+  function boot(scope, { fetchImpl, cached = {} } = {}) {
+    const handlers = {};
+    const puts = [];
+    const timers = [];
+    const fetched = [];
+    const cache = { put: async (k, v) => { puts.push([k, v.body]); } };
+    const caches = {
+      open: async () => cache,
+      keys: async () => [],
+      match: async (req, opt = {}) => {
+        const key = typeof req === 'string' ? new URL(req, scope).href : req.url;
+        if (cached[key]) return cached[key];
+        if (opt.ignoreSearch) {
+          const bare = key.split('?')[0];
+          const k = Object.keys(cached).find((c) => c.split('?')[0] === bare);
+          if (k) return cached[k];
+        }
+        return undefined;
+      },
+    };
+    const self = {
+      registration: { scope },
+      location: new URL(scope),
+      clients: { claim: async () => {} },
+      addEventListener: (t, fn) => { handlers[t] = fn; },
+    };
+    class Request { constructor(u) { this.url = u; } }
+    const fetch = (req) => { fetched.push(req.url); return fetchImpl(req); };
+    const ctx = {
+      self, caches, URL, Request, Response: FakeResponse, fetch,
+      setTimeout: (fn) => { timers.push(fn); return timers.length; },
+      clearTimeout: () => {},
+    };
+    vm.runInNewContext(source, ctx);
+    const request = (path, mode = 'cors') => ({ method: 'GET', url: ORIGIN + path, mode });
+    const dispatch = async (req) => {
+      let responded;
+      const waits = [];
+      handlers.fetch({ request: req, respondWith: (p) => { responded = p; }, waitUntil: (p) => { waits.push(p); } });
+      return { handled: responded !== undefined, result: responded, waits };
+    };
+    return { dispatch, request, puts, timers, fetched };
+  }
+
+  it('does not substitute the placeholders inside the template comment', () => {
+    expect(source.split('\n')[0]).toContain('__BUILD_HASH__');
+    expect(source).toContain('const HASH = "hash9";');
+    expect(source).not.toContain("'__BUILD_HASH__'");
+  });
+
+  it('serves the cached shell when the network does not answer within the timeout', async () => {
+    const shell = new FakeResponse('cached shell');
+    const sw = boot('https://x.test/iron-dominion/', { fetchImpl: () => new Promise(() => {}), cached: { [ORIGIN + '/iron-dominion/']: shell } });
+    const { handled, result } = await sw.dispatch(sw.request('/iron-dominion/', 'navigate'));
+    expect(handled).toBe(true);
+    await vi.waitFor(() => expect(sw.timers).toHaveLength(1));
+    sw.timers[0]();
+    expect(await result).toBe(shell);
+  });
+
+  it('serves the network answer and refreshes the cached shell when it arrives in time', async () => {
+    const fresh = new FakeResponse('fresh shell');
+    const sw = boot('https://x.test/iron-dominion/', { fetchImpl: async () => fresh, cached: { [ORIGIN + '/iron-dominion/']: new FakeResponse('old') } });
+    const { result } = await sw.dispatch(sw.request('/iron-dominion/', 'navigate'));
+    expect(await result).toBe(fresh);
+    expect(sw.puts).toEqual([['./', 'fresh shell']]);
+  });
+
+  it('falls back to the cached shell when the network fails', async () => {
+    const shell = new FakeResponse('cached shell');
+    const sw = boot('https://x.test/iron-dominion/', { fetchImpl: async () => { throw new Error('offline'); }, cached: { [ORIGIN + '/iron-dominion/']: shell } });
+    const { result } = await sw.dispatch(sw.request('/iron-dominion/', 'navigate'));
+    expect(await result).toBe(shell);
+  });
+
+  it('never intercepts or caches a navigation to a nested scope', async () => {
+    const sw = boot('https://x.test/iron-dominion/', { fetchImpl: async () => new FakeResponse('next shell') });
+    const next = await sw.dispatch(sw.request('/iron-dominion/next/', 'navigate'));
+    expect(next.handled).toBe(false);
+    const deep = await sw.dispatch(sw.request('/iron-dominion/other.html', 'navigate'));
+    expect(deep.handled).toBe(false);
+    expect(sw.fetched).toEqual([]);
+    expect(sw.puts).toEqual([]);
+  });
+
+  it('answers a sim worker request only by its exact versioned URL', async () => {
+    const worker = new FakeResponse('worker');
+    const sw = boot('https://x.test/iron-dominion/', {
+      fetchImpl: async () => new FakeResponse('network worker'),
+      cached: { [ORIGIN + '/iron-dominion/sim-worker.js?v=hash9']: worker, [ORIGIN + '/iron-dominion/app.js']: new FakeResponse('app') },
+    });
+    expect(await (await sw.dispatch(sw.request('/iron-dominion/sim-worker.js?v=hash9'))).result).toBe(worker);
+    const stale = await (await sw.dispatch(sw.request('/iron-dominion/sim-worker.js?v=old1'))).result;
+    expect(stale.failed).toBe(true);
+    expect(sw.fetched).toEqual([]);
+    expect(sw.puts).toEqual([]);
+    expect((await (await sw.dispatch(sw.request('/iron-dominion/app.js?x=1'))).result).body).toBe('app');
   });
 });
 

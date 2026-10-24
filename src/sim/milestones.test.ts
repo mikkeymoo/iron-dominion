@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { RenderMirror } from '../render/mirror.ts';
 import { ARCH, BFLAG, CATALOG, rciId } from './catalog.ts';
 import { execute, type Command, type CommandBody } from './commands.ts';
+import { destroyBuilding } from './disasters/fire.ts';
 import { computeBudget, countTotals, demandTargets, landValueAt } from './economy/index.ts';
 import { makeResync, restore, snapshot, stateHash, step } from './engine.ts';
 import { estimate, tileReadOf } from './estimate.ts';
@@ -441,5 +442,51 @@ describe('determinism with megaprojects', () => {
       stepLog(twin, 1400);
       expect(stateHash(twin)).toBe(stateHash(straight));
     } finally { undo(); }
+  });
+});
+
+describe('a megaproject ruined by a disaster', () => {
+  it('stops paying income, jobs and upkeep and no longer reads as done', () => {
+    const sim = flatSim(11, true);
+    grow(sim, ARCH.SPACE_ELEVATOR, 100, 100);
+    const w = sim.world, slot = slotOf(w, ARCH.SPACE_ELEVATOR);
+    expect(computeBudget(w, 0).incomeC).toBe(40000);
+    expect(projectStatuses(w).find((p) => p.arch === ARCH.SPACE_ELEVATOR)!.state).toBe('done');
+    destroyBuilding(sim, slot);
+    expect(w.bFlags[slot]! & (BFLAG.RUBBLE | BFLAG.ABANDONED)).toBe(BFLAG.RUBBLE | BFLAG.ABANDONED);
+    expect(computeBudget(w, 0).incomeC).toBe(0);
+    expect(countTotals(w).jobsC).toBe(0);
+    expect(projectStatuses(w).find((p) => p.arch === ARCH.SPACE_ELEVATOR)).toMatchObject({ state: 'none', progress: 0 });
+  });
+
+  it('cancels the open build job: no inbound material, no completion event, no victory', () => {
+    const sim = readyCity();
+    const w = sim.world;
+    for (const x of [100, 106, 112]) grow(sim, ARCH.POWER_PLANT, x, 88);
+    expect(start(sim, ARCH.SPACE_ELEVATOR).ok).toBe(true);
+    const slot = slotOf(w, ARCH.SPACE_ELEVATOR);
+    stepLog(sim, 80);
+    expect(w.jKind[slot]).toBe(JOB.BUILD);
+    w.jInbound[slot] = 7;
+    destroyBuilding(sim, slot);
+    expect([w.jKind[slot], w.jInbound[slot], w.jNeed[slot], w.jProg[slot]]).toEqual([0, 0, 0, 0]);
+    const log = stepLog(sim, 200);
+    expect(log.filter((e) => e.type === 'megaComplete' || e.type === 'victory' || e.type === 'megaStage')).toEqual([]);
+    expect(w.bLevel[slot]).toBeLessThan(5);
+  });
+
+  it('never completes a ruin even if a stale full-progress build job survives', () => {
+    const sim = readyCity();
+    const w = sim.world;
+    for (const x of [100, 106, 112]) grow(sim, ARCH.POWER_PLANT, x, 88);
+    expect(start(sim, ARCH.SPACE_ELEVATOR).ok).toBe(true);
+    const slot = slotOf(w, ARCH.SPACE_ELEVATOR);
+    stepLog(sim, 80);
+    destroyBuilding(sim, slot);
+    w.bLevel[slot] = 4; w.jKind[slot] = JOB.BUILD; w.jGen[slot] = w.bGen[slot]!; w.jProg[slot] = JOB_MAX;
+    const log = stepLog(sim, 3);
+    expect(log.filter((e) => e.type === 'megaComplete' || e.type === 'victory')).toEqual([]);
+    expect(w.jKind[slot]).toBe(0);
+    expect(w.scalars[S.mega]).toBe(0);
   });
 });

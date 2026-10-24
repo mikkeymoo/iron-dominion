@@ -33,6 +33,20 @@ export function meteorAt(from: readonly [number, number, number], to: readonly [
   return [from[0] + (to[0] - from[0]) * e, from[1] + (to[1] - from[1]) * e, from[2] + (to[2] - from[2]) * e];
 }
 
+/** Per-second rate at which the drawn meteor position chases the sim's progress, which advances in whole ticks. */
+const FLIGHT_FOLLOW = 14;
+
+/**
+ * Next drawn progress (0..1) of a meteor streak. It is driven by sim ticks, not wall time, so it lands with the impact at any
+ * sim speed (and hangs while paused). `landed` is set once the sim reported the impact: the streak then runs out instead of being cut.
+ */
+export function flightProgress(u: number, dt: number, tick: number, startTick: number, impactTick: number, landed: boolean): number {
+  const span = Math.max(1, impactTick - startTick);
+  const target = landed ? 1 : Math.min(1, Math.max(0, (tick - startTick + 1) / span));
+  const next = u + (target - u) * Math.min(1, dt * FLIGHT_FOLLOW);
+  return landed && next > 0.985 ? 1 : next;
+}
+
 /** Shockwave ring radius and opacity at progress u (0..1): fast out, slowing, fading squared. */
 export function ringAt(u: number, maxRadius: number): { radius: number; opacity: number } {
   const k = Math.min(1, Math.max(0, u));

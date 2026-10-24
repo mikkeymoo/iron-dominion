@@ -78,6 +78,8 @@ export class RenderMirror {
         for (const c of m.chunks) this.dirtyOverlay.add(c);
         return true;
       case 'stats':
+        // Patches only go out when something changed, so stats and events keep the clock moving for tick-driven effects.
+        if (m.tick > this.tick) this.tick = m.tick;
         this.scalars[S.treasury] = m.treasury;
         this.scalars[S.population] = m.population;
         this.scalars[S.dayFrac] = m.dayFrac;
@@ -87,6 +89,7 @@ export class RenderMirror {
         if (m.milestone) this.scalars[S.tier] = m.milestone.tier;
         return true;
       case 'events':
+        if (m.tick > this.tick) this.tick = m.tick;
         for (const e of m.events) {
           if (e.type === 'lightning') this.lightning.push({ x: e.x, y: e.y, tick: e.tick });
           else if (e.type === 'milestone' || e.type === 'megaStage' || e.type === 'megaComplete' || e.type === 'victory') this.celebrations.push(e);

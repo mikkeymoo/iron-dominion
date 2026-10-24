@@ -113,7 +113,7 @@ export interface MegaSums { residents: number; jobsC: number; visitors: number; 
 
 /** A finished megaproject that is not dark: only these give residents, jobs, visitors and income. */
 export const megaOperating = (w: World, slot: number): boolean =>
-  MEGA[w.bArch[slot]!] !== undefined && (w.bFlags[slot]! & (BFLAG.CONSTRUCTING | BFLAG.UNPOWERED)) === 0;
+  MEGA[w.bArch[slot]!] !== undefined && (w.bFlags[slot]! & (BFLAG.CONSTRUCTING | BFLAG.UNPOWERED | BFLAG.ABANDONED | BFLAG.RUBBLE)) === 0;
 
 /** What every operating megaproject adds to the city, summed over the building table. */
 export function megaSums(w: World): MegaSums {

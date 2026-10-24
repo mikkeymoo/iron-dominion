@@ -10,6 +10,10 @@ export const DISASTER_MODES: readonly DisastersSetting[] = ['off', 'rare', 'norm
 export const isDisastersSetting = (v: unknown): v is DisastersSetting => DISASTER_MODES.includes(v as DisastersSetting);
 export const disasterModeOf = (s: DisastersSetting): number => DISASTER_MODES.indexOf(s);
 
+/** Sim disaster mode for a ?haltAt debug run: the `?disasters=` value, else the shipped default, never the stored setting (the golden hash must not depend on it). */
+export const haltDisasterMode = (param: string | null): number =>
+  disasterModeOf(isDisastersSetting(param) ? param : DEFAULT_SETTINGS.disasters);
+
 export interface Settings {
   tier: TierOverride;
   graphics: { shadows: boolean; bloom: boolean; resolutionScale: number };

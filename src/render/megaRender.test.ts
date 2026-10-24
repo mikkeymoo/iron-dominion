@@ -132,6 +132,18 @@ describe('megaproject instances', () => {
     expect(d.near.total).toBe(0);
   });
 
+  it('removes the extra cranes as well when a megaproject under construction is ruined', () => {
+    const { d, put } = setup();
+    const arch = ARCH.FUSION_SPIRE;
+    put(rec(5, arch, 100, 100, 5, { flags: BFLAG.CONSTRUCTING, level: 1, prog: 40 }));
+    for (let i = 0; i < MEGA_CRANES; i++) expect(d.crane.has(extraCrane(5, i))).toBe(true);
+    put(rec(5, arch, 100, 100, 5, { flags: BFLAG.RUBBLE | BFLAG.ABANDONED, level: 1, prog: 40, dmg: 255 }));
+    expect(d.rubble.has(5)).toBe(true);
+    expect(d.crane.has(5)).toBe(false);
+    for (let i = 0; i < MEGA_CRANES; i++) expect(d.crane.has(extraCrane(5, i)), `extra crane ${i}`).toBe(false);
+    expect(d.crane.total).toBe(0);
+  });
+
   it('always draws a megaproject as its full model, even in a chunk outside the fine set', () => {
     const { d, put } = setup(new Set());
     put(rec(6, ARCH.SPACE_ELEVATOR, 100, 100, 6, { level: 5, prog: 255 }));

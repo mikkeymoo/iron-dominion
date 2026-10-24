@@ -4,7 +4,7 @@ import { fnv1a } from '../sim/hash.ts';
 import { createSim, snapshot } from '../sim/engine.ts';
 import { PROTOCOL_VERSION } from '../sim/protocol.ts';
 import { createPlatformDb, openIdbAdapter, type PlatformDb, type StoreAdapter } from './db.ts';
-import { CONTAINER_VERSION, browserCodec, buildSave, inspectSnapshot, parseSave, type SaveMeta } from './save.ts';
+import { CONTAINER_VERSION, browserCodec, buildSave, inspectSnapshot, isOldVersion, parseSave, type SaveMeta } from './save.ts';
 import { createPlatformService, type PlatformService } from './service.ts';
 
 const META: SaveMeta = { name: 'Testville', population: 120, treasury: 4200, day: 9 };
@@ -136,6 +136,66 @@ describe('import never replaces a valid save', () => {
     if (!r.ok) return;
     expect(inspectSnapshot(snap()).hash).toBe(r.value.hash);
     expect(svc.lastSaveHash).toBe(r.value.hash);
+  });
+});
+
+describe('saves from an older protocol version', () => {
+  const oldSnap = (): Uint8Array => {
+    const s = snap();
+    new DataView(s.buffer).setUint16(6, PROTOCOL_VERSION - 1, true);
+    new DataView(s.buffer).setUint32(s.byteLength - 4, fnv1a(s.subarray(0, s.byteLength - 4)), true);
+    return s;
+  };
+  const setup = async () => {
+    const db = createPlatformDb(await openIdbAdapter(new IDBFactory()));
+    let loaded = 0;
+    const svc = createPlatformService({
+      getDb: () => db, now: () => 1000, newId: (() => { let n = 0; return () => `id${++n}`; })(),
+      sim: { requestSnapshot: async () => snap(), loadSnapshot: () => { loaded++; }, pause: () => undefined, requestHash: () => undefined },
+    });
+    return { db, svc, loaded: () => loaded };
+  };
+
+  it('are reported as made by an older version, not as damaged', async () => {
+    const r = await parseSave(await buildSave(oldSnap(), META, 1));
+    expect(r).toMatchObject({ ok: false, code: 'old' });
+    if (!r.ok) {
+      expect(r.reason).toMatch(/older version of the game/);
+      expect(r.reason).not.toMatch(/damaged|protocol/);
+    }
+  });
+
+  it('load reports the older version and leaves the running sim alone', async () => {
+    const { db, svc, loaded } = await setup();
+    const t = 1000;
+    await db.putSlot({ id: 'legacy', name: 'Legacy', created: t, updated: t, population: 1, treasury: 1, day: 1, byteSize: 0 }, await buildSave(oldSnap(), META, 1));
+    const r = await svc.load('legacy');
+    expect(r).toMatchObject({ ok: false, reason: 'corrupt' });
+    if (!r.ok) expect(r.message).toMatch(/older version of the game/);
+    expect(loaded()).toBe(0);
+  });
+
+  it('import refuses them with the same message and stores nothing', async () => {
+    const { db, svc } = await setup();
+    const r = await svc.importBytes(await buildSave(oldSnap(), META, 1));
+    expect(r).toMatchObject({ ok: false });
+    if (!r.ok) expect(r.message).toMatch(/older version of the game/);
+    const list = await db.listSlots();
+    expect(list.ok && list.value).toEqual([]);
+  });
+
+  it('the slot list marks an old slot even when it was saved before the protocol was recorded, and new saves record it', async () => {
+    const { db, svc } = await setup();
+    const t = 1000;
+    await db.putSlot({ id: 'legacy', name: 'Legacy', created: t, updated: t, population: 1, treasury: 1, day: 1, byteSize: 0 }, await buildSave(oldSnap(), META, 1));
+    await db.putSlot({ id: 'prior', name: 'Prior', created: t, updated: t - 1, population: 1, treasury: 1, day: 1, byteSize: 0 }, await buildSave(snap(), META, 1));
+    svc.startNew('Fresh');
+    expect((await svc.writeSnapshot(snap())).ok).toBe(true);
+    const r = await svc.slots();
+    if (!r.ok) throw new Error('list failed');
+    const byName = Object.fromEntries(r.value.map((s) => [s.name, s.protocol]));
+    expect(byName).toEqual({ Legacy: PROTOCOL_VERSION - 1, Prior: PROTOCOL_VERSION, Fresh: PROTOCOL_VERSION });
+    expect(r.value.filter((s) => isOldVersion(s.protocol)).map((s) => s.name)).toEqual(['Legacy']);
   });
 });
 

@@ -8,7 +8,7 @@ import type { ClientState } from '../sim/client.ts';
 import { DEFAULT_TAX } from '../sim/economy/tables.ts';
 import { emptyServiceStats } from '../sim/services/coverage.ts';
 import { openPlatformDb, type PlatformDb, type SlotMeta } from '../platform/db.ts';
-import { DEFAULT_SETTINGS, disasterModeOf, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
+import { DEFAULT_SETTINGS, disasterModeOf, haltDisasterMode, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
 import { readFileBytes } from '../platform/save.ts';
 import { GameView } from './GameView';
 import { NO_WORKFORCE, failText, type HudStats } from './Hud';
@@ -49,7 +49,7 @@ export function App() {
 
   // The Disasters setting reaches the sim as a command, so it is part of the deterministic state and a save keeps it.
   useEffect(() => {
-    if (live && worker === 'ready') live.client.command({ type: 'setDisasters', mode: disasterModeOf(settings.disasters) });
+    if (live && worker === 'ready' && !query().has('haltAt')) live.client.command({ type: 'setDisasters', mode: disasterModeOf(settings.disasters) });
   }, [live, worker, settings.disasters]);
 
   const refreshSlots = useCallback(async (): Promise<void> => {
@@ -96,7 +96,8 @@ export function App() {
     setWorker('loading');
     setHud(ZERO);
     const s = openSession({
-      seed, haltAt, getDb: () => db.current, disasters: disasterModeOf(settingsRef.current.disasters),
+      seed, haltAt, getDb: () => db.current,
+      disasters: haltAt !== undefined ? haltDisasterMode(query().get('disasters')) : disasterModeOf(settingsRef.current.disasters),
       debug: query().get('debug') === '1' || query().get('showcase') === '1',
       onState: (st) => { if (current.current === s || current.current === null) setWorker(st); },
       onStats: (st) => {

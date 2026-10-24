@@ -15,6 +15,8 @@ export interface SlotMeta {
   /** Optional dataURL preview. */
   thumbnail?: string;
   byteSize: number;
+  /** Sim protocol version of the stored snapshot; absent on slots saved before it was recorded (the service fills it in when listing). */
+  protocol?: number;
 }
 
 export type StoreName = 'slots' | 'saves' | 'settings';
