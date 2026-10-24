@@ -18,7 +18,7 @@ import { generateCrane, generateRubble, generateSite } from './kit/site.ts';
 import type { PartData } from './kit/geo.ts';
 import type { RenderMirror } from './mirror.ts';
 import type { TerrainView } from './terrain.ts';
-import { TIER_TABLE, type Tier } from './tier.ts';
+import { TIER_TABLE, type GfxSpec, type Tier } from './tier.ts';
 
 /**
  * WebGPU allows 8 vertex buffers per pipeline, so the kit's six per-vertex streams are packed into two: `color` = rgb + AO
@@ -121,9 +121,12 @@ export interface BuildingStats { instances: number; farInstances: number; sites:
 export class BuildingsView {
   readonly group = new Group();
   private readonly atlas: DataTexture = createAtlasTexture();
-  private readonly nearMat = createBuildingMaterial(this.atlas);
-  private readonly farMat = createFarMaterial();
-  private readonly siteMat = createSiteMaterial();
+  private readonly near = createBuildingMaterial(this.atlas);
+  private readonly far = createFarMaterial();
+  private readonly site = createSiteMaterial();
+  private readonly nearMat = this.near.material;
+  private readonly farMat = this.far.material;
+  private readonly siteMat = this.site.material;
   private readonly data: BuildingInstances;
   private readonly nearSet: BatchSet;
   private readonly farSet: BatchSet;
@@ -131,6 +134,7 @@ export class BuildingsView {
   private readonly craneSet: BatchSet;
   private readonly rubbleSet: BatchSet;
   private variants = TIER_TABLE.low.variants;
+  private gfxKey = 'false|off|off';
   private pending = 0;
 
   constructor(mirror: RenderMirror, terrain: TerrainView) {
@@ -165,9 +169,17 @@ export class BuildingsView {
     }, false, 'rubble');
   }
 
-  setTier(tier: Tier): void {
+  /** `gfx` is the tier's graphics knobs as they apply on the backend (see effectiveGfx): cloud shadows, window interiors, SSR masks. */
+  setTier(tier: Tier, gfx: GfxSpec = TIER_TABLE[tier].gfx): void {
     const spec = TIER_TABLE[tier];
     this.variants = spec.variants;
+    const key = `${gfx.cloudShadows}|${gfx.interiors}|${gfx.ssr}`;
+    if (key !== this.gfxKey) {
+      this.gfxKey = key;
+      this.near.configure(gfx);
+      this.far.configure(gfx);
+      this.site.configure(gfx);
+    }
     const on = spec.shadows !== 'blob';
     for (const s of [this.nearSet, this.farSet, this.siteSet, this.craneSet, this.rubbleSet]) s.setShadows(on);
   }

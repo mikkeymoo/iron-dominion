@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SHADOW_CASCADES, TIERS, TIER_TABLE, createGovernor, detectTier, pixelRatio, readStoredTier, resolveTier, tierBelow, tierCap, type Governor, type Tier,
+  SHADOW_CASCADES, STEP_COST, TIERS, TIER_TABLE, createGovernor, featureFlags, detectTier, pixelRatio, readStoredTier, resolveTier, tierBelow, tierCap, type Governor, type Tier,
 } from './tier.ts';
 
 describe('tier table', () => {
@@ -55,6 +55,73 @@ describe('tier table', () => {
       for (const k of ['tiltShift', 'ao', 'godRays', 'dof', 'lens', 'bloom', 'grade'] as const) {
         expect(!a.post[k] || b.post[k], `${TIERS[i]}.post.${k} stays on`).toBe(true);
       }
+    }
+  });
+});
+
+describe('graphics-push feature table', () => {
+  it('keeps the low tier free of every new effect so phones on low do not regress', () => {
+    const f = featureFlags(TIER_TABLE.low, 'webgl2');
+    expect(f).toEqual({
+      clouds: 'none', cloudShadows: false, grass: false, shrubs: false, trees: false, windSway: false, terrainDetail: 'off', contactShadows: false,
+      interiors: 'off', ssr: 'off', puddles: false, atmosphere: 'exp2', caustics: false, highResCascades: false,
+    });
+  });
+
+  it('lists the exact feature set of every tier', () => {
+    const sets = Object.fromEntries(TIERS.map((t) => [t, featureFlags(TIER_TABLE[t], 'webgpu')]));
+    expect(sets.mid).toMatchObject({ clouds: 'billboard', cloudShadows: true, grass: true, shrubs: true, trees: true, windSway: true, terrainDetail: 'basic', contactShadows: false, interiors: 'varied', ssr: 'off', puddles: true, atmosphere: 'height', caustics: false, highResCascades: false });
+    expect(sets.high).toMatchObject({ clouds: 'raymarch', cloudShadows: true, terrainDetail: 'full', contactShadows: true, interiors: 'varied', ssr: 'wet', puddles: true, atmosphere: 'scatter', caustics: true, highResCascades: false });
+    expect(sets.ultra).toMatchObject({ clouds: 'raymarch', terrainDetail: 'full', contactShadows: true, interiors: 'parallax', ssr: 'full', atmosphere: 'scatter', caustics: true, highResCascades: true });
+  });
+
+  it('only offers screen-space reflections on the WebGPU backend', () => {
+    expect(featureFlags(TIER_TABLE.high, 'webgl2').ssr).toBe('off');
+    expect(featureFlags(TIER_TABLE.ultra, 'webgl2').ssr).toBe('off');
+    expect(featureFlags(TIER_TABLE.high, 'webgpu').ssr).toBe('wet');
+    expect(featureFlags(TIER_TABLE.ultra, 'webgpu').ssr).toBe('full');
+  });
+
+  it('never loses a feature or shrinks a budget going up a tier', () => {
+    const rank = { none: 0, billboard: 1, raymarch: 2 } as const;
+    const detail = { off: 0, basic: 1, full: 2 } as const;
+    const inter = { off: 0, varied: 1, parallax: 2 } as const;
+    const ssr = { off: 0, wet: 1, full: 2 } as const;
+    const atm = { exp2: 0, height: 1, scatter: 2 } as const;
+    for (let i = 1; i < TIERS.length; i++) {
+      const a = TIER_TABLE[TIERS[i - 1]!].gfx, b = TIER_TABLE[TIERS[i]!].gfx;
+      expect(rank[b.clouds]).toBeGreaterThanOrEqual(rank[a.clouds]);
+      expect(b.cloudSteps).toBeGreaterThanOrEqual(a.cloudSteps);
+      expect(detail[b.terrainDetail]).toBeGreaterThanOrEqual(detail[a.terrainDetail]);
+      expect(inter[b.interiors]).toBeGreaterThanOrEqual(inter[a.interiors]);
+      expect(ssr[b.ssr]).toBeGreaterThanOrEqual(ssr[a.ssr]);
+      expect(atm[b.atmosphere]).toBeGreaterThanOrEqual(atm[a.atmosphere]);
+      expect(b.contactShadowSteps).toBeGreaterThanOrEqual(a.contactShadowSteps);
+      for (const k of ['cloudShadows', 'puddles', 'caustics'] as const) expect(!a[k] || b[k], k).toBe(true);
+      for (const k of ['grass', 'shrubs', 'trees', 'radius', 'treeMeshTiles', 'capGrass', 'capMeshTrees', 'capBillboards'] as const) {
+        expect(b.foliage[k], `foliage.${k}`).toBeGreaterThanOrEqual(a.foliage[k]);
+      }
+    }
+  });
+
+  it('ties each feature to the numbers that drive it', () => {
+    for (const t of TIERS) {
+      const g = TIER_TABLE[t].gfx;
+      expect(g.clouds === 'raymarch', `${t} ray-march steps`).toBe(g.cloudSteps > 0);
+      expect(g.foliage.grass > 0, `${t} foliage caps`).toBe(g.foliage.capGrass > 0 && g.foliage.radius > 0);
+      expect(g.foliage.trees > 0, `${t} tree caps`).toBe(g.foliage.capMeshTrees > 0 && g.foliage.capBillboards > 0);
+      expect(g.foliage.treeMeshTiles).toBeLessThanOrEqual(g.foliage.radius);
+      expect(g.clouds === 'none', `${t} sky clouds`).toBe(TIER_TABLE[t].fx.clouds === 0);
+    }
+    expect(TIERS.map((t) => TIER_TABLE[t].gfx.foliage.grass)).toEqual([0, 3, 6, 10]);
+  });
+
+  it('keeps the dependencies of the heavy effects on tiers that can afford them', () => {
+    for (const t of TIERS) {
+      const s = TIER_TABLE[t];
+      if (s.gfx.contactShadowSteps > 0) expect(s.shadows === 'csm3' || s.shadows === 'csm4', `${t} contact shadows ride on the cascades`).toBe(true);
+      if (s.gfx.ssr !== 'off') expect(s.post.ao, `${t} ssr tier also has depth-based ao`).toBe(true);
+      if (s.gfx.caustics) expect(s.water === 'planar' || s.water === 'refract').toBe(true);
     }
   });
 });
@@ -231,6 +298,20 @@ describe('governor tier-up', () => {
     expect(up.drop).toBe('high');
     expect(run(m, up.end, 60000, FAST).drop).toBeNull();
     expect(m.tier).toBe('high');
+  });
+
+  it('lets a fast phone climb: 80 fps at mid steps up to high, where the new effects live', () => {
+    const g = createGovernor({ tier: 'mid', cap: 'high' });
+    const r = run(g, 0, 20000, 12.5);
+    expect(r.drop).toBe('high');
+    expect(r.at).toBeLessThan(11000);
+  });
+
+  it('holds back when the richer tier would not fit: 16 ms at mid is under the old bar but too slow for high', () => {
+    expect(16 * STEP_COST.mid).toBeGreaterThan(TIER_TABLE.high.frameBudgetMs * 1.1);
+    const g = createGovernor({ tier: 'mid', cap: 'high' });
+    expect(run(g, 0, 40000, 16).drop).toBeNull();
+    expect(g.tier).toBe('mid');
   });
 
   it('does not step up while the frame time is only just inside the budget', () => {

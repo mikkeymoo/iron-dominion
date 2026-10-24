@@ -34,7 +34,7 @@ export class WorldScene {
   constructor(private readonly renderer: WebGPURenderer, mirror: RenderMirror, search: string, tier: Tier, agents: AgentStore) {
     this.tier = tier;
     this.fx = new Fx(renderer, this.scene, this.camera, mirror, search, tier);
-    this.terrain = new TerrainView(mirror, this.fx.water.material);
+    this.terrain = new TerrainView(mirror, this.fx.water.material, this.fx.water.info);
     this.scene.add(this.terrain.group);
     this.buildings = new BuildingsView(mirror, this.terrain);
     this.scene.add(this.buildings.group);
@@ -67,6 +67,7 @@ export class WorldScene {
       this.terrain.setCutaway(this.under);
       this.lines.setUnderground(this.under);
       this.buildings.group.visible = !this.under;
+      if (this.fx.foliage) this.fx.foliage.group.visible = !this.under;
       this.icons.setVisible(!this.under);
     }
     this.overlay.update(view?.effectiveOverlay ?? 'none');
@@ -98,8 +99,9 @@ export class WorldScene {
   applyTier(tier: Tier): void {
     const spec = TIER_TABLE[tier];
     this.fx.applyTier(tier);
+    this.terrain.applyTier(this.fx.effective);
     this.terrain.setShadows(spec.shadows !== 'blob');
-    this.buildings.setTier(tier);
+    this.buildings.setTier(tier, this.fx.effective);
     this.robots.setTier(tier);
     this.tier = tier;
   }

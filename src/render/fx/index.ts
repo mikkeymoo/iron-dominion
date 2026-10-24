@@ -8,9 +8,13 @@ import type { BuildingsView } from '../buildings.ts';
 import type { EmitterRec } from '../instances.ts';
 import { postLook, type PhotoLook } from '../photoSettings.ts';
 import type { RenderMirror } from '../mirror.ts';
-import { TIER_TABLE, type Tier } from '../tier.ts';
+import { TIER_TABLE, effectiveGfx, featureFlags, type Backend, type FxFeatures, type GfxSpec, type Tier } from '../tier.ts';
 import type { TerrainView } from '../terrain.ts';
+import { makeFogNode } from './atmosphere.ts';
+import { CloudPuffs } from './clouds.ts';
 import { DisasterFx, type DisasterStats } from './disasters.ts';
+import { FoliageView, type FoliageStats } from './foliage.ts';
+import { CLOUD_ALTITUDE, WIND_DIR, cloudShadowOffset, cloudShadowStrength } from './gfxMath.ts';
 import { Lamps } from './lamps.ts';
 import { Lighting } from './lighting.ts';
 import { skyLook, smoothstep } from './palette.ts';
@@ -47,6 +51,12 @@ export interface FxDebug {
   /** Clear-sky exp2 fog density in use. */
   readonly fogDensity: number;
   readonly overrides: { time: boolean; weather: boolean };
+  /** Which graphics-push features are live on this tier and backend (see tier.ts featureFlags). */
+  readonly features: FxFeatures;
+  /** Foliage instances and draw calls this frame, and how often the instance buffers were rewritten. */
+  readonly foliage: FoliageStats;
+  /** Weather wind (the sway driver), cloud-shadow strength actually applied, cloud drift in world units, sun in-scatter and ground mist. */
+  readonly atmosphere: { wind: number; cloudShadow: number; cloudDrift: [number, number]; scatter: number; mist: number };
   /** Meteors in flight, rings and flashes on screen, active shakes, and how many impacts and quakes the effects have handled. */
   readonly disasters: DisasterStats;
   emit(kind: ParticleKind, x: number, y: number, z: number, count: number): number;
@@ -60,7 +70,13 @@ export class Fx {
   readonly particles: ParticleSystem;
   readonly lamps: Lamps;
   readonly disasters: DisasterFx;
+  readonly puffs: CloudPuffs;
+  foliage: FoliageView | null = null;
   private post!: Post;
+  private gfx: GfxSpec;
+  private readonly backend: Backend;
+  private fogNodeKey = '';
+  private readonly drift = { x: 0, z: 0 };
   private readonly fog = new FogExp2(0xb4d4f0, BASE_FOG);
   private readonly clock = new DayClock(0.4);
   private readonly timeOverride: number | null;
@@ -96,6 +112,8 @@ export class Fx {
     this.nightOverride = n !== null && n !== '' && Number.isFinite(Number(n)) ? Math.min(1, Math.max(0, Number(n))) : null;
 
     const spec = TIER_TABLE[this.tier];
+    this.backend = (renderer.backend as unknown as { isWebGPUBackend?: boolean }).isWebGPUBackend === true ? 'webgpu' : 'webgl2';
+    this.gfx = effectiveGfx(spec, this.backend);
     scene.fog = this.fog;
     this.sky = new SkyDome(spec);
     this.lighting = new Lighting(scene, renderer);
@@ -104,27 +122,49 @@ export class Fx {
     this.particles = new ParticleSystem(spec);
     this.lamps = new Lamps(mirror, spec);
     this.disasters = new DisasterFx(this.particles, (x, z) => this.groundAt(x, z));
-    scene.add(this.sky.mesh, this.water.group, this.weather.group, this.particles.group, this.lamps.group, this.disasters.group);
+    this.puffs = new CloudPuffs();
+    scene.add(this.sky.mesh, this.puffs.mesh, this.water.group, this.weather.group, this.particles.group, this.lamps.group, this.disasters.group);
     // The sky, weather, particles and lamps were just built for this tier; the rig, the water graph and the post chain are built once here.
     this.lighting.applyTier(spec);
     this.water.applyTier(spec);
+    this.puffs.applyTier(spec);
+    this.applyFog();
     this.installReflectionGuard();
-    this.post = createPost(renderer, scene, camera, spec);
+    this.post = createPost(renderer, scene, camera, spec, this.backend);
   }
 
   /** Called once the terrain and buildings views exist. */
   attach(terrain: TerrainView, buildings: BuildingsView): void {
     this.terrain = terrain;
     this.buildings = buildings;
+    this.foliage = new FoliageView(this.mirror, terrain);
+    this.foliage.setShadows(TIER_TABLE[this.tier].shadows !== 'blob');
+    this.foliage.applyTier(TIER_TABLE[this.tier]);
+    this.scene.add(this.foliage.group);
+  }
+
+  /** The tier's graphics knobs as they apply on this renderer's backend. */
+  get effective(): GfxSpec { return this.gfx; }
+
+  private applyFog(): void {
+    const mode = this.gfx.atmosphere;
+    if (mode === this.fogNodeKey) return;
+    this.fogNodeKey = mode;
+    (this.scene as unknown as { fogNode: unknown }).fogNode = makeFogNode(mode);
   }
 
   private install(spec: (typeof TIER_TABLE)[Tier]): void {
+    this.gfx = effectiveGfx(spec, this.backend);
     this.lighting.applyTier(spec);
     this.water.applyTier(spec);
     this.sky.applyTier(spec);
     this.weather.applyTier(spec);
     this.particles.applyTier(spec);
     this.lamps.applyTier(spec);
+    this.puffs.applyTier(spec);
+    this.foliage?.applyTier(spec);
+    this.foliage?.setShadows(spec.shadows !== 'blob');
+    this.applyFog();
     this.installReflectionGuard();
   }
 
@@ -160,7 +200,7 @@ export class Fx {
     const spec = TIER_TABLE[tier];
     this.install(spec);
     this.post.dispose();
-    this.post = createPost(this.renderer, this.scene, this.camera, spec);
+    this.post = createPost(this.renderer, this.scene, this.camera, spec, this.backend);
   }
 
   setAspect(aspect: number): void {
@@ -233,6 +273,7 @@ export class Fx {
 
     this.fog.color.setRGB(look.fogColor[0], look.fogColor[1], look.fogColor[2]);
     this.fog.density = BASE_FOG * st.fogMul;
+    this.writeGfxUniforms(dt, camDist, look.fogColor, this.fog.density, st);
     this.exposure = look.exposure * (1 - st.overcast * 0.2) * (this.look?.exposure ?? 1);
     this.renderer.toneMappingExposure = this.exposure;
 
@@ -241,6 +282,7 @@ export class Fx {
     this.water.sync();
     this.water.update();
     this.lamps.update(pose.tx, pose.tz);
+    this.foliage?.update(pose.tx, pose.tz, camDist, this.camera, nowSec * 1000);
     this.emitContinuous(dt, pose, camDist, spec.fx.emitters);
     for (const e of this.mirror.takeDisasters()) if (this.mirror.hasResync) this.disasters.handle(e, nowSec);
     this.disasters.update(dt, nowSec);
@@ -251,9 +293,12 @@ export class Fx {
     this.tmp.set(cam.position.x + sun[0] * 800, cam.position.y + sun[1] * 800, cam.position.z + sun[2] * 800).project(cam);
     const fwd = cam.getWorldDirection(this.fwd);
     const facing = fwd.x * sun[0] + fwd.y * sun[1] + fwd.z * sun[2];
-    const shafts = smoothstep(0.05, 0.4, facing) * smoothstep(-0.02, 0.2, sun[1]) * (1 - st.overcast) * (1 - flash);
+    // Shafts read best with a low sun: weaker at noon (where they washed out the sky), stronger and warmer at sunrise and sunset.
+    const lowSun = 1 - smoothstep(0.06, 0.45, sun[1]);
+    const shafts = smoothstep(0.05, 0.4, facing) * smoothstep(-0.02, 0.2, sun[1]) * (1 - st.overcast) * (1 - flash) * (0.72 + 0.95 * lowSun);
     this.tilt = this.look?.tilt ?? tiltStrength(camDist, pitch);
     this.post.setParams({
+      contact: smoothstep(0.06, 0.32, sun[1]) * (1 - st.overcast * 0.7),
       tilt: this.tilt,
       look: postLook(this.look),
       sunUv: [this.tmp.x * 0.5 + 0.5, this.tmp.y * 0.5 + 0.5],
@@ -265,6 +310,25 @@ export class Fx {
       night: look.night,
       overcast: st.overcast,
     });
+  }
+
+  /** Per-frame state of the graphics-push shaders: cloud field, cloud-shadow strength, fog and sun in-scatter. */
+  private writeGfxUniforms(dt: number, camDist: number, fogColor: [number, number, number], fogDensity: number, st: { overcast: number; fogMul: number; wind: number }): void {
+    const sun = this.sun;
+    const sp = 0.9 + st.wind * 14;
+    this.drift.x = (this.drift.x + WIND_DIR[0] * sp * dt) % 1e6;
+    this.drift.z = (this.drift.z + WIND_DIR[1] * sp * dt) % 1e6;
+    fxU.cloudDrift.value.set(this.drift.x, this.drift.z);
+    const [tx, tz] = cloudShadowOffset(sun, CLOUD_ALTITUDE);
+    fxU.cloudThrow.value.set(tx, tz);
+    // Albedo-side shadows also dim the ambient share, so the sun's 0.62 is scaled down to what reads as a cloud shadow, not a blackout.
+    fxU.cloudShadow.value = this.gfx.cloudShadows ? cloudShadowStrength(sun[1], st.overcast) * 0.65 : 0;
+    fxU.camDist.value = camDist;
+    fxU.scatter.value = this.gfx.atmosphere === 'scatter' ? 1 - st.overcast * 0.8 : 0;
+    const lowSun = 1 - smoothstep(0.02, 0.32, sun[1]);
+    fxU.mist.value = Math.min(1, lowSun * 0.55 + (st.fogMul - 1) / 3.2);
+    fxU.fogColor.value.setRGB(fogColor[0], fogColor[1], fogColor[2]);
+    fxU.fogDensity.value = fogDensity;
   }
 
   private groundAt(x: number, z: number): number {
@@ -333,6 +397,14 @@ export class Fx {
       get tilt() { return self.tilt; },
       get fogDensity() { return BASE_FOG; },
       get overrides() { return { time: self.timeOverride !== null, weather: self.weatherOverride !== null }; },
+      get features() { return featureFlags({ ...TIER_TABLE[self.tier], gfx: self.gfx }, self.backend); },
+      get foliage() { return self.foliage?.stats ?? { grass: 0, shrubs: 0, trees: 0, billboards: 0, chunks: 0, rebuilds: 0, drawCalls: 0 }; },
+      get atmosphere() {
+        return {
+          wind: self.weather.state.wind, cloudShadow: fxU.cloudShadow.value as number, cloudDrift: [self.drift.x, self.drift.z] as [number, number],
+          scatter: fxU.scatter.value as number, mist: fxU.mist.value as number,
+        };
+      },
       get disasters() { return self.disasters.stats; },
       emit: (kind, x, y, z, count) => self.particles.emit(kind, x, y, z, count),
     };
@@ -340,6 +412,8 @@ export class Fx {
 
   dispose(): void {
     this.post.dispose();
+    this.foliage?.dispose();
+    this.puffs.dispose();
     this.disasters.dispose();
     this.lamps.dispose();
     this.particles.dispose();
@@ -348,5 +422,6 @@ export class Fx {
     this.lighting.dispose();
     this.sky.dispose();
     this.scene.fog = null;
+    (this.scene as unknown as { fogNode: unknown }).fogNode = null;
   }
 }
