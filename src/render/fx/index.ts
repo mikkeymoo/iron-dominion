@@ -21,6 +21,7 @@ import { skyLook, smoothstep } from './palette.ts';
 import { ParticleSystem, type ParticleKind } from './particles.ts';
 import { createPost, type Post } from './post.ts';
 import { accumulate } from './ring.ts';
+import { SeasonClock, parseSeasonParam, scaleSun, seasonLook, warpDayFrac, type SeasonLook } from './seasonLook.ts';
 import { DayClock, moonDirection, sunDirection } from './skyClock.ts';
 import { SkyDome } from './sky.ts';
 import { focalRange, tiltStrength } from './tilt.ts';
@@ -32,6 +33,8 @@ import { parseWeatherParam, weatherName } from './weatherMap.ts';
 /** Clear-sky exp2 fog density: the whole 256-tile map stays clear (>= 97% visible at 250 tiles) and the haze gathers toward the horizon. */
 const BASE_FOG = 0.0007;
 const MAX_EMIT_PER_FRAME = 240;
+/** The deepest the winter's standing snow lies (fresh snowfall can still take it to 1). */
+const WINTER_SNOW = 0.92;
 /** A skipped emitter makes up at most this much time when it is next serviced. */
 const MAX_CATCHUP_S = 0.5;
 
@@ -50,7 +53,12 @@ export interface FxDebug {
   readonly tilt: number;
   /** Clear-sky exp2 fog density in use. */
   readonly fogDensity: number;
-  readonly overrides: { time: boolean; weather: boolean };
+  readonly overrides: { time: boolean; weather: boolean; season: boolean };
+  /**
+   * The season as drawn this frame: position in the 24-day year, its index and name, day length, and the visual flags (autumn leaf
+   * colour, bare trees, dry grass, standing snow, all 0..1). They ease toward the sim's season, so they change smoothly, not in steps.
+   */
+  readonly season: { pos: number; index: number; name: string; daylight: number; autumn: number; bare: number; dry: number; snow: number; tint: [number, number, number] };
   /** Which graphics-push features are live on this tier and backend (see tier.ts featureFlags). */
   readonly features: FxFeatures;
   /** Foliage instances and draw calls this frame, and how often the instance buffers were rewritten. */
@@ -79,6 +87,10 @@ export class Fx {
   private readonly drift = { x: 0, z: 0 };
   private readonly fog = new FogExp2(0xb4d4f0, BASE_FOG);
   private readonly clock = new DayClock(0.4);
+  private readonly seasonClock = new SeasonClock(0);
+  private readonly seasonOverride: number | null;
+  private seasonSnapped = false;
+  private season: SeasonLook = seasonLook(0);
   private readonly timeOverride: number | null;
   private readonly weatherOverride: { kind: number; intensity: number } | null;
   private readonly nightOverride: number | null;
@@ -108,6 +120,7 @@ export class Fx {
     const t = q.get('time');
     this.timeOverride = t !== null && t !== '' && Number.isFinite(Number(t)) ? Number(t) - Math.floor(Number(t)) : null;
     this.weatherOverride = parseWeatherParam(q.get('weather'));
+    this.seasonOverride = parseSeasonParam(q.get('season'));
     const n = q.get('night');
     this.nightOverride = n !== null && n !== '' && Number.isFinite(Number(n)) ? Math.min(1, Math.max(0, Number(n))) : null;
 
@@ -251,7 +264,20 @@ export class Fx {
       this.weather.strike(x, z, this.groundAt(x, z), this.camera, nowSec);
     }
 
-    const sun = sunDirection(this.clock.value), moon = moonDirection(this.clock.value);
+    // The season: the displayed position in the year eases toward the sim's (or the ?season= pin) and sets day length, sun height,
+    // leaf colour, bare trees, dry grass, standing snow and the ground tint.
+    const seasonTarget = this.seasonOverride ?? (this.mirror.hasResync ? this.mirror.scalars[S.season]! : 0);
+    if (!this.seasonSnapped && (this.seasonOverride !== null || this.mirror.hasResync)) { this.seasonClock.snap(seasonTarget); this.seasonSnapped = true; }
+    this.seasonClock.step(seasonTarget, dt);
+    const sl = seasonLook(this.seasonClock.value);
+    this.season = sl;
+    fxU.autumn.value = sl.autumn;
+    fxU.bare.value = sl.bare;
+    fxU.dry.value = sl.dry;
+    fxU.seasonTint.value.setRGB(sl.tint[0], sl.tint[1], sl.tint[2]);
+
+    const warped = warpDayFrac(this.clock.value, sl.daylight);
+    const sun = scaleSun(sunDirection(warped), sl.sunScale), moon = moonDirection(warped);
     this.sun = sun;
     const st = this.weather.state;
     const look = skyLook(sun[1], moon[1], st.overcast, flash);
@@ -262,7 +288,7 @@ export class Fx {
     fxU.moonDisc.value = smoothstep(0, 0.12, moon[1]) * (1 - dayness) * (1 - st.overcast * 0.85);
     fxU.overcast.value = st.overcast;
     fxU.wet.value = st.wet;
-    fxU.snow.value = st.snowCover;
+    fxU.snow.value = Math.max(st.snowCover, sl.snow * WINTER_SNOW);
     fxU.cloudCover.value = 0.3 + st.overcast * 0.62;
     fxU.cloudLit.value.setRGB(
       look.sunColor[0] * look.sunIntensity * 0.2 + look.hemiSky[0] * look.hemiIntensity * 0.42,
@@ -285,6 +311,7 @@ export class Fx {
     this.foliage?.update(pose.tx, pose.tz, camDist, this.camera, nowSec * 1000);
     this.emitContinuous(dt, pose, camDist, spec.fx.emitters);
     for (const e of this.mirror.takeDisasters()) if (this.mirror.hasResync) this.disasters.handle(e, nowSec);
+    for (const e of this.mirror.takeBlocked()) if (this.mirror.hasResync) this.disasters.handleBlocked(e, nowSec);
     this.disasters.update(dt, nowSec, this.mirror.tick);
     this.particles.update(dt);
 
@@ -396,7 +423,11 @@ export class Fx {
       get exposure() { return self.exposure; },
       get tilt() { return self.tilt; },
       get fogDensity() { return BASE_FOG; },
-      get overrides() { return { time: self.timeOverride !== null, weather: self.weatherOverride !== null }; },
+      get overrides() { return { time: self.timeOverride !== null, weather: self.weatherOverride !== null, season: self.seasonOverride !== null }; },
+      get season() {
+        const s = self.season;
+        return { pos: s.pos, index: s.index, name: s.name, daylight: s.daylight, autumn: s.autumn, bare: s.bare, dry: s.dry, snow: s.snow, tint: [...s.tint] as [number, number, number] };
+      },
       get features() { return featureFlags({ ...TIER_TABLE[self.tier], gfx: self.gfx }, self.backend); },
       get foliage() { return self.foliage?.stats ?? { grass: 0, shrubs: 0, trees: 0, billboards: 0, chunks: 0, rebuilds: 0, drawCalls: 0 }; },
       get atmosphere() {

@@ -44,6 +44,8 @@ export const ARCH = {
   ROBOTICS_LAB: 47,
   /** Production chain (sim/robots/chain.ts): Mine makes Ore on ore ground, Smelter turns Ore into Alloy, Factory turns Alloy into Components. */
   MINE: 48, SMELTER: 49, FACTORY: 50,
+  /** Preparation buildings (sim/disasters/prep.ts): they protect the buildings around them from a forecast hazard. Numbered after the chain so both branches keep distinct ids. */
+  LIGHTNING_ROD: 51, BATTERY_BANK: 52, SEISMIC_DAMPER: 53, SHIELD_DOME: 54,
 } as const;
 
 /**
@@ -79,6 +81,8 @@ export const BFLAG = {
   BURNING: 64,
   /** Destroyed by a disaster (bDmg 255), always set together with ABANDONED so the economy ignores it and the robots tear the ruin down. */
   RUBBLE: 128,
+  /** A ruin the player ordered rebuilt ("Rebuild all", sim/disasters/rebuild.ts): the robots clear it first and raise the building again on its lot. */
+  REBUILD: 8,
 } as const;
 
 const rciArchetypes = (): Archetype[] => {
@@ -117,6 +121,10 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.MINE, name: 'mine', w: 3, h: 3, cost: 1500, placeable: true, upkeep: 40, unlock: 1, needsOre: true },
   { id: ARCH.SMELTER, name: 'smelter', w: 3, h: 3, cost: 2500, placeable: true, upkeep: 80, unlock: 2 },
   { id: ARCH.FACTORY, name: 'factory', w: 4, h: 4, cost: 6000, placeable: true, upkeep: 160, unlock: 3 },
+  { id: ARCH.LIGHTNING_ROD, name: 'lightningRod', w: 1, h: 1, cost: 600, placeable: true, upkeep: 4 },
+  { id: ARCH.BATTERY_BANK, name: 'batteryBank', w: 3, h: 3, cost: 3500, placeable: true, upkeep: 40, unlock: 1 },
+  { id: ARCH.SEISMIC_DAMPER, name: 'seismicDamper', w: 2, h: 2, cost: 1800, placeable: true, upkeep: 20 },
+  { id: ARCH.SHIELD_DOME, name: 'shieldDome', w: 5, h: 5, cost: 30000, placeable: true, upkeep: 400, unlock: 3 },
   ...rciArchetypes(),
 ];
 

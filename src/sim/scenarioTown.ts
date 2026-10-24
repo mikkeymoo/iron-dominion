@@ -6,6 +6,7 @@ import { mods } from './firmware.ts';
 import { AKIND, BUILDERS_PER_DEPOT, DEPOT_START_STOCK, HAULERS_PER_DEPOT } from './robots/constants.ts';
 import { refOf, spawnAgent } from './robots/pool.ts';
 import { initScenarioLayer } from './scenarioRun.ts';
+import { withFloor } from './disasters/tables.ts';
 import type { ScenarioSpec, TownKind } from './scenarios.ts';
 import { STARTER_BUILDERS, STARTER_HAULERS, placeStarter, starterSite } from './starter.ts';
 import { tileIdx } from './tiles.ts';
@@ -144,7 +145,7 @@ export function setupScenario(sim: Sim, spec: ScenarioSpec): void {
   w.firmware[F.EARNED] = spec.rp;
   const cap = Math.min(DEFAULT_TAX, m.taxCap);
   s[S.taxR] = cap; s[S.taxC] = cap; s[S.taxI] = cap;
-  w.disaster[D.MODE] = Math.max(w.disaster[D.MODE]!, m.disasterFloor);
+  w.disaster[D.MODE] = withFloor(w.disaster[D.MODE]!, m.disasterFloor);
   spec.loans.slice(0, MAX_LOANS).forEach((tier, slot) => { w.loanAmt[slot] = LOAN_TIERS[tier]!; w.loanBp[slot] = LOAN_BP[tier]!; });
   if (spec.start === 'starter') {
     placeStarter(sim, {

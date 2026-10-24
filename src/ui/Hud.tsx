@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CouncilStats, DirectiveStats, FirmwareStats, LoanInfo, MilestoneStats, ScenarioStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { CouncilStats, DirectiveStats, FirmwareStats, HazardStats, LoanInfo, MilestoneStats, ScenarioStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { ApprovalChip } from './Council';
 import { DemandBars } from './DemandBars';
@@ -26,6 +26,15 @@ export const SPEEDS: { speed: Speed; label: string; key: string }[] = [
   { speed: 4, label: '4x', key: '3' },
   { speed: 'max', label: 'Max', key: '4' },
 ];
+
+/** What each Disasters setting does, shown under the choice. Off stops new ones; the sandbox menu still works in every mode. */
+export const DISASTER_HINTS: Record<DisastersSetting, string> = {
+  off: 'No fires, storms, quakes or meteors. The sandbox menu still works.',
+  gentle: 'Forecasts only, with half the damage, no meteors and a low ceiling on how strong they grow.',
+  rare: 'Hazards are forecast a month or two ahead and come now and then, plus the odd fire. They grow with the city.',
+  normal: 'Hazards come often and fires start more easily. They grow with the city.',
+  hard: 'Relentless: hazards come back to back, hit harder and fires are common. They grow with the city.',
+};
 
 export const failText = (reason: FailReason, message?: string): string => {
   switch (reason) {
@@ -63,6 +72,8 @@ export interface HudStats {
   directives?: DirectiveStats;
   /** Research points, owned firmware, active edicts and depot modules from the newest Stats message. */
   firmware?: FirmwareStats;
+  /** The season, the hazard forecast, the defences and the ruins from the newest Stats message. */
+  hazards?: HazardStats;
   /** Approval, council requests and festivals from the newest Stats message. */
   council?: CouncilStats;
   /** Goal progress of a scenario or challenge city; null or absent in the sandbox. */
@@ -262,6 +273,7 @@ export function Hud({
         </div>
         {phone && has('money') && approvalEl}
         <div data-slot="advisor" />
+        <div data-slot="forecast" />
         {has('workforce') && <WorkforceReadout w={stats.workforce} depots={facts.depots} />}
         {has('workforce') && <TrafficReadout t={stats.traffic} />}
         {!phone && has('rci') && rciEl}
@@ -366,10 +378,10 @@ export function Hud({
               <Panel id="settings-gameplay" kind="section" title="Gameplay">
                 <label>Disasters
                   <select value={settings.disasters} data-testid="disasters-setting" onChange={(e) => onSetting('disasters', e.target.value as DisastersSetting)}>
-                    {DISASTER_MODES.map((m) => <option key={m} value={m}>{m === 'off' ? 'Off' : m === 'rare' ? 'Rare' : 'Normal'}</option>)}
+                    {DISASTER_MODES.map((m) => <option key={m} value={m}>{m[0]!.toUpperCase() + m.slice(1)}</option>)}
                   </select>
                 </label>
-                <p className="hint">Fires, storms, quakes and meteors. Off stops new ones; the sandbox menu still works.</p>
+                <p className="hint" data-testid="disasters-hint">{DISASTER_HINTS[settings.disasters]}</p>
               </Panel>
               <Panel id="settings-controls" kind="section" title="Controls">
                 <label>Handedness

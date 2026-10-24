@@ -26,6 +26,7 @@ const ICONS: Record<IssueKind | 'ok', () => ReactNode> = {
   abandoned: () => <Svg><path d="M4 20V10l8-6 8 6v10z" /><path d="M9 11l6 6M15 11l-6 6" /></Svg>,
   resource: () => <Svg><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></Svg>,
   needs: () => <Svg><path d="M4 11l8-7 8 7v9H4z" /><path d="M12 10v4M12 17h.01" /></Svg>,
+  hazard: () => <Svg><path d="M12 3l9.5 17h-19z" /><path d="M12 9.5v5M12 17.5h.01" /></Svg>,
   request: () => <Svg><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4M9 12h7M9 16h5" /></Svg>,
   approval: () => <Svg><circle cx="12" cy="12" r="9" /><path d="M8.5 16.5c1-1.5 2.2-2.2 3.5-2.2s2.5.7 3.5 2.2M9 9.5h.01M15 9.5h.01" /></Svg>,
 };

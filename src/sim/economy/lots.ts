@@ -8,7 +8,7 @@ import { lotService } from '../utilities/index.ts';
 import { zoneDemand } from './demand.ts';
 import { needsMet, shopCentres, type ShopIndex } from './needs.ts';
 
-const EMPTY_SHOPS: ShopIndex = { cells: [], count: 0 };
+const EMPTY_SHOPS: ShopIndex = { cells: [], count: 0, goods: { cells: [], count: 0 } };
 import {
   ABANDON_AT, ABANDON_CLEAR, ABANDON_DEMAND, ABANDON_DESIRABILITY, CRIME_DESIRABILITY_SHIFT, CRIME_TOLERANCE, LEVELUP_DEMAND, LEVELUP_LV,
   LEVELUP_SVC_SHIFT, LEVELUP_SVC_W, LOT_SVC_C, LOT_SVC_R, ONE,
@@ -128,7 +128,7 @@ export function levelUpCandidates(sim: Sim, zone: number, max: number): LevelUp[
   const demand = Math.round(zoneDemand(w, zone) * ONE);
   if (max <= 0 || demand < LEVELUP_DEMAND) return [];
   const out: LevelUp[] = [];
-  const shops = zone === ZONE.R ? shopCentres(w) : EMPTY_SHOPS;
+  const shops = zone === ZONE.R || zone === ZONE.C ? shopCentres(w) : EMPTY_SHOPS;
   for (let s = 0; s < BMAX; s++) {
     const arch = w.bArch[s]!;
     if (zoneOfArch(arch) !== zone || !isOperating(w, s) || w.bLevel[s]! >= 3) continue;

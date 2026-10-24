@@ -4,7 +4,9 @@ import {
 } from './economy/index.ts';
 import { depotDistances, materialStock } from './issues.ts';
 import { needsOf } from './economy/needs.ts';
+import { DAMPER_RADIUS, DOME_RADIUS, ROD_RADIUS } from './disasters/prep.ts';
 import { archLabel, capitalise } from './labels.ts';
+import { BATTERY_CAP } from './utilities/tables.ts';
 import { AMAX, BMAX, MAP, PATH_CAP, RMAX, ROAD, S, ZONE, type World } from './layers.ts';
 import type { AgentInfo, BuildingInfo, InfoMsg, IssueOverlay, NeedItem, RequestInfo, StockBar, Thought, ThoughtTone } from './protocol.ts';
 import {
@@ -124,7 +126,8 @@ const NEED_THOUGHT = {
   shop: "No working shop within 20 tiles - can't level up.",
   health: "No clinic or hospital in reach - can't reach level 3.",
   school: "No school or university in reach - can't reach level 3.",
-  goods: "No goods supply: a factory, or a depot holding components, must be within 40 tiles - can't level up.",
+  goods: "No local goods: an industrial building or smelter must be within 30 tiles - can't level up.",
+  components: "No components supply: a factory, or a depot holding components, must be within 40 tiles - can't reach level 3.",
 } as const;
 
 function levelThoughts(w: World, slot: number, out: Weighted[]): void {
@@ -185,7 +188,11 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
   const constructing = (flags & BFLAG.CONSTRUCTING) !== 0, ruin = (flags & BFLAG.RUBBLE) !== 0, burning = (flags & BFLAG.BURNING) !== 0;
   const done = isFinished(flags);
 
-  if (ruin) out.push(thought(90, 'bad', 'A ruin. Robots will clear it away.'));
+  if (ruin) {
+    out.push((flags & BFLAG.REBUILD) !== 0
+      ? thought(90, 'good', 'A ruin, ordered rebuilt. Robots will clear it and build it again.')
+      : thought(90, 'bad', 'A ruin. Robots will clear it away.'));
+  }
   if (constructing && !ruin) jobThoughts(sim, net, slot, out);
   if (burning) {
     const cov = Math.round((footprintMax(w, w.covFire, slot) * 100) / 255);
@@ -243,6 +250,15 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
       } else out.push(thought(5, 'good', `Covers ${svc.radius} road tiles around it.`));
     } else if (svc && svc.kind === SVC.PARK) out.push(thought(5, 'good', `Raises land value within ${svc.radius} tiles.`));
     else if (svc && svc.kind === SVC.REPAIR) out.push(thought(5, 'good', `Robots move faster within ${svc.radius} tiles.`));
+    if (arch === ARCH.LIGHTNING_ROD) out.push(thought(8, 'good', `Takes every lightning strike within ${ROD_RADIUS} tiles, so nothing there is set alight.`));
+    else if (arch === ARCH.SEISMIC_DAMPER) out.push(thought(8, 'good', `Cuts quake damage to the buildings and roads within ${DAMPER_RADIUS} tiles.`));
+    else if (arch === ARCH.SHIELD_DOME) {
+      if ((flags & BFLAG.UNPOWERED) !== 0) out.push(thought(8, 'warn', 'No power: the dome is down and meteors get through.', 'power'));
+      else out.push(thought(8, 'good', `Stops meteors from landing within ${DOME_RADIUS} tiles.`));
+    } else if (arch === ARCH.BATTERY_BANK) {
+      const pct = Math.round((w.bStock[slot]! * 100) / BATTERY_CAP);
+      out.push(thought(8, pct >= 50 ? 'good' : 'warn', `Charged ${pct}%. It fills from spare power and covers brown-outs.`));
+    }
     if (a.pollution && a.pollution > 0 && works(flags)) {
       const n = homesNear(w, slot);
       out.push(thought(45, n > 0 ? 'warn' : 'good', n > 0 ? `Its smoke reaches ${n} ${n === 1 ? 'home' : 'homes'} nearby.` : 'Its smoke drifts over open land.', 'pollution'));

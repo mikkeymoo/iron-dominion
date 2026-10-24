@@ -191,6 +191,10 @@ export const SPEC = {
   // switching disasters on or off never shifts the weather.
   disaster: L(Int32Array, 8, false, 'none'),
   drng: L(Uint32Array, 4, false, 'none'),
+  // Hazard scheduler (sim/disasters/hazards.ts): the planned or running hazard (see H) and its own random stream. Layers of their own
+  // (not scalars) so a save from before them still loads: a missing layer reads as zeros, which is "nothing planned".
+  hazard: L(Int32Array, 16, false, 'none'),
+  hrng: L(Uint32Array, 4, false, 'none'),
 } as const;
 
 export type LayerName = keyof typeof SPEC;
@@ -256,6 +260,9 @@ export const S = {
   // UNIT-0 directive chain (sim/directives.ts): bit i of directiveDone is set once directive i's condition has been met (it never clears),
   // bit i of directiveClaimed once its reward was paid. `firsts` holds one-time celebrations that already fired (bit 0: the first finished building).
   directiveDone: 44, directiveClaimed: 45, firsts: 46,
+  // Position in the year in days (sim/seasons.ts): the day of the year plus the fraction of the day gone, 0 up to 24. Written every
+  // tick from `day` and `dayFrac`; the renderer eases toward it so a season turns smoothly. Sim rules read the integer `day` instead.
+  season: 47,
 } as const;
 
 /**
@@ -285,8 +292,19 @@ export const C = {
   REQ0: 24, REQ_STRIDE: 14,
 } as const;
 
-/** Indices into the `disaster` layer. MODE is 0 off, 1 rare, 2 normal; METEOR_AT is the impact tick of an incoming meteor (0 = none). */
+/** Indices into the `disaster` layer. MODE is a DMODE value (0 off, 1 rare, 2 normal, 3 gentle, 4 hard); METEOR_AT is the impact tick of an incoming meteor (0 = none). */
 export const D = { MODE: 0, METEOR_AT: 1, METEOR_X: 2, METEOR_Y: 3 } as const;
+
+/** Hazard kinds. 0 is none. */
+export const HAZ = { NONE: 0, STORM: 1, HEATWAVE: 2, COLD_SNAP: 3, METEOR_SHOWER: 4, QUAKE_SWARM: 5 } as const;
+
+/**
+ * Indices into the `hazard` layer. PHASE is 0 nothing planned (PLAN_AT is when the next plan is made), 1 forecast (the hazard starts
+ * at START), 2 running (it ends at END). NEXT is the tick of the next strike, meteor or quake of the window and LEFT how many remain;
+ * LEVEL the intensity the plan was made at, LAST the kind before this one, COUNT hazards weathered, PLANNED_AT and LEAD when the
+ * forecast was made and how far ahead, BONUS the cash paid at the start for being ready.
+ */
+export const H = { PHASE: 0, KIND: 1, PLAN_AT: 2, START: 3, END: 4, NEXT: 5, LEFT: 6, LEVEL: 7, LAST: 8, COUNT: 9, PLANNED_AT: 10, LEAD: 11, BONUS: 12 } as const;
 
 export const WEATHER ={ CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;
 export const DAY_TICKS = 4800;

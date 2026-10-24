@@ -43,17 +43,23 @@ describe('registry', () => {
     expect(patch && patch.type === 'chunkPatch' && patch.buildings.find((b) => b.slot === s)?.dmg).toBe(77);
   });
 
-  it('opens with disasters off unless the session says otherwise, and accepts only modes 0 to 2', () => {
+  it('opens with disasters off unless the session says otherwise, and accepts only modes 0 to 4', () => {
     expect(createSim(5).world.disaster[D.MODE]).toBe(DMODE.OFF);
     expect(createSim(5, { disasters: DMODE.RARE }).world.disaster[D.MODE]).toBe(DMODE.RARE);
+    expect(createSim(5, { disasters: DMODE.GENTLE }).world.disaster[D.MODE]).toBe(DMODE.GENTLE);
+    expect(createSim(5, { disasters: DMODE.HARD }).world.disaster[D.MODE]).toBe(DMODE.HARD);
     expect(createSim(5, { disasters: 9 }).world.disaster[D.MODE]).toBe(DMODE.OFF);
     expect(createSim(5, { disasters: -1 }).world.disaster[D.MODE]).toBe(DMODE.OFF);
     const sim = createSim(5);
     expect(run(sim, { type: 'setDisasters', mode: 2 })).toBe(true);
     expect(sim.world.disaster[D.MODE]).toBe(2);
-    expect(run(sim, { type: 'setDisasters', mode: 3 })).toBe(false);
+    for (const mode of [3, 4]) {
+      expect(run(sim, { type: 'setDisasters', mode })).toBe(true);
+      expect(sim.world.disaster[D.MODE]).toBe(mode);
+    }
+    expect(run(sim, { type: 'setDisasters', mode: 5 })).toBe(false);
     expect(run(sim, { type: 'setDisasters', mode: 0.5 })).toBe(false);
-    expect(sim.world.disaster[D.MODE]).toBe(2);
+    expect(sim.world.disaster[D.MODE]).toBe(4);
   });
 });
 

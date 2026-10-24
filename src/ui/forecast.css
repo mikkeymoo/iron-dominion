@@ -1,0 +1,46 @@
+/* The forecast chip (top bar slot) and its card. Self-contained; the HUD shell's styles live in app.css. */
+
+/* The slot the forecast chip mounts into (Hud.tsx), laid out like the advisor's: no width until something is in it, and it gives way on a phone. */
+[data-slot="forecast"] { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; }
+.topbar[data-layout="phone"] [data-slot="forecast"] { flex: 1 1 0; min-width: 2.75rem; justify-content: flex-end; overflow: hidden; }
+.topbar[data-layout="phone"][data-open="true"] [data-slot="forecast"] { flex: 1 1 100%; justify-content: flex-start; }
+
+.forecast { position: relative; display: inline-block; max-width: 100%; font-size: 0.85rem; color: #e6edf3; }
+/* Used when the HUD has no [data-slot="forecast"]: under the top bar, at the right edge. */
+.forecast-fallback { position: absolute; z-index: 1; top: calc(env(safe-area-inset-top) + 114px); right: calc(env(safe-area-inset-right) + 8px); max-width: calc(100vw - 16px); }
+.forecast-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 44px; box-sizing: border-box; padding: 0 12px 0 8px; font: inherit; font-weight: 600; color: #e6edf3; background: rgba(11, 17, 22, 0.88); border: 1px solid rgba(230, 237, 243, 0.3); border-radius: 22px; cursor: pointer; }
+.forecast-chip .ico { flex: 0 0 20px; }
+.forecast-chip[data-season="0"] > .ico:first-child { color: #9be58f; }
+.forecast-chip[data-season="1"] > .ico:first-child { color: #ffd24a; }
+.forecast-chip[data-season="2"] > .ico:first-child { color: #ff9a4a; }
+.forecast-chip[data-season="3"] > .ico:first-child { color: #9bd3ff; }
+.forecast-chip.alert { border-color: #f2a33a; color: #ffd08a; box-shadow: 0 0 0 2px rgba(242, 163, 58, 0.3); }
+.forecast-chip.active { border-color: #ff7a5c; color: #ffb8a6; }
+.forecast-text { min-width: 0; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .forecast-text { max-width: 8rem; } }
+.forecast-badge { flex: 0 0 auto; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; display: inline-grid; place-items: center; font-size: 0.75rem; font-weight: 700; color: #1b1405; background: #f2a33a; border-radius: 10px; }
+
+.forecast-pos { position: absolute; z-index: 4; top: calc(env(safe-area-inset-top) + 116px); right: calc(env(safe-area-inset-right) + 8px); width: min(22rem, calc(100vw - 16px)); }
+@media (max-width: 600px) { .forecast-pos { left: calc(env(safe-area-inset-left) + 8px); right: auto; } }
+.forecast-card.pnl { max-height: min(70vh, 32rem); display: flex; flex-direction: column; overflow: hidden; padding: 0; background: rgba(11, 17, 22, 0.95); border: 1px solid rgba(230, 237, 243, 0.25); border-radius: 12px; color: #e6edf3; }
+.forecast-card.pnl > .pnl-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 0 10px 10px; }
+.forecast-body { display: grid; gap: 8px; font-size: 0.84rem; line-height: 1.35; }
+.forecast-body p { margin: 0; }
+.forecast-sub { opacity: 0.75; font-size: 0.78rem; }
+.forecast-season { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; background: rgba(230, 237, 243, 0.06); border-radius: 8px; }
+.forecast-hazard { display: grid; gap: 6px; padding: 8px; background: rgba(230, 237, 243, 0.06); border-left: 4px solid #9be58f; border-radius: 8px; }
+.forecast-hazard.bad { border-left-color: #f2a33a; }
+.forecast-hazard.calm { border-left-color: #8fd3ff; }
+.forecast-hazard > header { display: flex; align-items: center; gap: 8px; }
+.forecast-hazard > header strong { flex: 1; min-width: 0; }
+.forecast-level { padding: 2px 8px; font-size: 0.72rem; font-weight: 700; color: #0b1116; background: #f2c879; border-radius: 10px; white-space: nowrap; }
+.forecast-help { display: grid; gap: 6px; padding-top: 4px; border-top: 1px solid rgba(230, 237, 243, 0.14); }
+.forecast-status { font-weight: 700; }
+.forecast-status.ok { color: #9be58f; }
+.forecast-status.warn { color: #ffd08a; }
+.forecast-bonus { color: #9be58f; font-weight: 700; }
+.forecast-kit { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 0.78rem; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.forecast-rebuild { display: grid; gap: 6px; padding: 8px; background: rgba(242, 163, 58, 0.1); border-left: 4px solid #f2a33a; border-radius: 8px; }
+
+@media (prefers-reduced-motion: reduce) { .forecast-card { animation: none !important; } }
+.hud[data-focus="true"] > .forecast-fallback { display: none; }

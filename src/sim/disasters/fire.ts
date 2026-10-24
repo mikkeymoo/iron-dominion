@@ -1,15 +1,15 @@
 import { ARCH, BFLAG } from '../catalog.ts';
 import { clearBuilding } from '../commands.ts';
 import { footprintMean } from '../economy/totals.ts';
-import { BMAX, D, MAP, S, WEATHER, type World } from '../layers.ts';
+import { BMAX, D, H, HAZ, MAP, S, WEATHER, type World } from '../layers.ts';
 import { nextU32 } from '../rng.ts';
 import { AKIND, AST } from '../robots/constants.ts';
 import { clearJob, liveSlot } from '../robots/pool.ts';
 import { slotsOfKind } from './agents.ts';
 import type { Sim } from '../world.ts';
 import {
-  BASE_RISK, BURN_DMG_BASE, COVERAGE_COOL_SHIFT, FIGHTER_COOL, FIRE_START_HEAT, FLAMMABILITY, MODE_SCALE, NATURAL_COOL, NO_WATER_RISK, RAIN_COOL,
-  RISK_BITS, SNOW_COOL, SPREAD_REACH, SPREAD_SHIFT,
+  BASE_RISK, BURN_DMG_BASE, COVERAGE_COOL_SHIFT, DAMAGE_PCT, FIGHTER_COOL, FIRE_START_HEAT, FLAMMABILITY, HEAT_FIRE_MUL, MODE_SCALE, NATURAL_COOL, NO_WATER_RISK,
+  RAIN_COOL, RISK_BITS, SNOW_COOL, SPREAD_REACH, SPREAD_SHIFT,
 } from './tables.ts';
 
 let coverageOverride: ((w: World, x: number, y: number) => number) | null = null;
@@ -162,7 +162,7 @@ export function fireStep(sim: Sim): void {
     if (w.bArch[s] === 0 || (w.bFlags[s]! & BFLAG.BURNING) === 0) continue;
     const heat = w.bHeat[s]!;
     spreadFrom(sim, s, heat, caught);
-    const dmg = Math.min(255, w.bDmg[s]! + BURN_DMG_BASE + (heat >> 5));
+    const dmg = Math.min(255, w.bDmg[s]! + scaleDamage(w, BURN_DMG_BASE + (heat >> 5)));
     w.bDmg[s] = dmg;
     sim.dirty.buildings.add(s);
     if (dmg >= 255) { destroyBuilding(sim, s); continue; }
@@ -173,9 +173,16 @@ export function fireStep(sim: Sim): void {
   for (const t of caught) ignite(sim, t);
 }
 
-/** Random ignition (every IGNITE_PERIOD ticks, only while disasters are on): one draw per building that can burn, in slot order. */
+/** Damage a fire or quake does, in the mode's percent (Gentle halves it); never below 1 so a hit always counts. */
+export function scaleDamage(w: World, amount: number): number {
+  const pct = DAMAGE_PCT[w.disaster[D.MODE]!] ?? 100;
+  return pct === 100 ? amount : Math.max(1, Math.floor((amount * pct) / 100));
+}
+
+/** Random ignition (every IGNITE_PERIOD ticks, only while disasters are on): one draw per building that can burn, in slot order. A heatwave doubles the chance. */
 export function ignitionPass(sim: Sim): void {
-  const w = sim.world, scale = MODE_SCALE[w.disaster[D.MODE]!] ?? 0;
+  const w = sim.world, heat = w.hazard[H.PHASE] === 2 && w.hazard[H.KIND] === HAZ.HEATWAVE;
+  const scale = (MODE_SCALE[w.disaster[D.MODE]!] ?? 0) * (heat ? HEAT_FIRE_MUL : 1);
   if (scale === 0) return;
   for (let s = 0; s < BMAX; s++) {
     const risk = ignitionRiskOf(w, s) * scale;

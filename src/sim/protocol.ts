@@ -150,7 +150,7 @@ export interface MilestoneStats {
 }
 /** What the advisor can ask the player to look at. 'budget' issues have no tile worth flying to. */
 export type IssueKind =
-  | 'fire' | 'budget' | 'depot' | 'power' | 'water' | 'stuck' | 'jobs' | 'commute' | 'crime' | 'noFire' | 'noLand' | 'abandoned' | 'request' | 'approval' | 'resource' | 'needs';
+  | 'fire' | 'budget' | 'depot' | 'power' | 'water' | 'stuck' | 'jobs' | 'commute' | 'crime' | 'noFire' | 'noLand' | 'abandoned' | 'hazard' | 'request' | 'approval' | 'resource' | 'needs';
 export type IssueCategory = 'safety' | 'economy' | 'utilities' | 'robots' | 'growth' | 'services';
 /** Overlay modes an issue can switch the view to (a subset of render/viewState OverlayMode). */
 export type IssueOverlay = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | 'traffic' | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks';
@@ -184,6 +184,42 @@ export interface FirmwareStats {
   edicts: number;
   edictsActive: number;
   modules: [number, number, number, number];
+}
+/** Is the city ready for the forecast hazard (sim/disasters/prep.ts)? `applicable` is false when nothing is at stake yet. */
+export interface HazardPrep { applicable: boolean; ready: boolean; /** 0..1 of what is at stake that is protected. */ coverage: number }
+/** The hazard that is planned or running. Times are in ticks; a month is 4800. */
+export interface HazardForecast {
+  /** HAZ kind and the intensity level it was planned at. */
+  kind: number;
+  level: number;
+  active: boolean;
+  startTick: number;
+  startsIn: number;
+  endsIn: number;
+  /** How far ahead it was announced, and the cash paid at its start for being ready (0 until then). */
+  lead: number;
+  bonus: number;
+  prep: HazardPrep;
+}
+/** Seasons, the hazard forecast, the preparation buildings and the ruins awaiting "Rebuild all" (sim/seasons.ts, sim/disasters). */
+export interface HazardStats {
+  /** Days into the 24-day year, 0 up to 24, and the season index it falls in (0 spring, 1 summer, 2 autumn, 3 winter). */
+  yearPos: number;
+  season: number;
+  /** Fraction of the day the sun is up. */
+  daylight: number;
+  /** Power load now as a multiple of the base: the season's heating or cooling and any running heatwave or cold snap. */
+  climate: number;
+  /** Hazard intensity level the city would face now (0 with disasters off), and the DMODE. */
+  level: number;
+  mode: number;
+  forecast: HazardForecast | null;
+  /** Standing preparation buildings, and the mean charge 0..1 of the Battery Banks. */
+  kit: { rods: number; batteries: number; dampers: number; domes: number; charge: number };
+  /** Ruins that "Rebuild all" would add and what it costs now (after the discount), and ruins already queued. */
+  ruins: number;
+  queued: number;
+  rebuildCost: number;
 }
 /** One open council request (sim/council): who asked, what for, how far along it is and what it pays or costs. Times are sim ticks. */
 export interface CouncilRequestStat {
@@ -295,6 +331,7 @@ export interface Stats {
   milestone: MilestoneStats;
   directives: DirectiveStats;
   firmware: FirmwareStats;
+  hazards: HazardStats;
   council: CouncilStats;
   scenario: ScenarioStats | null;
 }

@@ -4,11 +4,17 @@ import type { PlatformDb } from './db.ts';
 export type TierOverride = 'auto' | Tier;
 export const TIER_OVERRIDES: readonly TierOverride[] = ['auto', ...TIERS];
 
-/** How often random disasters strike. The index is the sim's mode (see DMODE in sim/disasters/tables.ts), sent as the setDisasters command. */
-export type DisastersSetting = 'off' | 'rare' | 'normal';
-export const DISASTER_MODES: readonly DisastersSetting[] = ['off', 'rare', 'normal'];
+/**
+ * How hard disasters hit. Off has none; Gentle has forecasts only, half damage, no meteors and a low intensity cap; Rare, Normal
+ * and Hard come as forecasts plus random fires, with the intensity growing with the city. The list is in the order the menu shows;
+ * the number sent to the sim as the setDisasters command is the DMODE value (sim/disasters/tables.ts), which is not the index
+ * because Gentle and Hard were added after the three older modes and saves keep those numbers.
+ */
+export type DisastersSetting = 'off' | 'gentle' | 'rare' | 'normal' | 'hard';
+export const DISASTER_MODES: readonly DisastersSetting[] = ['off', 'gentle', 'rare', 'normal', 'hard'];
 export const isDisastersSetting = (v: unknown): v is DisastersSetting => DISASTER_MODES.includes(v as DisastersSetting);
-export const disasterModeOf = (s: DisastersSetting): number => DISASTER_MODES.indexOf(s);
+const SIM_MODE: Record<DisastersSetting, number> = { off: 0, rare: 1, normal: 2, gentle: 3, hard: 4 };
+export const disasterModeOf = (s: DisastersSetting): number => SIM_MODE[s];
 
 /** Sim disaster mode for a ?haltAt debug run: the `?disasters=` value, else the shipped default, never the stored setting (the golden hash must not depend on it). */
 export const haltDisasterMode = (param: string | null): number =>

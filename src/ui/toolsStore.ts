@@ -2,6 +2,7 @@ import { ARCH, archetype, BFLAG } from '../sim/catalog.ts';
 import { countBuildings } from './progress.ts';
 import type { CommandBody } from '../sim/commands.ts';
 import { tileReadOf } from '../sim/estimate.ts';
+import { HAZARD_HELP, HAZARD_NAMES, READY_PHRASES, leadText } from '../sim/disasters/hazardNames.ts';
 import { placeName } from '../sim/disasters/names.ts';
 import { BMAX, S } from '../sim/layers.ts';
 import type { ViewState } from '../render/viewState.ts';
@@ -100,6 +101,24 @@ export function disasterToast(e: Extract<SimEvent, { type: 'disaster' }>): { tex
   return e.phase === 'start' ? { text: 'Meteor incoming!', jump } : null;
 }
 
+/** The toast a hazard forecast, start, rescue or Rebuild all order earns. `tone` is the toast style (a plain alert has none). */
+export function hazardToast(e: Extract<SimEvent, { type: 'forecast' | 'hazardStart' | 'hazardBlocked' | 'rebuildAll' }>): { text: string; tone?: 'hint' | 'good' } | null {
+  switch (e.type) {
+    case 'forecast': {
+      const help = HAZARD_HELP[e.kind];
+      return { text: `Forecast: ${HAZARD_NAMES[e.kind]} ${leadText(e.startTick - e.tick)}.${help ? ` ${help.name}s help.` : ''}`, tone: 'hint' };
+    }
+    case 'hazardStart':
+      return e.prepared && e.bonus > 0
+        ? { text: `${READY_PHRASES[e.kind]}: +${money(e.bonus)}`, tone: 'good' }
+        : { text: `${HAZARD_NAMES[e.kind]} has begun.` };
+    case 'hazardBlocked':
+      return { text: e.by === 'rod' ? 'A lightning rod took the strike.' : 'The shield dome stopped a meteor.', tone: 'good' };
+    case 'rebuildAll':
+      return { text: `Rebuild all: ${e.count} ${e.count === 1 ? 'ruin' : 'ruins'} ordered rebuilt for ${money(e.cost)}.`, tone: 'good' };
+  }
+}
+
 const SANDBOX_REJECT: Record<string, string> = {
   noop: 'There is no building to set alight near the middle of the view.',
   blocked: 'A meteor is already on its way.',
@@ -159,6 +178,13 @@ export class ToolsRuntime {
     return id;
   }
 
+  /** The Rebuild all button: order every ruin rebuilt at a discount. A refusal (no ruins, not enough money) comes back as a toast. */
+  rebuildAll(): number {
+    const id = this.deps.submit({ type: 'rebuildAll' });
+    this.pending.set(id, { kind: 'build', cost: 0, label: 'rebuild all', at: { ...this.controller.screen } });
+    return id;
+  }
+
   showBanner(text: string, victory = false): void {
     const id = this.seq++;
     this.banner = { id, text, victory };
@@ -177,6 +203,11 @@ export class ToolsRuntime {
       case 'directiveClaimed': this.toast(`UNIT-0 paid ${money(e.reward)}`, 'good'); break;
       case 'scenarioStar': this.toast(`Star ${e.stars} of 3 earned!`, 'good'); break;
       case 'firstBuilding': this.toast('Your first building is finished! The bots are cheering.', 'good'); break;
+      case 'forecast': case 'hazardStart': case 'hazardBlocked': case 'rebuildAll': {
+        const t = hazardToast(e);
+        if (t) this.toast(t.text, t.tone);
+        break;
+      }
       case 'council': this.councilToast(e); break;
       case 'festival': if (e.phase === 'start') this.toast(`${FESTIVALS[e.festival]?.name ?? 'Festival'} has begun!`, 'good'); break;
       case 'approvalWarning': this.toast(`The people are furious: approval has been under ${VERY_LOW} for ${e.months} months. Open the Council.`); break;

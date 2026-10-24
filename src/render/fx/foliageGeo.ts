@@ -128,6 +128,10 @@ export function oakMesh(): FoliageMesh {
   addBlob(b, [-0.32, 0.9, 0.18], [0.42, 0.36, 0.42], 23, dark, light, 0.15, 0.3, 0.9);
   addBlob(b, [0.3, 0.95, -0.22], [0.4, 0.34, 0.4], 37, dark, light, 0.15, 0.3, 0.9);
   addBlob(b, [0.0, 1.42, 0.04], [0.36, 0.3, 0.36], 41, dark, light, 0.16, 0.5, 1);
+  // Limbs that hide inside the crown in summer and show once the leaves are down.
+  for (const [y0, y1, lx, lz] of [[0.55, 1.0, 0.38, 0.05], [0.6, 1.05, -0.34, 0.12], [0.62, 1.0, 0.06, 0.36], [0.58, 0.95, -0.1, -0.34], [0.7, 1.32, 0.12, -0.1]] as const) {
+    addTrunk(b, y0, y1, 0.03, 0.012, 4, TRUNK, 0.05, 0.45, [lx, lz]);
+  }
   return b.done();
 }
 
@@ -146,6 +150,9 @@ export function poplarMesh(): FoliageMesh {
   const dark: V3 = [0.09, 0.2, 0.025], light: V3 = [0.24, 0.4, 0.06];
   addBlob(b, [0, 1.35, 0], [0.3, 1.0, 0.3], 61, dark, light, 0.12, 0.2, 1, 0.2);
   addBlob(b, [0.08, 0.95, 0.05], [0.26, 0.5, 0.26], 67, dark, light, 0.14, 0.15, 0.7, 0.2);
+  for (const [y0, y1, lx, lz] of [[0.5, 1.1, 0.1, 0], [0.6, 1.5, -0.1, 0.06], [0.7, 1.8, 0, -0.1]] as const) {
+    addTrunk(b, y0, y1, 0.025, 0.01, 4, BARK_PALE, 0.05, 0.4, [lx, lz]);
+  }
   return b.done();
 }
 

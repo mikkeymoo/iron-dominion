@@ -9,6 +9,7 @@ import { roadsSystem } from './roads/index.ts';
 import { robotsSystem } from './robots/index.ts';
 import { scenarioSystem } from './scenarioRun.ts';
 import { nextFloat, nextInt } from './rng.ts';
+import { seasonOfDay, weatherFor, yearPosition } from './seasons.ts';
 import { servicesSystem } from './services/index.ts';
 import { trafficSystem } from './traffic/index.ts';
 import { utilitiesSystem } from './utilities/solve.ts';
@@ -35,11 +36,12 @@ function clockWeather(sim: Sim): void {
   s[S.tickOfDay]!++;
   if (s[S.tickOfDay]! >= DAY_TICKS) { s[S.tickOfDay] = 0; s[S.day]!++; }
   s[S.dayFrac] = s[S.tickOfDay]! / DAY_TICKS;
+  s[S.season] = yearPosition(s[S.day]!, s[S.dayFrac]!);
 
   s[S.weatherTimer]!--;
   if (s[S.weatherTimer]! <= 0) {
     const r = nextInt(w.rng, 100);
-    const next = r < 55 ? WEATHER.CLEAR : r < 80 ? WEATHER.RAIN : r < 90 ? WEATHER.SNOW : WEATHER.STORM;
+    const next = weatherFor(seasonOfDay(s[S.day]!), r);
     s[S.weatherTimer] = 300 + nextInt(w.rng, 600);
     s[S.weatherTarget] = next === WEATHER.CLEAR ? 0 : 0.3 + 0.7 * nextFloat(w.rng);
     if (next !== s[S.weather]) {

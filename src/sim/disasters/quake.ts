@@ -1,9 +1,10 @@
-import { BFLAG } from '../catalog.ts';
+import { ARCH, BFLAG } from '../catalog.ts';
 import { clearBuilding, settleGround } from '../commands.ts';
 import { BMAX, D, MAP, ROAD, S, TERRAIN, isWaterTerrain } from '../layers.ts';
 import { nextU32 } from '../rng.ts';
 import { markDirty, type Sim } from '../world.ts';
-import { addDamage, destroyBuilding, startFire } from './fire.ts';
+import { addDamage, destroyBuilding, scaleDamage, startFire } from './fire.ts';
+import { DAMPER_CRACK_PCT, DAMPER_DAMAGE_PCT, DAMPER_RADIUS, DOME_RADIUS, covers, shieldsOf, type Shield } from './prep.ts';
 import {
   CRATER_BLAST, CRATER_CORE, CRATER_DEPTH, CRATER_FIRE, CRATER_FIRE_CHANCE, CRATER_MIN_RADIUS, CRATER_RADIUS_SPAN, CRATER_ROAD, HEAL_STEP,
   METEOR_DELAY, QUAKE_DAMAGE_MIN, QUAKE_DAMAGE_SPAN, QUAKE_HIT, QUAKE_MIN_RADIUS, QUAKE_RADIUS_SPAN, QUAKE_ROAD,
@@ -18,8 +19,12 @@ const dist = (sim: Sim, s: number, cx: number, cy: number): number => {
   return Math.sqrt((w.bX[s]! + w.bW[s]! / 2 - cx - 0.5) ** 2 + (w.bY[s]! + w.bH[s]! / 2 - cy - 0.5) ** 2);
 };
 
-/** Crack roads inside `radius` of the centre: a tile cracks with probability `chance / 65536` falling linearly to zero at the edge. Returns the count. */
-function crackRoads(sim: Sim, cx: number, cy: number, radius: number, chance: number): number {
+/**
+ * Crack roads inside `radius` of the centre: a tile cracks with probability `chance / 65536` falling linearly to zero at the edge.
+ * Tiles in `damped` (a Seismic Damper's reach) keep DAMPER_CRACK_PCT of that chance; the draw is made either way, so the dice fall
+ * the same with and without dampers. Returns the count.
+ */
+function crackRoads(sim: Sim, cx: number, cy: number, radius: number, chance: number, damped: readonly Shield[] = []): number {
   const w = sim.world;
   let n = 0;
   for (let y = Math.max(0, Math.floor(cy - radius)); y <= Math.min(MAP - 1, Math.ceil(cy + radius)); y++) {
@@ -28,7 +33,10 @@ function crackRoads(sim: Sim, cx: number, cy: number, radius: number, chance: nu
       if ((w.road[i]! & ROAD.CLASS_MASK) === 0 || (w.road[i]! & ROAD.DAMAGED) !== 0) continue;
       const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
       if (d >= radius) continue;
-      if (roll16(sim) < Math.floor(chance * (1 - d / radius))) { w.road[i] = w.road[i]! | ROAD.DAMAGED; markDirty(sim, 'geometry', x, y); n++; }
+      const p = Math.floor(chance * (1 - d / radius));
+      if (roll16(sim) < (damped.length > 0 && covers(damped, x, y) ? Math.floor((p * DAMPER_CRACK_PCT) / 100) : p)) {
+        w.road[i] = w.road[i]! | ROAD.DAMAGED; markDirty(sim, 'geometry', x, y); n++;
+      }
     }
   }
   return n;
@@ -40,22 +48,25 @@ export const quakeRadius = (sim: Sim): number => QUAKE_MIN_RADIUS + roll(sim, QU
  * An earthquake centred on tile (cx, cy). Buildings within `radius` (finished ones only) are hit with a probability that falls
  * from QUAKE_HIT at the epicentre to zero at the edge and take damage that does the same; enough damage collapses a building
  * into rubble. Road tiles crack on the same falloff. Every roll comes from the disaster stream, in slot then raster order, so
- * a seed and a state give one outcome.
+ * a seed and a state give one outcome. `power` is the strength in percent (a swarm's quakes grow with the city's level), the mode's
+ * damage percent applies on top (Gentle halves it), and a building inside a Seismic Damper's reach takes DAMPER_DAMAGE_PCT of what is left.
  */
-export function quake(sim: Sim, cx: number, cy: number, radius: number): { hit: number; collapsed: number; cracks: number } {
+export function quake(sim: Sim, cx: number, cy: number, radius: number, power = 100): { hit: number; collapsed: number; cracks: number } {
   const w = sim.world;
+  const dampers = shieldsOf(w, ARCH.SEISMIC_DAMPER, DAMPER_RADIUS);
   let hit = 0, collapsed = 0;
   for (let s = 0; s < BMAX; s++) {
     if (w.bArch[s] === 0 || (w.bFlags[s]! & (BFLAG.CONSTRUCTING | BFLAG.RUBBLE)) !== 0) continue;
     const fall = 1 - dist(sim, s, cx, cy) / radius;
     if (fall <= 0) continue;
     if (roll16(sim) >= Math.floor(QUAKE_HIT * fall)) continue;
-    const amount = QUAKE_DAMAGE_MIN + Math.floor(QUAKE_DAMAGE_SPAN * fall) + roll(sim, 32);
+    let amount = scaleDamage(w, Math.floor(((QUAKE_DAMAGE_MIN + Math.floor(QUAKE_DAMAGE_SPAN * fall) + roll(sim, 32)) * power) / 100));
+    if (dampers.length > 0 && covers(dampers, w.bX[s]! + (w.bW[s]! >> 1), w.bY[s]! + (w.bH[s]! >> 1))) amount = Math.max(1, Math.floor((amount * DAMPER_DAMAGE_PCT) / 100));
     hit++;
     addDamage(sim, s, amount);
     if ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0 || w.bArch[s] === 0) collapsed++;
   }
-  const cracks = crackRoads(sim, cx, cy, radius, QUAKE_ROAD);
+  const cracks = crackRoads(sim, cx, cy, radius, QUAKE_ROAD, dampers);
   sim.events.push({ type: 'disaster', tick: w.scalars[S.tick]!, kind: 'quake', phase: 'impact', x: cx, y: cy, radius, arch: 0, impactTick: 0 });
   return { hit, collapsed, cracks };
 }
@@ -79,6 +90,12 @@ export const craterRadius = (sim: Sim): number => CRATER_MIN_RADIUS + roll(sim, 
  */
 export function meteorImpact(sim: Sim, cx: number, cy: number, radius: number): void {
   const w = sim.world;
+  if (covers(shieldsOf(w, ARCH.SHIELD_DOME, DOME_RADIUS), cx, cy)) {
+    // A powered Shield Dome stops the meteor in the air: no crater, no blast, no fires.
+    w.disaster[D.METEOR_AT] = 0; w.disaster[D.METEOR_X] = 0; w.disaster[D.METEOR_Y] = 0;
+    sim.events.push({ type: 'hazardBlocked', tick: w.scalars[S.tick]!, by: 'dome', x: cx, y: cy });
+    return;
+  }
   const core = radius * CRATER_CORE;
   const x0 = Math.max(0, Math.floor(cx - radius)), x1 = Math.min(MAP - 1, Math.ceil(cx + radius));
   const y0 = Math.max(0, Math.floor(cy - radius)), y1 = Math.min(MAP - 1, Math.ceil(cy + radius));

@@ -4,6 +4,15 @@ import type { PlatformDb } from './db.ts';
 
 const dbWith = (raw: Record<string, unknown>): PlatformDb => ({ allSettings: async () => ({ ok: true, value: raw }), setSetting: async () => ({ ok: true, value: undefined }) }) as unknown as PlatformDb;
 
+describe('Disasters setting: Off / Gentle / Rare / Normal / Hard', () => {
+  it('keeps the saved numbers of the older modes and adds Gentle and Hard after them', async () => {
+    expect(['off', 'rare', 'normal', 'gentle', 'hard'].map((m) => disasterModeOf(m as never))).toEqual([0, 1, 2, 3, 4]);
+    for (const m of ['off', 'gentle', 'rare', 'normal', 'hard']) expect((await loadSettings(dbWith({ disasters: m }), undefined)).disasters).toBe(m);
+    expect((await loadSettings(dbWith({ disasters: 'brutal' }), undefined)).disasters).toBe('rare');
+    expect(haltDisasterMode('gentle')).toBe(3);
+  });
+});
+
 describe('haltAt debug runs', () => {
   it('take the disaster mode from the query or the shipped default, never from stored settings', async () => {
     const stored = await loadSettings(dbWith({ disasters: 'off' }), undefined);

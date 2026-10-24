@@ -15,6 +15,7 @@ import { CouncilPanel } from './Council';
 import { Hud, type HudStats } from './Hud';
 import { DirectiveCard } from './DirectiveCard';
 import { EdictsPanel, ResearchPanel } from './FirmwarePanels';
+import { ForecastUi } from './Forecast';
 import { GoalChip } from './GoalChip';
 import { Results } from './Results';
 import type { ScoreUpdate } from '../platform/scores.ts';
@@ -226,6 +227,7 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
         {phase === 'running' && stats.directives && !focus && <DirectiveCard stats={stats.directives} population={stats.population} treasury={stats.treasury} state={listState} onChange={onList} client={client} tools={tools} mirror={mirror} glide={(x, y) => game.current?.glideTo(x, y)} onProjects={() => setPanel('projects')} onPick={() => setPanel(null)} collapseOnShow={phone} />}
         <Hud photo={phase === 'running' ? { enter: () => game.current?.photo.enter(), tour: () => { game.current?.tour(); } } : undefined} photoActive={photoOn} lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onTrigger={phase === 'running' ? trigger : undefined} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={setPerf2} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
         {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} onJump={jump} handedness={settings.handedness} focus={focus} onFocus={(on) => onSetting('focus', on)} />}
+        {phase === 'running' && !focus && <ForecastUi hazards={stats.hazards} tier={stats.milestone?.tier ?? 0} treasury={stats.treasury} onBuild={(arch) => tools.controller.select({ tool: 'service', arch })} onRebuildAll={() => tools.rebuildAll()} />}
         {phase === 'running' && <WhyUi why={why} onJump={jump} onBudget={() => setPanel('budget')} onFollow={followOne} modules={{ treasury: stats.treasury, set: (slot, index, module) => client.command({ type: 'setDepotModule', slot, index, module }) }} />}
         <RadialMenu controller={radial as RadialController} />
         {panel === 'research' && <ResearchPanel stats={stats.firmware} client={client} onClose={() => setPanel(null)} />}

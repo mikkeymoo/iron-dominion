@@ -286,22 +286,81 @@ describe('zone needs', () => {
     expect(needsOf(sim.world, h).every((n) => n.ok)).toBe(true);
   });
 
-  it('level 2 homes also need clinic and school cover; shops need goods; industry needs only power and water', () => {
+  it('level 2 homes also need clinic and school cover; shops need local goods, then components; industry needs only power and water', () => {
     const sim = setup();
     const w = sim.world;
     const h = grow(sim, ZONE.R, 2, 100, 105);
     const c = grow(sim, ZONE.C, 1, 110, 105);
-    const i = grow(sim, ZONE.I, 1, 120, 105);
+    const i = grow(sim, ZONE.I, 1, 145, 105);
     expect(candidateSlots(sim, ZONE.R)).toEqual([]);
     expect(needsOf(w, h).filter((n) => !n.ok).map((n) => n.id)).toEqual(['health', 'school']);
     w.covHealth.fill(200); w.covEdu.fill(200);
     expect(candidateSlots(sim, ZONE.R)).toEqual([h]);
     expect(candidateSlots(sim, ZONE.C)).toEqual([]);
     expect(needsOf(w, c).find((n) => n.id === 'goods')?.ok).toBe(false);
-    w.bAux[c] = 2;
+    expect(needsOf(w, c).map((n) => n.id)).toEqual(['power', 'water', 'goods']);
+    const near = grow(sim, ZONE.I, 1, 135, 105);
+    expect(needsOf(w, c).find((n) => n.id === 'goods')?.ok).toBe(true);
     expect(candidateSlots(sim, ZONE.C)).toEqual([c]);
-    expect(candidateSlots(sim, ZONE.I)).toEqual([i]);
+    const c2 = grow(sim, ZONE.C, 2, 114, 105);
+    expect(needsOf(w, c2).map((n) => n.id)).toEqual(['power', 'water', 'components']);
+    expect(needsOf(w, c2).find((n) => n.id === 'components')?.ok).toBe(false);
+    expect(candidateSlots(sim, ZONE.C)).toEqual([c]);
+    w.bAux[c2] = 2;
+    expect(candidateSlots(sim, ZONE.C)).toEqual([c, c2].sort((a, b) => a - b));
+    expect(candidateSlots(sim, ZONE.I)).toEqual([i, near].sort((a, b) => a - b));
     expect(needsOf(w, i).map((n) => n.id)).toEqual(['power', 'water']);
+  });
+
+  it('local goods reach 30 tiles: an operating industrial building or a running Smelter counts, an unpowered or distant one does not', () => {
+    const sim = setup();
+    const w = sim.world;
+    const c = grow(sim, ZONE.C, 1, 100, 105);
+    const goods = (): boolean | undefined => needsOf(w, c).find((n) => n.id === 'goods')?.ok;
+    expect(goods()).toBe(false);
+    const far = grow(sim, ZONE.I, 1, 100 + 32, 105);
+    expect(goods()).toBe(false);
+    w.bFlags[far] = w.bFlags[far]! | BFLAG.UNPOWERED;
+    const close = grow(sim, ZONE.I, 1, 100 + 24, 105);
+    w.bFlags[close] = w.bFlags[close]! | BFLAG.UNPOWERED;
+    expect(goods()).toBe(false);
+    w.bFlags[close] = w.bFlags[close]! & ~BFLAG.UNPOWERED;
+    expect(goods()).toBe(true);
+    w.bFlags[close] = w.bFlags[close]! | BFLAG.UNPOWERED;
+    expect(run(sim, { type: 'debugGrow', x: 100, y: 120, archetype: ARCH.SMELTER, progress: 1 })).toBe(true);
+    expect(goods()).toBe(true);
+  });
+
+  it('a tier-1 city with industrial zones gets commercial level-2 buildings, with no Smelter or Factory built', () => {
+    const sim = setup();
+    const w = sim.world;
+    expect(w.scalars[S.tier]).toBe(0);
+    const c = grow(sim, ZONE.C, 1, 100, 105);
+    expect(candidateSlots(sim, ZONE.C)).toEqual([]);
+    const i = grow(sim, ZONE.I, 1, 112, 105);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(candidateSlots(sim, ZONE.C)).toEqual([c]);
+    for (let s = 0; s < BMAX; s++) expect(w.bArch[s] === ARCH.SMELTER || w.bArch[s] === ARCH.FACTORY).toBe(false);
+    expect(levelUpCandidates(sim, ZONE.C, 4).map((u) => u.nextArch)).toEqual([rciId(ZONE.C, 0, 2)]);
+  });
+
+  it('end to end: robots raise a shop to level 2 beside industry in a depot-only city', () => {
+    const sim = setup();
+    const w = sim.world;
+    w.scalars[S.treasury] = 1e6;
+    road(sim, 96, 104, 140, 104);
+    depot(sim, 98, 102);
+    const c = grow(sim, ZONE.C, 1, 104, 105);
+    grow(sim, ZONE.I, 1, 112, 105);
+    expect(w.scalars[S.tier]).toBeLessThan(3);
+    const done = runUntil(sim, () => {
+      // The economy recomputes demand and land value from this near-empty city; hold them strong so only the needs decide.
+      w.scalars[S.demandC] = 0.9; w.landValue.fill(150);
+      return w.bLevel[c] === 2 && (w.bFlags[c]! & BFLAG.CONSTRUCTING) === 0;
+    }, 20000);
+    expect(done).toBe(true);
+    expect(w.bArch[c]).toBe(rciId(ZONE.C, 0, 2));
+    for (let s = 0; s < BMAX; s++) expect(w.bArch[s] === ARCH.SMELTER || w.bArch[s] === ARCH.FACTORY).toBe(false);
   });
 
   it('needsOf agrees with levelUpCandidates for every grown building', () => {

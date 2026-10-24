@@ -4,7 +4,7 @@ import { WATER_REACH } from '../sim/utilities/tables.ts';
 import { DENSITY_UNLOCK, ROAD_UNLOCK, TIERS } from '../sim/unlocks.ts';
 import { isEditableTarget } from '../render/editable.ts';
 import {
-  DENSITY_LABELS, LINE_NAMES, ROAD_NAMES, SERVICES, TERRAFORM_MODES, UTILITY_BUILDINGS, ZONE_LABELS, keyAction, type LineKind, type ToolId, type ToolSel,
+  DENSITY_LABELS, LINE_NAMES, ROAD_NAMES, SERVICES, TERRAFORM_MODES, UTILITY_BUILDINGS, ZONE_LABELS, isUtilityArch, keyAction, type LineKind, type ToolId, type ToolSel,
 } from '../render/tools/toolSpec.ts';
 import type { ViewState } from '../render/viewState.ts';
 import { IconBulldoze, IconCancel, IconHammer, IconRoad, IconServices, IconTerraform, IconUndo, IconUtilities, IconViews, IconZone } from './icons';
@@ -19,7 +19,7 @@ import { ViewControls, useUndergroundKey } from './ViewControls';
 
 type Group = ToolId | 'utilities';
 
-const isUtilitySel = (s: ToolSel | null): boolean => s?.tool === 'line' || (s?.tool === 'service' && archetype(s.arch)?.utility !== undefined);
+const isUtilitySel = (s: ToolSel | null): boolean => s?.tool === 'line' || (s?.tool === 'service' && isUtilityArch(s.arch));
 export const groupOf = (s: ToolSel | null): Group | null => (s === null ? null : isUtilitySel(s) ? 'utilities' : s.tool);
 
 const CATEGORIES: { id: Group; label: string; key: string; start: ToolSel; icon: () => ReactNode }[] = [
@@ -36,6 +36,7 @@ const SERVICE_LABELS: Record<string, string> = {
   waterTower: 'Water tower', fusionReactor: 'Fusion reactor', policeStation: 'Police', clinic: 'Clinic', hospital: 'Hospital', school: 'School',
   university: 'University', parkSmall: 'Small park', parkLarge: 'Large park', repairBay: 'Repair bay',
   roboticsLab: 'Robotics lab', mine: 'Mine', smelter: 'Smelter', factory: 'Factory',
+  lightningRod: 'Lightning rod', batteryBank: 'Battery bank', seismicDamper: 'Seismic damper', shieldDome: 'Shield dome',
 };
 const MODE_LABELS = { raise: 'Raise', lower: 'Lower', level: 'Level' } as const;
 const LINE_COST: Record<LineKind, number> = { power: POWER_LINE_COST, water: PIPE_COST };

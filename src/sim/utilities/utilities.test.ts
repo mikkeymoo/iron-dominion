@@ -698,6 +698,6 @@ describe('registry', () => {
       }
     }
     expect(powerUseOf(ARCH.FIRE_STATION)).toBeGreaterThan(0);
-    expect(CATALOG.filter((a) => a.unlock !== undefined).map((a) => a.name)).toEqual(['fusionReactor', 'fusionSpire', 'arcology', 'mechArena', 'spaceElevator', 'roboticsLab', 'mine', 'smelter', 'factory']);
+    expect(CATALOG.filter((a) => a.unlock !== undefined).map((a) => a.name)).toEqual(['fusionReactor', 'fusionSpire', 'arcology', 'mechArena', 'spaceElevator', 'roboticsLab', 'mine', 'smelter', 'factory', 'batteryBank', 'shieldDome']);
   });
 });

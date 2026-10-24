@@ -8,7 +8,8 @@ import type { UtilStats } from './utilities/solve.ts';
 export type SimEvent =
   | { type: 'accepted'; cmd: number; tick: number; /** Undo handle, present when the command is undoable. */ journal?: number }
   | { type: 'rejected'; cmd: number; tick: number; reason: string }
-  | { type: 'lightning'; tick: number; x: number; y: number }
+  /** A bolt at tile (x, y). `planned` ones come from a storm season (sim/disasters/hazards.ts) and have already rolled their own ignition. */
+  | { type: 'lightning'; tick: number; x: number; y: number; planned?: boolean }
   | { type: 'weather'; tick: number; weather: number }
   /** The treasury has ended `months` consecutive budget months below zero (3 or more); services will degrade later. */
   | { type: 'bankruptcy'; tick: number; months: number }
@@ -34,6 +35,18 @@ export type SimEvent =
    * reports once, 'impact', with its radius.
    */
   | { type: 'disaster'; tick: number; kind: 'fire' | 'quake' | 'meteor'; phase: 'start' | 'impact'; x: number; y: number; radius: number; arch: number; impactTick: number }
+  /** A hazard (HAZ kind) was planned: it starts at `startTick`, one to two months after this event, at intensity `level`. */
+  | { type: 'forecast'; tick: number; kind: number; startTick: number; level: number }
+  /**
+   * A hazard began. `prepared` is true when the city was ready for it (`coverage`, 0..1, of what was at stake) and was paid `bonus`;
+   * `applicable` is false when there was nothing to protect, so neither a bonus nor a warning applied.
+   */
+  | { type: 'hazardStart'; tick: number; kind: number; level: number; prepared: boolean; applicable: boolean; coverage: number; bonus: number }
+  | { type: 'hazardEnd'; tick: number; kind: number; level: number; bonus: number }
+  /** A Lightning Rod took a bolt that would have set a building alight, or a Shield Dome stopped a meteor, at tile (x, y). */
+  | { type: 'hazardBlocked'; tick: number; by: 'rod' | 'dome'; x: number; y: number }
+  /** "Rebuild all" queued `count` ruins and charged `cost` (after the discount). */
+  | { type: 'rebuildAll'; tick: number; count: number; cost: number }
   /**
    * A council request (sim/council) was posted, answered, paid or lost. `kind` and `group` are KIND and GROUP; (x, y) is where the request is
    * about. `approval` is the points gained (negative on 'failed'), `cash` and `rp` the reward.

@@ -1120,6 +1120,40 @@ async function starterChecks(open) {
 }
 // ---- end starter block ----
 // ---- Firmware and edicts: the Research and Edicts panels, a node bought with debug RP, an edict enacted (webgl2 low; desktop) ----
+// Seasons and the hazard forecast: debug-advance to a forecast, the chip shows it, and the drawn season flags change with the calendar.
+async function hazardChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`hazards: ${name}`, problem]);
+  const page = await open(TRAFFIC_QUERY(0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.economy && window.__iron.sim.hazards); }, null, 120000);
+  if (!up) { add('city boots with the hazard stats', 'renderer, economy hook or hazard stats missing'); await page.close(); return out; }
+  const season = () => page.evaluate(() => window.__iron.render.fx.season);
+  const first = await season();
+  add('a new city opens in spring with green trees, no snow and a half-day sun', first.name === 'Spring' && first.snow === 0 && first.bare === 0 && Math.abs(first.daylight - 0.5) < 0.02 ? null : JSON.stringify(first));
+  add('the chip shows the season while nothing is forecast', (await until(page, () => document.querySelector('[data-testid="forecast-text"]')?.textContent === 'Spring', null, 10000)) ? null : 'chip text is not Spring');
+
+  await page.evaluate(() => window.__iron.economy.command({ type: 'setDisasters', mode: 2 }));
+  await page.evaluate(() => window.__iron.economy.command({ type: 'debugHazard', kind: 1, lead: 4800 }));
+  add('debug-advancing to a forecast shows it in the stats', (await until(page, () => window.__iron.sim.hazards?.forecast?.kind === 1, null, 10000)) ? null : JSON.stringify(await page.evaluate(() => window.__iron.sim.hazards)));
+  add('the forecast chip reads "Storm season in 1 month"', (await until(page, () => document.querySelector('[data-testid="forecast-text"]')?.textContent === 'Storm season in 1 month', null, 10000)) ? null : await page.locator('[data-testid="forecast-text"]').textContent());
+  await page.locator('[data-testid="forecast-chip"]').click();
+  add('the chip opens the forecast card with the hazard and what helps', (await visible(page, '[data-testid="forecast-card"]')) && (await visible(page, '[data-testid="forecast-help"]')) ? null : 'card or help missing');
+  const buildText = await page.evaluate(() => document.querySelector('[data-testid="forecast-build"]')?.textContent ?? 'no build button');
+  add('the card offers to build a lightning rod', /lightning rod/i.test(buildText) ? null : buildText);
+  await page.locator('[data-testid="forecast-chip"]').click();
+
+  await page.evaluate(() => window.__iron.economy.command({ type: 'debugSeason', day: 15 }));
+  add('jumping the calendar to autumn turns the leaves on the renderer', (await until(page, () => { const s = window.__iron.render.fx.season; return s.name === 'Autumn' && s.autumn > 0.9 && s.bare < 0.1; }, null, 20000)) ? null : JSON.stringify(await season()));
+  const autumn = await season();
+  await page.evaluate(() => window.__iron.economy.command({ type: 'debugSeason', day: 20 }));
+  add('winter strips the trees, lays snow and shortens the day', (await until(page, () => { const s = window.__iron.render.fx.season; return s.name === 'Winter' && s.bare > 0.9 && s.snow > 0.9 && s.daylight < 0.45; }, null, 20000)) ? null : JSON.stringify(await season()));
+  const winter = await season();
+  add('the season flags changed between autumn and winter', autumn.autumn > winter.autumn && winter.snow > autumn.snow && winter.bare > autumn.bare && winter.daylight < autumn.daylight ? null : JSON.stringify({ autumn, winter }));
+  add('the season shows in the sim stats too', (await until(page, () => window.__iron.sim.hazards.season === 3, null, 10000)) ? null : JSON.stringify(await page.evaluate(() => window.__iron.sim.hazards)));
+  await page.close();
+  return out;
+}
+
 async function firmwareChecks(open) {
   const out = [];
   const add = (name, problem) => out.push([`firmware: ${name}`, problem]);
@@ -1450,7 +1484,8 @@ async function hudChecks(open, vp) {
     add('the desktop top bar is at most two rows', topBox.height <= 130 ? null : JSON.stringify(topBox));
   }
   const targets = await page.evaluate(() => [...document.querySelectorAll('[data-testid="topbar"] button, [data-testid="toolbar"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.getAttribute('aria-label') || b.textContent, w: r.width, h: r.height }; }));
-  const small = targets.filter((t) => t.w < MIN_TARGET || t.h < MIN_TARGET);
+  // A button inside a display:none block (the Resources chips hide their panel header) measures 0 x 0 and cannot be tapped, so it is not a target.
+  const small = targets.filter((t) => (t.w > 0 || t.h > 0) && (t.w < MIN_TARGET || t.h < MIN_TARGET));
   add('every top and bottom bar button is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
   const names = await page.evaluate(() => [...document.querySelectorAll('[data-testid="topbar"] button, [data-testid="toolbar"] button')].filter((b) => !(b.getAttribute('aria-label') || b.textContent || '').trim()).length);
   add('every bar button has an accessible name', names === 0 ? null : `${names} unnamed`);
@@ -1629,7 +1664,7 @@ async function disasterChecks(page, site) {
   const was = await sel.inputValue().catch(() => '');
   await sel.selectOption('normal');
   const now = await sel.inputValue().catch(() => '');
-  add('the Settings menu has a Disasters choice (Off / Rare / Normal), Rare by default', was === 'rare' && now === 'normal' ? null : `was ${was}, now ${now}`);
+  add('the Settings menu has a Disasters choice (Off / Gentle / Rare / Normal / Hard), Rare by default', was === 'rare' && now === 'normal' ? null : `was ${was}, now ${now}`);
   await sel.selectOption('off');
   await page.getByRole('button', { name: 'Back' }).click();
   await page.getByRole('button', { name: 'Trigger disaster...' }).click();
@@ -1651,7 +1686,7 @@ async function disasterChecks(page, site) {
     await jumpBtn.click();
     await until(page, () => !window.__iron.render.cinematic.active, null, 5000);
     const cam = await camOf(page);
-    add('Jump to flies the camera to the disaster', Math.hypot(cam.x - (cx + 0.5), cam.z - (cy + 0.5)) < 14 && cam.dist < 60 ? null : JSON.stringify(cam));
+    add('Jump to flies the camera to the disaster', Math.hypot(cam.x - (cx + 0.5), cam.z - (cy + 0.5)) < 14 && cam.dist < 60 ? null : `${JSON.stringify(cam)} wanted ${cx + 0.5},${cy + 0.5} toasts ${JSON.stringify(await page.evaluate(() => window.__iron.tools.toasts))}`);
   }
 
   const before = await page.evaluate(({ x, y }) => window.__iron.tools.peek('height', x, y), { x: cx, y: cy });
@@ -1743,6 +1778,7 @@ try {
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await starterChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await firmwareChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await chainChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await hazardChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await councilChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await scenarioChecks(open));
     for (const [name, problem] of buildChecks) {

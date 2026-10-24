@@ -1,10 +1,11 @@
-import { BFLAG } from '../catalog.ts';
+import { ARCH, BFLAG } from '../catalog.ts';
 import { mods } from '../firmware.ts';
 import { BMAX, MAP, S, TILES, isWaterTerrain, type World } from '../layers.ts';
+import { climateQ16 } from '../seasons.ts';
 import { markDirty, type Sim } from '../world.ts';
 import {
-  GRID_POWER, GRID_WATER, PRODUCER, TILE_DARK, UTIL_PERIOD, PUMP_INLAND_ML, PUMP_NEAR_ML, PUMP_SHORE, TOWER_ML, WATER_REACH, fixedMwOf, isPowerProducer,
-  isService, isWaterSource, powerUseOf, producerKind, solarOutput, waterUseOf,
+  BATTERY_CAP, BATTERY_CHARGE_MW, BATTERY_MW, GRID_POWER, GRID_WATER, PRODUCER, TILE_DARK, UTIL_PERIOD, PUMP_INLAND_ML, PUMP_NEAR_ML, PUMP_SHORE, TOWER_ML, WATER_REACH,
+  fixedMwOf, isPowerProducer, isService, isWaterSource, powerUseOf, producerKind, solarOutput, waterUseOf,
 } from './tables.ts';
 
 // The power and water networks, solved from scratch every UTIL_PERIOD ticks.
@@ -94,18 +95,49 @@ function serve(count: number, networks: number): void {
   }
 }
 
-/** Priority order: services by slot, then everything else by slot. `useOf` is 0 for a slot that does not consume. */
-function collectConsumers(w: World, useOf: (arch: number) => number): number {
+/**
+ * Priority order: services by slot, then everything else by slot. `useOf` is 0 for a slot that does not consume. `q16` scales every
+ * draw in sixteenths (16 = as listed): the season's heating or cooling and a running heatwave or cold snap, rounded to whole units.
+ */
+function collectConsumers(w: World, useOf: (arch: number) => number, q16 = 16): number {
   let n = 0;
   for (const pass of [true, false]) {
     for (let s = 0; s < BMAX; s++) {
       const arch = w.bArch[s]!;
       if (arch === 0 || isService(arch) !== pass || !finished(w, s)) continue;
       const u = useOf(arch);
-      if (u > 0) { consumers[n] = s; consUse[n] = u; n++; }
+      if (u > 0) { consumers[n] = s; consUse[n] = q16 === 16 ? u : Math.max(1, Math.floor((u * q16 + 8) / 16)); n++; }
     }
   }
   return n;
+}
+
+/**
+ * Battery Banks, run just before the brown-out is decided. A bank in a network with spare power charges (at most BATTERY_CHARGE_MW,
+ * and what it takes counts as drawn, so the next bank sees less spare); a bank in a network that is short gives up to BATTERY_MW of
+ * its charge, which joins that network's supply. Banks go in slot order. Returns the MW given, for the totals.
+ */
+function runBatteries(w: World, networks: number, count: number): number {
+  let any = false;
+  for (let s = 0; s < BMAX; s++) if (w.bArch[s] === ARCH.BATTERY_BANK) { any = true; break; }
+  if (!any) return 0;
+  used.fill(0, 0, networks + 1);
+  for (let k = 0; k < count; k++) used[consNet[k]!]! += consUse[k]!;
+  let given = 0;
+  for (let s = 0; s < BMAX; s++) {
+    if (w.bArch[s] !== ARCH.BATTERY_BANK || !finished(w, s) || (w.bFlags[s]! & (BFLAG.RUBBLE | BFLAG.BURNING)) !== 0) continue;
+    const n = comp[w.bY[s]! * MAP + w.bX[s]!]!;
+    if (n === 0) continue;
+    const stock = w.bStock[s]!, slack = supply[n]! - used[n]!;
+    if (slack > 0) {
+      const add = Math.min(BATTERY_CHARGE_MW, slack, BATTERY_CAP - stock);
+      if (add > 0) { w.bStock[s] = stock + add; used[n]! += add; }
+    } else if (slack < 0) {
+      const give = Math.min(BATTERY_MW, stock, -slack);
+      if (give > 0) { w.bStock[s] = stock - give; supply[n]! += give; given += give; }
+    }
+  }
+  return given;
 }
 
 function setBit(sim: Sim, slot: number, bit: number, on: boolean): void {
@@ -148,7 +180,7 @@ function powerPass(sim: Sim): PassResult {
   }
   const modelled = producers > 0;
   const was = (w.scalars[S.grid]! & GRID_POWER) !== 0;
-  const count = collectConsumers(w, powerUseOf);
+  const count = collectConsumers(w, powerUseOf, climateQ16(w));
   let demand = 0;
   for (let k = 0; k < count; k++) demand += consUse[k]!;
   if (!modelled && !was) return { supply: 0, demand, unserved: 0, modelled };
@@ -162,6 +194,7 @@ function powerPass(sim: Sim): PassResult {
     supply[comp[w.bY[s]! * MAP + w.bX[s]!]!]! += producerKind(arch) === PRODUCER.SOLAR ? solar : fixedMwOf(arch);
   }
   for (let k = 0; k < count; k++) consNet[k] = comp[w.bY[consumers[k]!]! * MAP + w.bX[consumers[k]!]!]!;
+  total += runBatteries(w, networks, count);
   serve(count, networks);
 
   let unserved = 0;

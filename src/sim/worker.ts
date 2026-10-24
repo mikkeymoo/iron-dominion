@@ -5,6 +5,7 @@ import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
 import { councilStats } from './council/index.ts';
 import { directiveStats } from './directives.ts';
+import { hazardStats } from './disasters/index.ts';
 import { answerInfo } from './info.ts';
 import { invalidateIssues, issuesOf } from './issues.ts';
 import { firmwareStats } from './firmware.ts';
@@ -123,6 +124,7 @@ function flush(now: number, force = false): void {
       milestone: milestoneStats(sim.world),
       directives: directiveStats(sim.world),
       firmware: firmwareStats(sim.world),
+      hazards: hazardStats(sim.world),
       council: councilStats(sim.world),
       scenario: scenarioStats(sim.world),
     };

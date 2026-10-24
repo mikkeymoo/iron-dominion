@@ -86,6 +86,8 @@ export const GOODS_PERIOD = 600;
 /** Manhattan reach of a commercial lot to its goods supplier, and of a home to a shop (zone needs). */
 export const GOODS_REACH = 40;
 export const NEEDS_REACH = 20;
+/** Manhattan reach of a shop to local goods (an operating industrial building or Smelter) for its first level-up. */
+export const LOCAL_GOODS_REACH = 30;
 /** Level-ups needing a scarce resource start only while fewer than this many jobs of that kind are live (or stock covers the need). */
 export const CHAIN_JOBS_FREE = 2;
 

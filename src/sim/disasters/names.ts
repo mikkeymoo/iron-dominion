@@ -6,6 +6,7 @@ const ZONE_PLACE = ['', 'Residential district', 'Commercial district', 'Industri
 const ARCH_PLACE: Record<number, string> = {
   [ARCH.DEPOT]: 'the depot', [ARCH.POWER_PLANT]: 'the power plant', [ARCH.WATER_PUMP]: 'a water pump', [ARCH.FIRE_STATION]: 'the fire station',
   [ARCH.SOLAR_FARM]: 'the solar farm', [ARCH.WATER_TOWER]: 'a water tower', [ARCH.FUSION_REACTOR]: 'the fusion reactor',
+  [ARCH.MINE]: 'the mine', [ARCH.SMELTER]: 'the smelter', [ARCH.FACTORY]: 'the component factory', [ARCH.BATTERY_BANK]: 'the battery bank',
 };
 
 /** Where a fire is, in words: the district type of a grown building, or the service building's name. */

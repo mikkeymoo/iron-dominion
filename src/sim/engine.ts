@@ -21,7 +21,7 @@ export const START_TREASURY = 50000;
 export const START_DAYFRAC = 0.3;
 
 /**
- * `disasters` is the starting mode (0 off, 1 rare, 2 normal). A bare createSim opens with disasters off, so tests of the other
+ * `disasters` is the starting mode (a DMODE value: 0 off, 1 rare, 2 normal, 3 gentle, 4 hard). A bare createSim opens with disasters off, so tests of the other
  * systems never see a random fire; a session opens with the player's setting through Hello.disasters.
  * `starter` adds the new-city kit (sim/starter.ts: a depot, a short street and an idle crew). The worker always asks for it; a bare
  * createSim leaves the map empty so the system tests keep building their own towns, and a loaded snapshot never has it added.
@@ -39,10 +39,13 @@ export function createSim(seed: number, opt: { debug?: boolean; disasters?: numb
   // A new city opens at 07:00 so the first robots build in morning light.
   s[S.dayFrac] = START_DAYFRAC;
   s[S.tickOfDay] = Math.round(START_DAYFRAC * DAY_TICKS);
+  // A new city opens on the first day of spring.
+  s[S.season] = START_DAYFRAC;
   seedRng(world.rng, seed);
   // Disasters draw from their own stream, so switching them on or off never shifts the weather.
   seedRng(world.drng, seed ^ 0xd15a57e2);
-  world.disaster[D.MODE] = opt.disasters !== undefined && opt.disasters >= 0 && opt.disasters <= DMODE.NORMAL ? Math.floor(opt.disasters) : DMODE.OFF;
+  seedRng(world.hrng, seed ^ 0x5ea50a1d);
+  world.disaster[D.MODE] = opt.disasters !== undefined && opt.disasters >= 0 && opt.disasters <= DMODE.HARD ? Math.floor(opt.disasters) : DMODE.OFF;
   generateTerrain(world, seed, spec?.terrain);
   const sim: Sim = { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true };
   if (spec) setupScenario(sim, spec);

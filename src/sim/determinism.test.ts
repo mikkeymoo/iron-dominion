@@ -24,9 +24,16 @@ interface Golden {
   traffic: { ticks: number; hash: number };
 }
 
-/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), all zeros in a sandbox city, and the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain). */
-const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain']);
-const legacyHash = (sim: Sim): number => hashWorld(sim.world, (name) => !FIRMWARE_LAYERS.has(name));
+/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain) and the hazard scheduler's two (hazard, hrng). */
+const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain', 'hazard', 'hrng']);
+// The year-position scalar (S.season) did not exist either, so it is zeroed for the legacy hash.
+const legacyHash = (sim: Sim): number => {
+  const s = sim.world.scalars, kept = s[S.season]!;
+  s[S.season] = 0;
+  const h = hashWorld(sim.world, (name) => !FIRMWARE_LAYERS.has(name));
+  s[S.season] = kept;
+  return h;
+};
 
 function compute(): Golden & { legacy: { scripted: number; idle: number; traffic: number } } {
   const sim = createSim(42);
@@ -48,6 +55,12 @@ function trafficTown(): ReturnType<typeof gridCity> {
 }
 
 describe('determinism', () => {
+  // Merging seasons into the production chains re-baselined every golden hash once: the world now hashes the union of both branches'
+  // layers. `legacy.scripted` and `legacy.idle` moved only because of seasons (below); the chain, council and scenario layers are
+  // excluded from the legacy hash, and `legacy.traffic` is unchanged.
+  // Seasons and hazards moved every hash again: spring rolls its own weather odds (rainier than the old table) and the random quake and
+  // meteor rolls became forecast hazards, so `legacy.scripted` and `legacy.idle` were re-baselined. `legacy.traffic` is unchanged: a
+  // city that builds no firmware, scenario, hazard layer or season scalar still plays that traffic run exactly as before.
   // The firmware, scenario and council units added layers (bMod, firmware, scenario, council), so the golden hashes moved. `legacy` holds the
   // hashes from before them, over every other layer: they must still match, which shows a city that buys no firmware, fits no module, enacts no
   // edict, opens no scenario and keeps neutral approval (the golden runs end before the first budget month closes) plays exactly as it did.
