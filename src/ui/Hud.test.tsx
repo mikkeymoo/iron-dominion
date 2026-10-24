@@ -228,12 +228,24 @@ describe('desktop HUD', () => {
 });
 
 describe('focus mode and the grab headers', () => {
-  it('hides the whole top bar in focus mode on both layouts', () => {
+  it('hides the readouts and menus in focus mode on both layouts but keeps pause and speed', () => {
     for (const layout of ['phone', 'desktop'] as const) {
-      const { unmount } = mount(layout, { settings: { ...DEFAULT_SETTINGS, focus: true } });
+      const { unmount, setSpeed } = mount(layout, { settings: { ...DEFAULT_SETTINGS, focus: true } });
       expect(screen.queryByTestId('topbar')).toBeNull();
+      expect(screen.queryByTestId('money')).toBeNull();
+      const keep = screen.getByTestId('focus-controls');
+      expect(within(keep).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Pause', 'Speed 1x. Tap to change.']);
+      fireEvent.click(within(keep).getByTestId('playpause'));
+      expect(setSpeed).toHaveBeenLastCalledWith(0);
+      fireEvent.click(within(keep).getByTestId('speed-cycle'));
+      expect(setSpeed).toHaveBeenCalledTimes(2);
       unmount();
     }
+  });
+
+  it('draws no focus controls outside focus mode', () => {
+    mount('desktop');
+    expect(screen.queryByTestId('focus-controls')).toBeNull();
   });
 
   it('turns focus mode on from the menu and closes the menu', () => {

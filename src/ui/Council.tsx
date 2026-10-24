@@ -83,7 +83,7 @@ function Effects({ s }: { s: CouncilStats }) {
 }
 
 function Request({ r, client, onShow }: { r: CouncilRequestStat; client: PanelProps['client']; onShow: PanelProps['onShow'] }) {
-  const reply = (accept: boolean): void => { client.command({ type: 'councilRespond', slot: r.slot, accept }); };
+  const reply = (accept: boolean): void => { client.command({ type: 'councilRespond', slot: r.slot, accept, request: r.id }); };
   const urgent = r.state === 'accepted' && r.ticksLeft < MONTH_TICKS;
   return (
     <li className="council-request" data-testid={`request-${r.slot}`} data-state={r.state} data-urgent={urgent} data-done={r.done}>

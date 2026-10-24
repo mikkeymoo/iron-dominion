@@ -1,3 +1,4 @@
+import { accrueEdictTicks } from '../firmware.ts';
 import { S, type World } from '../layers.ts';
 import type { BudgetMsg, MonthSummary, Stats } from '../protocol.ts';
 import type { Sim } from '../world.ts';
@@ -24,6 +25,7 @@ export * from './totals.ts';
 export function economySystem(sim: Sim): void {
   const w = sim.world, sc = w.scalars, tick = sc[S.tick]!;
   w.spend[3]!++;
+  accrueEdictTicks(w);
   if (tick % TOTALS_PERIOD === 0) updateDemand(w, refreshTotals(w));
   landValueSlice(sim);
   if (tick % POLL_PERIOD === 0) pollutionPass(sim);

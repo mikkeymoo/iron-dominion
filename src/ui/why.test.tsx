@@ -228,6 +228,25 @@ describe('info card', () => {
     expect(requestInfo.mock.calls.length, 'no polling once closed').toBe(calls);
   });
 
+  it('says it could not load the details when the info request fails, and recovers on the next answer', async () => {
+    const { why, requestInfo } = setup(house);
+    requestInfo.mockRejectedValueOnce(new Error('worker went away'));
+    render(<InfoCard why={why} onJump={vi.fn()} />);
+    act(() => why.tap({ kind: 'building', slot: 4, x: 110, y: 100 }));
+    expect(screen.getByText('Asking the sim...')).toBeTruthy();
+    await flush();
+    expect(why.failed).toBe(true);
+    expect(screen.getByTestId('info-error').textContent).toBe("Couldn't load details");
+    expect(screen.queryByText('Asking the sim...')).toBeNull();
+    fireEvent.click(screen.getByTestId('info-close'));
+    expect(screen.queryByTestId('info-card')).toBeNull();
+    expect(why.failed).toBe(false);
+    act(() => why.tap({ kind: 'building', slot: 4, x: 110, y: 100 }));
+    await flush();
+    expect(why.failed).toBe(false);
+    expect(screen.getByTestId('info-name').textContent).toBe('House');
+  });
+
   it('drops the card when the building is gone', async () => {
     const { why } = setup(null, false);
     render(<InfoCard why={why} onJump={vi.fn()} />);

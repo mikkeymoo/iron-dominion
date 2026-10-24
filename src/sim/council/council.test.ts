@@ -478,6 +478,25 @@ describe('council requests', () => {
       expect(cmd(sim, { type: 'councilRespond', slot: 0, accept: false })).toBe('no-request');
     });
 
+    it('refuses an answer meant for an earlier request when the slot now holds another', () => {
+      const sim = homesCity();
+      cmd(sim, { type: 'debugCouncil', kind: KIND.COMMERCIAL_JOBS });
+      const first = openRequests(sim.world)[0]!;
+      sim.world.scalars[S.tick] = first.deadline;
+      checkRequests(sim);
+      cmd(sim, { type: 'debugCouncil', kind: KIND.COMMERCIAL_JOBS });
+      const second = openRequests(sim.world)[0]!;
+      expect(second.slot).toBe(first.slot);
+      expect(second.id).not.toBe(first.id);
+      const approval = approvalOf(sim.world);
+      expect(cmd(sim, { type: 'councilRespond', slot: first.slot, accept: false, request: first.id })).toBe('no-request');
+      expect(openRequests(sim.world)).toHaveLength(1);
+      expect(approvalOf(sim.world)).toBe(approval);
+      expect(cmd(sim, { type: 'councilRespond', slot: first.slot, accept: true, request: second.id })).toBe('ok');
+      expect(openRequests(sim.world)[0]!.state).toBe(REQ_STATE.ACCEPTED);
+      expect(cmd(sim, { type: 'councilRespond', slot: 0, accept: true, request: 1.5 })).toBe('invalid');
+    });
+
     it('keeps the debug command out of normal play', () => {
       const sim = homesCity();
       sim.debug = false;

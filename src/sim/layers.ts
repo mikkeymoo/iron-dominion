@@ -133,6 +133,9 @@ export const SPEC = {
   // Material stock held by a depot or an industrial building; bAux is 1 once a depot has received its starting stock.
   bStock: L(Uint16Array, BMAX, false, 'none'),
   bAux: L(Uint8Array, BMAX, false, 'none'),
+  // Charge of a Battery Bank in MW-solves (utilities/solve.ts). Its own layer so it is never mistaken for Ore: bStock is the Ore ledger
+  // (workforce totals, the chain's conservation check, clearBuilding). A missing layer reads as zeros.
+  bCharge: L(Uint16Array, BMAX, false, 'none'),
   // Zone byte of the lot under a building when it was placed, so tearing the building down gives the lot back to its zone.
   bZone: L(Uint8Array, BMAX, false, 'none'),
   // Building a job replaced: archetype and edge length before a level-up, so a cancelled level-up can be undone.
@@ -165,6 +168,10 @@ export const SPEC = {
   // Firmware state, indexed by F: research points, the bit mask of researched nodes, the bit mask of active edicts, RP earned ever.
   // A layer of its own (not scalars) so a save from before this existed still loads: a missing layer reads as zeros.
   firmware: L(Float64Array, 8, false, 'none'),
+  // Ticks each edict (index = edict id) was active in the running budget month, then (index 8 + id) the share of the month it was active
+  // in the month just closed, which the council's monthly approval pass reads. Charges, income effects and approval follow these, not the
+  // mask at the moment the month closes. A missing layer (an older save) reads as zeros.
+  edictTicks: L(Float64Array, 16, false, 'none'),
   // Approval, council requests and festivals (sim/council), indexed by C. A layer of its own (not scalars) so a save from before this
   // existed still loads: a missing layer reads as zeros, which is approval 50 with nothing open (the approval slot holds its offset from 50).
   council: L(Float64Array, 64, false, 'none'),

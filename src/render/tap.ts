@@ -15,6 +15,22 @@ export const TAP_MS = 450;
 export const AGENT_PICK_PX = 26;
 export const BUILDING_PICK_PX = 22;
 
+export interface TapOwner {
+  /** Something is listening for taps. */
+  handler: boolean;
+  /** A build tool owns the press. */
+  toolActive: boolean;
+  primary: boolean;
+  /** Pointer type and button of the press. */
+  mouse: boolean;
+  button: number;
+  /** The radial menu is open: this press only dismisses it. */
+  radialOpen: boolean;
+}
+
+/** Whether a press may become a map tap. A press that dismisses the radial menu never also opens an info card. */
+export const tapEligible = (o: TapOwner): boolean => o.handler && !o.toolActive && !o.radialOpen && o.primary && (!o.mouse || o.button === 0);
+
 /** Pointer-event state machine: feed it down, move, up and cancel; `up` returns the tap position when the gesture was one. */
 export class TapDetector {
   private start: { id: number; x: number; y: number; t: number } | null = null;

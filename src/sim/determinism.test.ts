@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import golden from './golden.json';
+import { FIRST_SCANNED } from './directives.ts';
 import { createSim, restore, snapshot, stateHash } from './engine.ts';
 import { hashWorld } from './hash.ts';
 import { REGISTRY, S } from './layers.ts';
@@ -24,14 +25,16 @@ interface Golden {
   traffic: { ticks: number; hash: number };
 }
 
-/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain) and the hazard scheduler's two (hazard, hrng). */
-const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain', 'hazard', 'hrng']);
-// The year-position scalar (S.season) did not exist either, so it is zeroed for the legacy hash.
+/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain), the hazard scheduler's two (hazard, hrng), the Battery Bank charge (bCharge) and the edict month counters (edictTicks). */
+const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain', 'hazard', 'hrng', 'bCharge', 'edictTicks']);
+// The year-position scalar (S.season) did not exist either, so it is zeroed for the legacy hash, and so is the "directives scanned" bit of S.firsts.
 const legacyHash = (sim: Sim): number => {
-  const s = sim.world.scalars, kept = s[S.season]!;
+  const s = sim.world.scalars, kept = s[S.season]!, keptFirsts = s[S.firsts]!;
   s[S.season] = 0;
+  s[S.firsts] = keptFirsts & ~FIRST_SCANNED;
   const h = hashWorld(sim.world, (name) => !FIRMWARE_LAYERS.has(name));
   s[S.season] = kept;
+  s[S.firsts] = keptFirsts;
   return h;
 };
 
@@ -64,6 +67,10 @@ describe('determinism', () => {
   // The firmware, scenario and council units added layers (bMod, firmware, scenario, council), so the golden hashes moved. `legacy` holds the
   // hashes from before them, over every other layer: they must still match, which shows a city that buys no firmware, fits no module, enacts no
   // edict, opens no scenario and keeps neutral approval (the golden runs end before the first budget month closes) plays exactly as it did.
+  // The review fixes re-baselined every main hash (new layers bCharge and edictTicks, the directives-scanned bit of S.firsts). `legacy.scripted` and
+  // `legacy.idle` are unchanged. `legacy.traffic` moved only through the directive scalars: the pre-built grid town is now pre-latched as claimed
+  // when the directives first scan (no swoop, no pay), and the megaproject directive no longer latches from cash. Restoring the old values of
+  // those scalars on the new run reproduces the old legacy.traffic exactly (2177822361). No Mine, Battery Bank or edict is in any golden run.
   it('matches the golden hashes in golden.json (a deliberate change pastes the printed value there)', () => {
     const got = compute();
     expect(got, `golden.json should become: ${JSON.stringify(got)}`).toEqual(golden);

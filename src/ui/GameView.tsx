@@ -27,6 +27,7 @@ import { PhotoMode } from './PhotoMode';
 import { factsFromLayers, type CityFacts } from './progress';
 import { RadialMenu } from './RadialMenu';
 import { bulldozeTile, radialItemsFor, radialTargetAt, type RadialEntry, type RadialTarget } from './radialItems';
+import { useLeaveFocusOnOpen } from './focusReset.ts';
 import { ServicesPanel } from './ServicesPanel';
 import { Tools, type ToolHints } from './Tools';
 import type { SandboxDisaster, ToolsRuntime } from './toolsStore.ts';
@@ -82,6 +83,7 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
   const photoRef = useRef(false);
   photoRef.current = photoOn;
   const focus = settings.focus;
+  useLeaveFocusOnOpen(settings, onSetting);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -237,7 +239,7 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
         {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}
         {projectsOpen && <MilestonesPanel stats={stats.milestone} population={stats.population} runtime={tools} onClose={() => setPanel(null)} />}
         <Banner runtime={tools} />
-        {phase === 'running' && stats.scenario && !focus && <GoalChip stats={stats.scenario} onFinish={() => client.command({ type: 'finishScenario' })} />}
+        {phase === 'running' && stats.scenario && <GoalChip stats={stats.scenario} onFinish={() => client.command({ type: 'finishScenario' })} />}
         {stats.scenario && stats.scenario.state !== 0 && !resultsHidden && scenario && (
           <Results
             stats={stats.scenario} population={stats.population} treasury={stats.treasury} update={scenario.result} next={scenario.nextName}

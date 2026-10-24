@@ -336,11 +336,12 @@ export function debugPost(sim: Sim, kind: number, accept: boolean): string | und
 }
 
 // ---- Responses and outcomes ----
-export function respond(sim: Sim, slot: number, accept: boolean): string | undefined {
+export function respond(sim: Sim, slot: number, accept: boolean, id?: number): string | undefined {
   const w = sim.world;
   if (!Number.isInteger(slot) || slot < 0 || slot >= MAX_REQUESTS || typeof accept !== 'boolean') return 'invalid';
+  if (id !== undefined && !Number.isInteger(id)) return 'invalid';
   const r = readRequest(w, slot);
-  if (!r || r.state !== REQ_STATE.PENDING) return 'no-request';
+  if (!r || r.state !== REQ_STATE.PENDING || (id !== undefined && r.id !== id)) return 'no-request';
   if (accept) { w.council[at(slot) + REQ.STATE] = REQ_STATE.ACCEPTED; event(sim, 'accepted', slot, r); return undefined; }
   event(sim, 'declined', slot, r);
   clearSlot(w, slot);

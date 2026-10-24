@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, rciId } from '../catalog.ts';
-import { closeMonth, computeBudget, lastMonth, levelUpCandidates, needsOf, shopCentres } from '../economy/index.ts';
+import { MONTH_TICKS, budgetHistory, closeMonth, computeBudget, lastMonth, levelUpCandidates, needsOf, shopCentres } from '../economy/index.ts';
 import { restore, snapshot, stateHash, step } from '../engine.ts';
 import { answerInfo } from '../info.ts';
 import { deriveIssues } from '../issues.ts';
@@ -8,7 +8,7 @@ import { BMAX, MAP, RMAX, S, TERRAIN, ZONE, type World } from '../layers.ts';
 import { runTicks } from '../testkit.ts';
 import type { Sim } from '../world.ts';
 import {
-  AKIND, AST, CH, JOB, RES, TRANSFER_BIT, materialFor, resUnits, startLevelUp, totalsByResource,
+  AKIND, AST, CH, EXPORT_CAP, JOB, OUTPUT_CAP, RES, SELL_PRICE, TRANSFER_BIT, materialFor, resUnits, startLevelUp, totalsByResource,
 } from './index.ts';
 import { agents, depot, flatSim, road, run, runUntil, zone } from './testkit.ts';
 
@@ -67,19 +67,34 @@ describe('placing chain buildings', () => {
 });
 
 describe('production', () => {
-  it('a Mine fills to its cap and sells the overflow into industrial income', () => {
+  it('a Mine stops at its cap and exports a capped quantity at month close into industrial income', () => {
     const { sim, mine } = chainCity(false);
     const w = sim.world;
     runTicks(sim, 400);
-    expect(w.bStock[mine]).toBe(40);
-    expect(w.chain[CH.EXPORT]).toBe(40);
-    expect(computeBudget(w, 0).incomeI).toBe(40);
+    expect(w.bStock[mine]).toBe(OUTPUT_CAP);
+    expect(w.chain[CH.EXPORT], 'nothing is sold before the close').toBe(0);
+    expect(w.chain[CH.MADE]).toBe(OUTPUT_CAP);
     const before = w.scalars[S.treasury]!;
     const rec = closeMonth(sim);
-    expect(rec.incomeI).toBe(40);
-    expect(lastMonth(w).incomeI).toBe(40);
+    const exported = EXPORT_CAP[RES.ORE] * SELL_PRICE[RES.ORE];
+    expect(rec.incomeI).toBe(exported);
+    expect(lastMonth(w).incomeI).toBe(exported);
+    expect(w.bStock[mine]).toBe(OUTPUT_CAP - EXPORT_CAP[RES.ORE]);
     expect(w.chain[CH.EXPORT]).toBe(0);
     expect(w.scalars[S.treasury]).toBe(before + rec.net);
+    expect(drift(w)).toEqual([0, 0, 0]);
+  });
+
+  it('one Mine running a whole month nets no more than its upkeep plus a modest export', () => {
+    const { sim, mine } = chainCity(false);
+    const w = sim.world;
+    const mineUpkeep = 40;
+    runTicks(sim, 2 * MONTH_TICKS + 10);
+    const months = budgetHistory(w);
+    expect(months.length).toBeGreaterThanOrEqual(2);
+    for (const r of months) expect(r.incomeI).toBeLessThanOrEqual(mineUpkeep);
+    expect(w.bStock[mine]).toBeLessThanOrEqual(OUTPUT_CAP);
+    expect(w.chain[CH.MADE]! - w.chain[CH.USED]!).toBe(w.bStock[mine]);
   });
 
   it('an unpowered Mine stays idle', () => {
@@ -104,20 +119,18 @@ describe('production', () => {
     expect(drift(w)).toEqual([0, 0, 0]);
   });
 
-  it('never wraps a Uint16: a full output sells the overflow and an empty buffer is not drawn down', () => {
+  it('never wraps a Uint16: a full producer stops and keeps its input buffer', () => {
     const { sim, smelter, factory } = chainCity(false);
     const w = sim.world;
     w.bAlloy[smelter] = 65535; w.bIn[smelter * 3] = 4; w.chain[CH.MADE] += 4;
     w.bParts[factory] = 65535; w.bIn[factory * 3 + 1] = 2; w.chain[CH.MADE + 1] += 2;
     w.chain[CH.MADE + 1] += 65535; w.chain[CH.MADE + 2] += 65535;
-    runTicks(sim, 40);
+    runTicks(sim, 440);
     expect(w.bAlloy[smelter]).toBe(65535);
     expect(w.bParts[factory]).toBe(65535);
-    expect(w.bIn[smelter * 3]).toBe(0);
-    runTicks(sim, 400);
-    expect(w.bIn[smelter * 3]).toBe(0);
-    expect(w.bIn[factory * 3 + 1]).toBe(0);
-    expect(w.bAlloy[smelter]).toBe(65535);
+    expect(w.bIn[smelter * 3]).toBe(4);
+    expect(w.bIn[factory * 3 + 1]).toBe(2);
+    expect(w.chain[CH.EXPORT]).toBe(0);
     expect(drift(w)).toEqual([0, 0, 0]);
   });
 });

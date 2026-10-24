@@ -323,11 +323,18 @@ export function dispatch(sim: Sim, net: RoadNet): void {
     return out;
   };
 
-  // A hauler serves sites within the depot work radius. A site no depot reaches that way is served by anyone, so nothing is stranded.
-  let depotSlots: number[] | undefined;
+  // A hauler serves sites within the depot work radius. A site no depot covers is served by anyone, so nothing is stranded. Only a depot
+  // that stands finished and has a hauler of its own covers a site: a new, ruined or crewless one must not lock out the haulers that exist.
+  let covering: number[] | undefined;
   const nearDepot = (target: number): boolean => {
-    depotSlots ??= (() => { const out: number[] = []; for (let s = 0; s < BMAX; s++) if (w.bArch[s] === ARCH.DEPOT) out.push(s); return out; })();
-    return depotSlots.some((d) => { const door = doorOf(d); return door >= 0 && manhattan(door, target) <= m.workRadius && net.connected(door, target); });
+    covering ??= (() => {
+      const crewed = new Set<number>();
+      for (let a = 0; a < RMAX; a++) if (w.aKind[a] === AKIND.HAULER) crewed.add(homeSlot(w, a));
+      const out: number[] = [];
+      for (let s = 0; s < BMAX; s++) if (w.bArch[s] === ARCH.DEPOT && finishedStore(w, s) && crewed.has(s)) out.push(s);
+      return out;
+    })();
+    return covering.some((d) => { const door = doorOf(d); return door >= 0 && manhattan(door, target) <= m.workRadius && net.connected(door, target); });
   };
 
   for (const j of jobs) {

@@ -20,7 +20,7 @@ export const SOLAR_PEAK_MW = 60;
 export const SOLAR_WEATHER_Q = [ONE, 520, 340, 200] as const;
 
 /**
- * A Battery Bank holds BATTERY_CAP in its `bStock` (one unit is one MW for one solve, so it carries a full day of its output),
+ * A Battery Bank holds BATTERY_CAP in its `bCharge` (one unit is one MW for one solve, so it carries a full day of its output),
  * gives up to BATTERY_MW into a network that is short of power, and charges at BATTERY_CHARGE_MW from a surplus.
  */
 export const BATTERY_MW = 30;

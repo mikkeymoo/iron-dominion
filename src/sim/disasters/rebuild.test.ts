@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, rciId } from '../catalog.ts';
 import { step } from '../engine.ts';
-import { MAP, S } from '../layers.ts';
+import { MODULE, MODULES, MODULE_REFUND } from '../firmware.ts';
+import { MAP, S, TERRAIN } from '../layers.ts';
 import { AKIND, AST } from '../robots/constants.ts';
 import { agents, depot, flatSim, road, run } from '../robots/testkit.ts';
 import type { Sim } from '../world.ts';
@@ -91,6 +92,52 @@ describe('Rebuild all', () => {
     expect(w.bLevel[station], 'a service has no levels').toBe(0);
     for (const s of [...houses, station]) expect(w.bFlags[s]! & BFLAG.REBUILD).toBe(0);
     expect(slotAt(sim, 118, 105)).toBe(-1);
+  });
+});
+
+describe('Rebuild all pays only for what gets rebuilt', () => {
+  it('pays a queued ruin back when it is bulldozed before the robots reach it', () => {
+    const net = (order: boolean): number => {
+      const { sim, houses } = ruinedTown();
+      const w = sim.world;
+      if (order) expect(run(sim, { type: 'rebuildAll' })).toBe(true);
+      const before = w.scalars[S.treasury]!, x = w.bX[houses[0]!]!, y = w.bY[houses[0]!]!;
+      expect(run(sim, { type: 'bulldoze', x0: x, y0: y, x1: x, y1: y })).toBe(true);
+      expect(w.bArch[houses[0]!]).toBe(0);
+      return w.scalars[S.treasury]! - before;
+    };
+    expect(net(true) - net(false)).toBe(discounted(rebuildPrice(R1)));
+  });
+
+  it('pays a queued ruin back when its lot will not take the building once the robots have cleared it', () => {
+    const { sim, houses } = ruinedTown();
+    const w = sim.world;
+    expect(run(sim, { type: 'rebuildAll' })).toBe(true);
+    const s = houses[0]!, x = w.bX[s]!, y = w.bY[s]!;
+    w.terrain[y * MAP + x] = TERRAIN.WATER;
+    w.waterDepth[y * MAP + x] = 40;
+    let gained = 0;
+    for (let t = 0; t < 14000 && w.bArch[s] !== 0; t++) {
+      const before = w.scalars[S.treasury]!, month = w.scalars[S.month]!;
+      step(sim);
+      if (w.bArch[s] === 0 && w.scalars[S.month] === month) gained = w.scalars[S.treasury]! - before;
+    }
+    expect(w.bArch[s]).toBe(0);
+    expect(gained).toBe(discounted(rebuildPrice(R1)));
+  });
+
+  it('refunds half the price of the modules in a depot destroyed by a disaster', () => {
+    const sim = flatSim(42, true);
+    road(sim, 96, 104, 130, 104);
+    depot(sim, 98, 102);
+    const d = slotAt(sim, 98, 102);
+    sim.world.scalars[S.treasury] = 1e6;
+    expect(run(sim, { type: 'setDepotModule', slot: d, index: 0, module: MODULE.BUILDER_BAY })).toBe(true);
+    expect(run(sim, { type: 'setDepotModule', slot: d, index: 1, module: MODULE.WORKSHOP })).toBe(true);
+    const before = sim.world.scalars[S.treasury]!;
+    destroyBuilding(sim, d);
+    expect(sim.world.bArch[d]).toBe(0);
+    expect(sim.world.scalars[S.treasury]! - before).toBe(Math.floor(MODULES[MODULE.BUILDER_BAY]!.cost * MODULE_REFUND) + Math.floor(MODULES[MODULE.WORKSHOP]!.cost * MODULE_REFUND));
   });
 });
 

@@ -1,7 +1,7 @@
 import { BFLAG, isRci } from '../catalog.ts';
 import { footprintMean, zoneOfArch } from '../economy/totals.ts';
 import { TAX_NEUTRAL } from '../economy/tables.ts';
-import { mods } from '../firmware.ts';
+import { edictApprovalLastMonth, mods } from '../firmware.ts';
 import { BMAX, C, MAP, S, ZONE, type World } from '../layers.ts';
 import { COVERED_MIN } from '../services/tables.ts';
 import type { Sim } from '../world.ts';
@@ -56,8 +56,8 @@ export function disasterCount(w: World): number {
 }
 
 /** One signed term per cause, in approval points, in a fixed order. The month's target is BASE plus their sum (approvalTarget). */
-export function approvalFactors(w: World): ApprovalFactor[] {
-  const sc = w.scalars, c = census(w), m = mods(w);
+export function approvalFactors(w: World, edictTerm: number = mods(w).approval): ApprovalFactor[] {
+  const sc = w.scalars, c = census(w);
   const homes = c.homes;
   const coverage = homes > 0 ? c.covered.reduce((a, b) => a + b, 0) / (5 * homes) : 0;
   const services = homes > 0 ? W_SERVICES * coverage + SERVICES_OFFSET : 0;
@@ -79,14 +79,14 @@ export function approvalFactors(w: World): ApprovalFactor[] {
     { key: 'commutes', label: 'Failed commutes', value: round2(commutes) },
     { key: 'outages', label: 'Power and water outages', value: round2(outages) },
     { key: 'taxes', label: 'Taxes', value: round2(taxes) },
-    { key: 'edicts', label: 'Edicts', value: m.approval },
+    { key: 'edicts', label: 'Edicts', value: edictTerm },
     { key: 'disasters', label: 'Recent disasters', value: round2(disasters) },
     { key: 'requests', label: 'Council requests', value: round2(requests) },
   ];
 }
 
 /** Where approval is heading this month: BASE plus every factor, kept in 0..100. */
-export const approvalTarget = (w: World): number => clamp(BASE + approvalFactors(w).reduce((a, f) => a + f.value, 0), 0, 100);
+export const approvalTarget = (w: World, edictTerm?: number): number => clamp(BASE + approvalFactors(w, edictTerm).reduce((a, f) => a + f.value, 0), 0, 100);
 
 /** Move approval by `delta` points at once (a festival, a request outcome), clamped to 0..100. */
 export function nudgeApproval(w: World, delta: number): void {
@@ -105,7 +105,8 @@ export function monthlyApproval(sim: Sim): void {
   c[C.DISASTER_MEM] = Math.max(c[C.DISASTER_MEM]! * 0.5, Math.min(4, disasterCount(w) * 0.5));
   c[C.OUTCOME_MEM] = c[C.OUTCOME_MEM]! * 0.5;
   const cur = approvalOf(w);
-  c[C.APPROVAL] = clamp(round2(cur + (approvalTarget(w) - cur) * EMA), 0, 100) - 50;
+  // The edicts' term is what they earned over the month just closed, not the mask now: enacting just before the close banks nothing.
+  c[C.APPROVAL] = clamp(round2(cur + (approvalTarget(w, edictApprovalLastMonth(w)) - cur) * EMA), 0, 100) - 50;
   if (approvalOf(w) < VERY_LOW) {
     c[C.LOW_MONTHS]!++;
     if (c[C.LOW_MONTHS]! >= VERY_LOW_MONTHS && c[C.WARNED] === 0) {

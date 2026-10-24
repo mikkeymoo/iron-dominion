@@ -1,17 +1,18 @@
 import { ARCH, archetype, BFLAG, type Archetype } from './catalog.ts';
 import { DEPOT_START_STOCK } from './robots/constants.ts';
 import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
-import { grantRp, invalidateModuleCache, mods, researchNode, setModule, toggleEdictCard } from './firmware.ts';
+import { grantRp, invalidateModuleCache, mods, refundModules, researchNode, setModule, toggleEdictCard } from './firmware.ts';
 import { debugScenario, finishScenario } from './scenarioRun.ts';
 import { clearJob } from './robots/pool.ts';
 import { isChainArch, used } from './robots/stock.ts';
 import { DMODE, LEAD_MIN, planHazard, rebuildAll, setDisasterMode, triggerDisaster } from './disasters/index.ts';
+import { refundRebuild } from './disasters/rebuild.ts';
 import { debugPost, holdFestival, respond } from './council/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
 import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
-import { D, HAZ, MAP, RMAX, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
+import { D, HAZ, MAP, RMAX, ROAD, S, SC, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { megaBlock } from './milestones.ts';
 import { yearPosition } from './seasons.ts';
 import { MAX_TIER } from './unlocks.ts';
@@ -61,8 +62,11 @@ export type CommandBody =
   | { type: 'debugSeason'; day: number }
   /** Debug-only: plan a hazard of kind HAZ now, announced at once and starting `lead` ticks later (default one month). Needs disasters on. */
   | { type: 'debugHazard'; kind: number; lead?: number }
-  /** Accept or decline the council request in `slot` (0 or 1; sim/council). Declining costs a little approval. */
-  | { type: 'councilRespond'; slot: number; accept: boolean }
+  /**
+   * Accept or decline the council request in `slot` (0 or 1; sim/council). Declining costs a little approval. `id` is the request the player
+   * saw (`request`; `id` is the command's own): when the slot now holds a different one (it expired and was replaced) the answer is refused as 'no-request'.
+   */
+  | { type: 'councilRespond'; slot: number; accept: boolean; request?: number }
   /** Pay for a festival (FESTIVAL id; needs approval above 70, the festival off cooldown, and night for Fireworks). */
   | { type: 'holdFestival'; festival: number }
   /** Debug-only: post a council request of `kind` (council KIND) at once, whatever the city looks like; `accept` also accepts it. */
@@ -193,6 +197,9 @@ function zone(sim: Sim, c: Extract<Command, { type: 'zone' }>): number {
 /** Free a building slot: tiles, table row, stock and any robot job on it; bumps the slot generation. */
 export function clearBuilding(sim: Sim, slot: number): void {
   const w = sim.world;
+  // A ruin an order already paid for is cleared some other way (bulldozed, cratered): the order never rebuilds it, so it pays back.
+  if ((w.bFlags[slot]! & (BFLAG.REBUILD | BFLAG.RUBBLE)) === (BFLAG.REBUILD | BFLAG.RUBBLE)) refundRebuild(w, w.bArch[slot]!);
+  if (w.bArch[slot] === ARCH.DEPOT && w.bMod[slot] !== 0) refundModules(w, slot);
   const x = w.bX[slot]!, y = w.bY[slot]!, bw = w.bW[slot]!, bh = w.bH[slot]!;
   for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) {
     w.bId[tileIdx(xx, yy)] = 0;
@@ -203,7 +210,7 @@ export function clearBuilding(sim: Sim, slot: number): void {
   // Stock left in a torn-down building is gone; the chain ledger books it as used so created - used still equals what exists.
   used(w, 0, w.bStock[slot]! + w.bIn[slot * 3]!); used(w, 1, w.bAlloy[slot]! + w.bIn[slot * 3 + 1]!); used(w, 2, w.bParts[slot]! + w.bIn[slot * 3 + 2]!);
   w.bAlloy[slot] = 0; w.bParts[slot] = 0; w.bIn[slot * 3] = 0; w.bIn[slot * 3 + 1] = 0; w.bIn[slot * 3 + 2] = 0;
-  w.bStock[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0; w.bDmg[slot] = 0; w.bHeat[slot] = 0;
+  w.bStock[slot] = 0; w.bCharge[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0; w.bDmg[slot] = 0; w.bHeat[slot] = 0;
   if (w.bMod[slot] !== 0) { w.bMod[slot] = 0; invalidateModuleCache(w); }
   clearJob(w, slot);
   w.bGen[slot] = (w.bGen[slot]! + 1) & 0xffff;
@@ -421,6 +428,7 @@ function loan(sim: Sim, c: Extract<Command, { type: 'takeLoan' | 'repayLoan' }>)
 function claimDirective(sim: Sim, c: Extract<Command, { type: 'claimDirective' }>): void {
   const sc = sim.world.scalars;
   if (!isInts(c.index) || c.index < 0 || c.index >= DIRECTIVE_COUNT) reject('invalid');
+  if (sim.world.scenario[SC.ID] !== 0) reject('scenario');
   const bit = 1 << c.index;
   if ((sc[S.directiveClaimed]! & bit) !== 0) reject('claimed');
   if ((sc[S.directiveDone]! & bit) === 0 && !directiveMet(sim.world, c.index)) reject('not-ready');
@@ -485,7 +493,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'debugSeason': debugSeason(sim, cmd); break;
       case 'debugHazard': debugHazard(sim, cmd); break;
       case 'councilRespond': case 'holdFestival': case 'debugCouncil': {
-        const why = cmd.type === 'councilRespond' ? respond(sim, cmd.slot, cmd.accept)
+        const why = cmd.type === 'councilRespond' ? respond(sim, cmd.slot, cmd.accept, cmd.request)
           : cmd.type === 'holdFestival' ? holdFestival(sim, cmd.festival) : debugPost(sim, cmd.kind, cmd.accept === true);
         if (why) reject(why);
         break;

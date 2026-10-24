@@ -92,7 +92,13 @@ export function InfoCard({ why, onJump, onFollow, modules }: Props) {
   return (
     <aside className="info-card" {...{ [PANEL_ATTR]: 'info' }} data-testid="info-card" data-kind={sel.kind} aria-label="Details">
       <Panel id="info" kind="section" title="Details" remember={false}>
-        {!info && <p className="info-loading">Asking the sim...</p>}
+        {!info && !why.failed && <p className="info-loading">Asking the sim...</p>}
+        {!info && why.failed && (
+          <>
+            <p className="info-loading" data-testid="info-error" role="alert">Couldn't load details</p>
+            <button type="button" className="info-close" aria-label="Close" data-testid="info-close" onClick={() => why.clear()}>×</button>
+          </>
+        )}
         {info && info.kind === 'building' && <BuildingBody info={info} why={why} onJump={onJump} modules={modules} />}
         {info && info.kind === 'agent' && <AgentBody info={info} why={why} gone={why.gone} onFollow={onFollow} onJump={onJump} />}
       </Panel>

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, rciId } from './catalog.ts';
 import { createSim, restore, snapshot, stateHash, step } from './engine.ts';
 import { DAY_TICKS, H, HAZ, MAP, S, WEATHER, type World } from './layers.ts';
+import { CH, totalsByResource, workforceOf } from './robots/index.ts';
 import { flatSim, run } from './robots/testkit.ts';
 import { SYSTEMS } from './tick.ts';
 import {
@@ -261,33 +262,33 @@ describe('Battery Banks', () => {
   it('charges from a surplus at its charge rate and stops when full', () => {
     const sim = grid(true);
     solveUtilities(sim);
-    expect(sim.world.bStock[bank(sim)]).toBe(BATTERY_CHARGE_MW);
+    expect(sim.world.bCharge[bank(sim)]).toBe(BATTERY_CHARGE_MW);
     for (let i = 0; i < 10; i++) solveUtilities(sim);
-    expect(sim.world.bStock[bank(sim)]).toBe(BATTERY_CHARGE_MW * 11);
-    sim.world.bStock[bank(sim)] = BATTERY_CAP - 5;
+    expect(sim.world.bCharge[bank(sim)]).toBe(BATTERY_CHARGE_MW * 11);
+    sim.world.bCharge[bank(sim)] = BATTERY_CAP - 5;
     solveUtilities(sim);
-    expect(sim.world.bStock[bank(sim)]).toBe(BATTERY_CAP);
+    expect(sim.world.bCharge[bank(sim)]).toBe(BATTERY_CAP);
     solveUtilities(sim);
-    expect(sim.world.bStock[bank(sim)]).toBe(BATTERY_CAP);
+    expect(sim.world.bCharge[bank(sim)]).toBe(BATTERY_CAP);
   });
 
   it('does not charge when there is no surplus', () => {
     const sim = grid(true);
     sim.world.scalars[S.day] = 21;
     solveUtilities(sim);
-    expect(sim.world.bStock[bank(sim)]).toBe(0);
+    expect(sim.world.bCharge[bank(sim)]).toBe(0);
   });
 
   it('covers the brown-out of a cold snap, up to its output, and a city without one goes dark', () => {
     const withBank = grid(true), without = grid(false);
     for (const sim of [withBank, without]) { sim.world.scalars[S.day] = 9; solveUtilities(sim); }
-    withBank.world.bStock[bank(withBank)] = 500;
+    withBank.world.bCharge[bank(withBank)] = 500;
     for (const sim of [withBank, without]) heat(sim.world, HAZ.HEATWAVE);
     solveUtilities(without);
     expect(without.utils!.power.demand).toBeGreaterThan(PLANT_MW);
     expect(second(without)).toBe(true);
     solveUtilities(withBank);
-    const given = 500 - withBank.world.bStock[bank(withBank)]!;
+    const given = 500 - withBank.world.bCharge[bank(withBank)]!;
     expect(given).toBeGreaterThan(0);
     expect(given).toBeLessThanOrEqual(BATTERY_MW);
     expect(second(withBank)).toBe(false);
@@ -299,20 +300,42 @@ describe('Battery Banks', () => {
     const sim = grid(true);
     sim.world.scalars[S.day] = 9;
     heat(sim.world, HAZ.HEATWAVE);
-    sim.world.bStock[bank(sim)] = 40;
+    sim.world.bCharge[bank(sim)] = 40;
     let covered = 0;
     for (let i = 0; i < 12; i++) { solveUtilities(sim); if (!second(sim)) covered++; }
     expect(covered).toBeGreaterThan(0);
     expect(covered).toBeLessThan(12);
-    expect(sim.world.bStock[bank(sim)]).toBe(0);
+    expect(sim.world.bCharge[bank(sim)]).toBe(0);
     expect(second(sim)).toBe(true);
+  });
+
+  it('keeps its charge out of the Ore ledger: totals, the workforce stock and demolition ignore it', () => {
+    const sim = grid(true);
+    const w = sim.world;
+    for (let i = 0; i < 5; i++) solveUtilities(sim);
+    expect(w.bCharge[bank(sim)]).toBe(BATTERY_CHARGE_MW * 5);
+    expect(w.bStock[bank(sim)]).toBe(0);
+    expect(totalsByResource(w)).toEqual([0, 0, 0]);
+    expect(workforceOf(w).stock).toBe(0);
+    expect(run(sim, { type: 'bulldoze', x0: 104, y0: 100, x1: 106, y1: 102 })).toBe(true);
+    expect(w.bId[100 * MAP + 104]).toBe(0);
+    expect(w.chain[CH.USED]).toBe(0);
+    expect(w.chain[CH.MADE] - w.chain[CH.USED]! - totalsByResource(w)[0]!).toBe(0);
+  });
+
+  it('moves charge that an older save kept in bStock over to its own layer, once', () => {
+    const sim = grid(true);
+    sim.world.bStock[bank(sim)] = 700;
+    solveUtilities(sim);
+    expect(sim.world.bStock[bank(sim)]).toBe(0);
+    expect(sim.world.bCharge[bank(sim)]).toBe(700 + BATTERY_CHARGE_MW);
   });
 
   it('forgets nothing across a snapshot: charge is state', () => {
     const sim = grid(true);
     for (let i = 0; i < 20; i++) solveUtilities(sim);
     const back = restore(snapshot(sim));
-    expect(back.world.bStock[bank(back)]).toBe(sim.world.bStock[bank(sim)]);
+    expect(back.world.bCharge[bank(back)]).toBe(sim.world.bCharge[bank(sim)]);
     expect(stateHash(back)).toBe(stateHash(sim));
   });
 });

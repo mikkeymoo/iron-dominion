@@ -1,7 +1,6 @@
 import { ARCH, BFLAG } from '../catalog.ts';
 import { clearBuilding } from '../commands.ts';
-import { footprintMean } from '../economy/totals.ts';
-import { BMAX, D, H, HAZ, MAP, S, WEATHER, type World } from '../layers.ts';
+import { footprintMean } from '../economy/totals.ts';import { BMAX, D, H, HAZ, MAP, S, WEATHER, type World } from '../layers.ts';
 import { nextU32 } from '../rng.ts';
 import { AKIND, AST } from '../robots/constants.ts';
 import { clearJob, liveSlot } from '../robots/pool.ts';

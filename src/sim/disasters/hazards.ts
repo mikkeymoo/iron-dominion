@@ -49,11 +49,6 @@ function eligible(w: World, kind: number): boolean {
   return false;
 }
 
-function reset(w: World): void {
-  const h = w.hazard;
-  h[H.PHASE] = 0; h[H.KIND] = 0; h[H.PLAN_AT] = 0; h[H.START] = 0; h[H.END] = 0; h[H.NEXT] = 0; h[H.LEFT] = 0; h[H.LEVEL] = 0; h[H.BONUS] = 0;
-}
-
 /**
  * Plan a hazard now: draw its lead time, choose its kind (by the season it will land in, never the same kind twice running) and
  * announce it. `force` (debug and tests) fixes the kind and, optionally, the lead. Returns false when no kind fits the city yet.
@@ -117,7 +112,9 @@ function cancel(sim: Sim): void {
   const w = sim.world, h = w.hazard;
   h[H.LAST] = h[H.KIND]!;
   h[H.PHASE] = 0; h[H.KIND] = 0; h[H.START] = 0; h[H.END] = 0; h[H.NEXT] = 0; h[H.LEFT] = 0; h[H.BONUS] = 0;
-  const [min, span] = GAP[w.disaster[D.MODE]!] ?? [DAY_TICKS, DAY_TICKS];
+  // A window suppressed while Off waits the patient Rare spell, so Off then On is never quicker than a window that ran.
+  const mode = w.disaster[D.MODE]!;
+  const [min, span] = GAP[mode === DMODE.OFF ? DMODE.RARE : mode] ?? [DAY_TICKS, DAY_TICKS];
   h[H.PLAN_AT] = w.scalars[S.tick]! + min + roll(w, span);
 }
 
@@ -177,22 +174,25 @@ function fireEvent(sim: Sim): void {
   h[H.NEXT] = left > 0 ? tick + Math.max(30, Math.floor((h[H.END]! - tick) / (left + 1)) - 20 + roll(w, 41)) : 0;
 }
 
-/** Runs first in the disasters system, every tick. */
+/**
+ * Runs first in the disasters system, every tick. Switching disasters Off keeps the schedule as it is: nothing new is planned, and a
+ * forecast already made waits (switching back On before its start still gets it). A window that would start, or is running, while Off is
+ * suppressed and the quiet spell starts as if it had run, so Off then On cannot bring the next hazard (and its readiness bonus) sooner.
+ */
 export function hazardsSystem(sim: Sim): void {
   const w = sim.world, h = w.hazard, tick = w.scalars[S.tick]!;
-  if (w.disaster[D.MODE] === DMODE.OFF) {
-    if (h[H.PHASE] !== 0 || h[H.PLAN_AT] !== 0) reset(w);
-    return;
-  }
+  const off = w.disaster[D.MODE] === DMODE.OFF;
   switch (h[H.PHASE]) {
     case 0:
+      if (off) break;
       if (h[H.PLAN_AT] === 0) h[H.PLAN_AT] = tick + FIRST_PLAN;
       else if (tick >= h[H.PLAN_AT]!) { if (!planHazard(sim)) h[H.PLAN_AT] = tick + DAY_TICKS; }
       break;
     case 1:
-      if (tick >= h[H.START]!) startWindow(sim);
+      if (tick >= h[H.START]!) { if (off) cancel(sim); else startWindow(sim); }
       break;
     case 2:
+      if (off) { cancel(sim); break; }
       if (h[H.LEFT]! > 0 && h[H.NEXT] !== 0 && tick >= h[H.NEXT]!) fireEvent(sim);
       if (tick >= h[H.END]!) endWindow(sim);
       break;
@@ -219,7 +219,7 @@ export function hazardStats(w: World): HazardStats {
 /** The planned or running hazard for the HUD, or null. */
 export function hazardForecast(w: World): HazardStats['forecast'] {
   const h = w.hazard, tick = w.scalars[S.tick]!;
-  if (h[H.PHASE] === 0) return null;
+  if (h[H.PHASE] === 0 || w.disaster[D.MODE] === DMODE.OFF) return null;
   const kind = h[H.KIND]!, level = h[H.LEVEL]!;
   return {
     kind, level, active: h[H.PHASE] === 2, startTick: h[H.START]!, startsIn: Math.max(0, h[H.START]! - tick), endsIn: Math.max(0, h[H.END]! - tick),

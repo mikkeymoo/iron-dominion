@@ -131,10 +131,13 @@ export function debugScenario(sim: Sim, value: number): string | undefined {
   return undefined;
 }
 
-/** Meteors that struck this tick (the disasters system ran earlier in the tick and left its events in the queue). */
+/** Meteors that struck this tick, or were stopped by a Shield Dome (the disasters system ran earlier in the tick and left its events in the queue). */
 function countStrikes(sim: Sim): void {
   const sc = sim.world.scenario, tick = sim.world.scalars[S.tick]!;
-  for (const e of sim.events) if (e.type === 'disaster' && e.kind === 'meteor' && e.phase === 'impact' && e.tick === tick) sc[SC.STRIKES]!++;
+  for (const e of sim.events) {
+    if (e.tick !== tick) continue;
+    if ((e.type === 'disaster' && e.kind === 'meteor' && e.phase === 'impact') || (e.type === 'hazardBlocked' && e.by === 'dome')) sc[SC.STRIKES]!++;
+  }
 }
 
 /** The monthly hazards a modifier switches on. Dice come from `roll`, a pure function of (seed, tick, key), so a resumed save repeats them. */

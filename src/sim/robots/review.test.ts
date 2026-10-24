@@ -236,6 +236,31 @@ describe('depot undo', () => {
   });
 });
 
+describe('depot work radius', () => {
+  it('a new depot with no haulers beside a far site does not stop the old depot haulers from serving it', () => {
+    const sim = flatSim();
+    const w = sim.world;
+    road(sim, 96, 104, 180, 104);
+    depot(sim, 98, 102);
+    runTicks(sim, 400);
+    const haulers = agents(sim, AKIND.HAULER);
+    expect(haulers.length).toBeGreaterThan(0);
+    depot(sim, 160, 102);
+    const fresh = depots(sim).find((s) => w.bX[s] === 160)!;
+    w.scalars[S.treasury] = 100;
+    expect(agents(sim, AKIND.HAULER).filter((a) => w.aHome[a] !== 0 && ((w.aHome[a]! & 0xffff) - 1) === fresh)).toEqual([]);
+    zone(sim, 164, 105, 166, 107);
+    let built = false;
+    for (let t = 0; t < 5000 && !built; t++) {
+      holdDemand(sim, 0.9, 120);
+      w.scalars[S.treasury] = Math.max(w.scalars[S.treasury]!, 100);
+      step(sim);
+      built = finished(sim).length > 0;
+    }
+    expect(built).toBe(true);
+  });
+});
+
 describe('candidate cache', () => {
   it('does not rescan the map while nothing changed', () => {
     const sim = flatSim();

@@ -4,27 +4,43 @@ import { BMAX, S, ZONE } from '../layers.ts';
 import { lotAccess, roadsOf } from '../roads/index.ts';
 import type { Sim } from '../world.ts';
 import {
-  CH, CHAIN_PERIOD, DEPOT_STOCK_CAP, FACTORY_BUFFER, FACTORY_IN, FACTORY_OUT, GOODS_PERIOD, GOODS_REACH, IMPORT_PERIOD, IMPORT_PRICE, JOB, MINE_OUT,
+  CH, CHAIN_PERIOD, DEPOT_STOCK_CAP, EXPORT_CAP, FACTORY_BUFFER, FACTORY_IN, FACTORY_OUT, GOODS_PERIOD, GOODS_REACH, IMPORT_PERIOD, IMPORT_PRICE, JOB, MINE_OUT,
   OUTPUT_CAP, RES, SELL_PRICE, SMELTER_BUFFER, SMELT_IN, SMELT_OUT,
 } from './constants.ts';
 import { SPEND, available } from './pool.ts';
-import { chainRunning, finishedStore, made, reachableStock, stockLayer, used } from './stock.ts';
+import { chainRunning, finishedStore, made, producedBy, reachableStock, stockLayer, used } from './stock.ts';
 
 // The production chain: Mines dig Ore, Smelters turn 4 Ore into 2 Alloy, Factories turn 2 Alloy into 1 Component. Haulers move the
-// stock (robots/agents.ts); this file is the buildings' side: production, overflow sales, the depot import fallback and the goods
+// stock (robots/agents.ts); this file is the buildings' side: production, the month-close export, the depot import fallback and the goods
 // pass commercial lots depend on.
 
-/** Add finished units to a building's output; whatever does not fit under OUTPUT_CAP is sold at once into this month's export income. */
+/** Room left in a building's output under OUTPUT_CAP; a producer with none stops (and keeps its inputs). */
+const outputRoom = (layer: Uint16Array, s: number): number => Math.max(0, OUTPUT_CAP - layer[s]!);
+
+/** Add finished units to a building's output. Never exceeds OUTPUT_CAP: a full producer stops, nothing is sold for free. */
 function produce(sim: Sim, s: number, res: number, n: number): void {
   const w = sim.world, layer = stockLayer(w, res);
-  made(w, res, n);
-  const next = layer[s]! + n;
-  if (next > OUTPUT_CAP) {
-    const sold = next - Math.max(OUTPUT_CAP, layer[s]!);
-    layer[s] = Math.max(OUTPUT_CAP, layer[s]!);
+  const add = Math.min(n, outputRoom(layer, s));
+  if (add === 0) return;
+  made(w, res, add);
+  layer[s]! += add;
+}
+
+/**
+ * Month-close export (called by closeMonth): every running producer ships up to EXPORT_CAP units of its own product from its stock at
+ * SELL_PRICE into industrial income. Stock above the cap stays on the building, so a Mine is worth its upkeep only with a buyer in the chain.
+ */
+export function sellExports(sim: Sim): void {
+  const w = sim.world;
+  for (let s = 0; s < BMAX; s++) {
+    const res = producedBy(w.bArch[s]!);
+    if (res < 0 || !chainRunning(w, s)) continue;
+    const layer = stockLayer(w, res), sold = Math.min(layer[s]!, EXPORT_CAP[res]!);
+    if (sold === 0) continue;
+    layer[s]! -= sold;
     w.chain[CH.EXPORT]! += sold * SELL_PRICE[res]!;
     used(w, res, sold);
-  } else layer[s] = next;
+  }
 }
 
 /** Every CHAIN_PERIOD ticks each running chain building does one cycle; an idle one (unpowered, abandoned, starved) does nothing. */
@@ -36,12 +52,12 @@ export function chainProduction(sim: Sim): void {
     if (!chainRunning(w, s)) continue;
     if (arch === ARCH.MINE) produce(sim, s, RES.ORE, MINE_OUT);
     else if (arch === ARCH.SMELTER) {
-      if (w.bIn[s * 3 + RES.ORE]! < SMELT_IN) continue;
+      if (w.bIn[s * 3 + RES.ORE]! < SMELT_IN || outputRoom(w.bAlloy, s) < SMELT_OUT) continue;
       w.bIn[s * 3 + RES.ORE]! -= SMELT_IN;
       used(w, RES.ORE, SMELT_IN);
       produce(sim, s, RES.ALLOY, SMELT_OUT);
     } else {
-      if (w.bIn[s * 3 + RES.ALLOY]! < FACTORY_IN) continue;
+      if (w.bIn[s * 3 + RES.ALLOY]! < FACTORY_IN || outputRoom(w.bParts, s) < FACTORY_OUT) continue;
       w.bIn[s * 3 + RES.ALLOY]! -= FACTORY_IN;
       used(w, RES.ALLOY, FACTORY_IN);
       produce(sim, s, RES.PARTS, FACTORY_OUT);
