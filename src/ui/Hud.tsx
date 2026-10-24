@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { LoanInfo, Speed, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
+import { InstallMenuItem } from './PwaUi';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
@@ -147,6 +148,7 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
               <button type="button" className="tb row" onClick={() => { setName(''); setPanel('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
               <button type="button" className="tb row" onClick={() => setPanel('settings')}>Settings</button>
+              <InstallMenuItem />
               <button type="button" className="tb row" onClick={() => { closeMenu(); onQuit(); }}>Quit to title (saves)</button>
               <button type="button" className="tb row" onClick={closeMenu}>Close</button>
             </>

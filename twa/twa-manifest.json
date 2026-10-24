@@ -1,0 +1,31 @@
+{
+  "packageId": "io.github.mikkeymoo.irondominion",
+  "host": "mikkeymoo.github.io",
+  "name": "Iron Dominion",
+  "launcherName": "Iron Dominion",
+  "display": "fullscreen",
+  "orientation": "default",
+  "themeColor": "#0b1116",
+  "themeColorDark": "#0b1116",
+  "navigationColor": "#0b1116",
+  "navigationColorDark": "#0b1116",
+  "backgroundColor": "#0b1116",
+  "enableNotifications": false,
+  "startUrl": "/iron-dominion/",
+  "iconUrl": "https://mikkeymoo.github.io/iron-dominion/icons/icon-512.png",
+  "maskableIconUrl": "https://mikkeymoo.github.io/iron-dominion/icons/icon-maskable-512.png",
+  "webManifestUrl": "https://mikkeymoo.github.io/iron-dominion/manifest.webmanifest",
+  "fullScopeUrl": "https://mikkeymoo.github.io/iron-dominion/",
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "irondominion"
+  },
+  "fallbackType": "customtabs",
+  "features": {},
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 21,
+  "shortcuts": []
+}
