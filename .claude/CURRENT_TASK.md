@@ -26,9 +26,9 @@ Run: `/lfg` through U0..U14, one commit per unit, pushed to `origin/main` (Micha
 | U8   | 0202b99 (merge) | 21 economy smoke checks | protocol v2; review: 10 findings applied; overlay display deferred to U11 |
 | U5   | cf6eab0 (merge of f2e2e91 + 55dc5c4) | 193 tests after merge, smoke pass incl. real IndexedDB save/reload hash | review: 10 findings applied (single save queue, cache refresh, quit dialog, quota mapping) |
 | U7   | fff0867 (merge of 1de2a94 + 6dbe6ad) | 410 tests, build ok (392 KB gzip), smoke 167 ok incl. road + zone -> robot-built building | protocol v3; review: 10 findings applied (stuck jobs, orphan sites, robot spend through monthly budget, zone restore, depot undo exploit, prorated first month) |
-| U9   |        |               |       |
-| U10  |        |               |       |
-| U11  |        |               |       |
-| U12  |        |               |       |
-| U13  |        |               |       |
-| U14  |        |               |       |
+| U9   | 51acd15 (merge 47d6e80) | 479 tests, smoke 188 ok | utilities + overlays; review: 9 findings applied |
+| U10  | 447c23c (merge) | 533 tests, smoke:quick pass | traffic; review: 10 findings applied |
+| U11-U15 | c7ca619 (merge train) | 880 tests, full smoke 301 ok | services, disasters, megaprojects, audio, photo, PWA, rivers, phone HUD; architect review 12 findings fixed (cdc8724) |
+| Phase 2 A-E | f9ef12a | 1251 tests, full smoke 354 ok | onboarding, advisor, firmware/edicts, touch panels/radial, graphics; panel tap race fixed d57b0c2 |
+| Phase 2b | cc06542 | 1520 tests, full smoke 394 ok | scenarios, council/approval, production chains, seasons/hazards |
+| Next | | | districts, session pacing, named bots, blueprint queue, production overlay, mega Components, phase-2 review |
