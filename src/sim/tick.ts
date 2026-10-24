@@ -1,5 +1,6 @@
 import { execute } from './commands.ts';
 import { DAY_TICKS, MAP, S, WEATHER } from './layers.ts';
+import { disastersSystem } from './disasters/index.ts';
 import { economySystem } from './economy/index.ts';
 import { milestonesSystem } from './milestones.ts';
 import { roadsSystem } from './roads/index.ts';
@@ -58,7 +59,7 @@ function clockWeather(sim: Sim): void {
 // Named no-op hooks reserve each future system's slot in the fixed order.
 const utilities: System = utilitiesSystem;
 const services: System = servicesSystem;
-const disasters: System = () => {};
+const disasters: System = disastersSystem;
 const milestones: System = milestonesSystem;
 
 /** Fixed system order: later units fill the hooks, they never reorder. */

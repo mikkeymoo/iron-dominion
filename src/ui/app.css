@@ -132,6 +132,9 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .hud > .tool-toasts { position: absolute; top: calc(env(safe-area-inset-top) + 64px); z-index: 2; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; width: max-content; max-width: min(28rem, calc(100vw - 24px)); pointer-events: none; }
 .tool-toast { padding: 8px 12px; background: rgba(124, 29, 29, 0.94); border: 1px solid #a53a3a; border-radius: 8px; color: #fff; font-size: 0.85rem; }
 .tool-toast.hint { background: rgba(29, 76, 124, 0.95); border-color: #6fb0ff; }
+.tool-toast.alert { display: flex; align-items: center; gap: 10px; background: rgba(150, 52, 10, 0.95); border-color: #e0802a; font-weight: 600; pointer-events: auto; }
+.toast-jump { padding: 3px 10px; background: #ffd9a8; border: 0; border-radius: 6px; color: #3a1700; font: inherit; font-size: 0.8rem; cursor: pointer; }
+.toast-jump:hover { background: #fff0dc; }
 
 .demand { display: flex; gap: 4px; align-items: flex-end; padding: 0 4px; }
 .demand-bar { display: grid; justify-items: center; gap: 1px; width: 14px; font-size: 0.6rem; line-height: 1; }

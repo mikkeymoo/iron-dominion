@@ -40,4 +40,6 @@ export const fxU = {
   /** Scales streak width and flake size with camera distance so drops stay visible from the satellite view. */
   dropScale: u(1),
   wind: u(0.1),
+  /** Seconds, for slow shader flicker (fires). Written by the Fx manager each frame. */
+  time: u(0),
 };

@@ -5,7 +5,8 @@ import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import { InstallMenuItem } from './PwaUi';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
-import { DEFAULT_SETTINGS, TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
+import { DEFAULT_SETTINGS, DISASTER_MODES, TIER_OVERRIDES, type DisastersSetting, type Settings, type TierOverride } from '../platform/settings.ts';
+import type { SandboxDisaster } from './toolsStore.ts';
 import type { FailReason } from '../platform/db.ts';
 import { isEditableTarget } from '../render/editable.ts';
 import { SoundSettings, SpeakerToggle } from '../audio/ui.tsx';
@@ -79,6 +80,8 @@ interface Props {
   onSaveAs(name: string): void;
   onExport(): void;
   onSetting<K extends keyof Settings>(key: K, value: Settings[K]): void;
+  /** Sandbox menu: start a fire, quake or meteor at the middle of the view. Absent while the 3D view is not running. */
+  onTrigger?(kind: SandboxDisaster): void;
   onQuit(): void;
   /** Set when leaving could not save: the player picks what happens to the city. */
   quitPrompt: string | null;
@@ -133,7 +136,7 @@ function TrafficReadout({ t }: { t?: TrafficStats }) {
 }
 
 export function Hud({
-  lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, onProjects, follow, photo, photoActive = false, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
+  lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, onProjects, follow, photo, photoActive = false, onTrigger, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
   facts = NO_FACTS, perfOn = false, onPerf, layout: forced, activeTier, panel: panelProp, onPanel, topOpen: topOpenProp, onTopOpen,
 }: Props) {
   const detected = useLayout();
@@ -154,7 +157,7 @@ export function Hud({
   const menuPresence = usePresence(menu);
   const statusPresence = usePresence(phone && status);
   const extraPresence = usePresence(phone && topOpen);
-  const [mode, setMode] = useState<'main' | 'saveAs' | 'settings'>('main');
+  const [mode, setMode] = useState<'main' | 'saveAs' | 'settings' | 'sandbox'>('main');
   const [name, setName] = useState('');
   const [quitName, setQuitName] = useState('');
   const lastRunning = useRef<Speed>(1);
@@ -303,6 +306,7 @@ export function Hud({
               {photo && <button type="button" className="tb row" data-testid="photo-menu" onClick={() => { closeMenu(); photo.enter(); }}>Photo mode (F2)</button>}
               {photo && <button type="button" className="tb row" data-testid="tour-menu" onClick={() => { closeMenu(); photo.tour(); }}>City tour</button>}
               <button type="button" className="tb row" onClick={() => setMode('settings')}>Settings</button>
+              {onTrigger && <button type="button" className="tb row" data-testid="sandbox-menu" onClick={() => setMode('sandbox')}>Trigger disaster...</button>}
               <InstallMenuItem />
               <button type="button" className="tb row" onClick={() => { closeMenu(); onQuit(); }}>Quit to title (saves)</button>
               <button type="button" className="tb row" onClick={closeMenu}>Close</button>
@@ -324,7 +328,22 @@ export function Hud({
               </label>
               {activeTier && <p className="hint" data-testid="tier-now">Running at {activeTier}{settings.tier === 'auto' ? ' (auto: the game raises or lowers it to keep the frame rate up)' : ' (pinned)'}.</p>}
               <p className="hint">A pinned tier takes effect the next time a city starts.</p>
+              <label>Disasters
+                <select value={settings.disasters} data-testid="disasters-setting" onChange={(e) => onSetting('disasters', e.target.value as DisastersSetting)}>
+                  {DISASTER_MODES.map((m) => <option key={m} value={m}>{m === 'off' ? 'Off' : m === 'rare' ? 'Rare' : 'Normal'}</option>)}
+                </select>
+              </label>
+              <p className="hint">Fires, storms, quakes and meteors. Off stops new ones; the sandbox menu still works.</p>
               <SoundSettings settings={settings} onSetting={onSetting} />
+              <button type="button" className="tb row" onClick={() => setMode('main')}>Back</button>
+            </div>
+          )}
+          {mode === 'sandbox' && onTrigger && (
+            <div className="settings">
+              <p className="hint">Strikes the middle of the view. Works in every disaster setting.</p>
+              <button type="button" className="tb row" data-testid="trigger-fire" onClick={() => { onTrigger('fire'); closeMenu(); }}>Start a fire</button>
+              <button type="button" className="tb row" data-testid="trigger-quake" onClick={() => { onTrigger('quake'); closeMenu(); }}>Earthquake</button>
+              <button type="button" className="tb row" data-testid="trigger-meteor" onClick={() => { onTrigger('meteor'); closeMenu(); }}>Meteor strike</button>
               <button type="button" className="tb row" onClick={() => setMode('main')}>Back</button>
             </div>
           )}

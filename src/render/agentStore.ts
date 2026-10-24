@@ -4,11 +4,12 @@ import type { AgentsMsg } from '../sim/protocol.ts';
 // positions only change when it does, so the store keeps the last two tick snapshots and interpolates between them. Agents are
 // matched by key (slot | generation << 16), so a slot reused by another agent is a new agent that snaps, never one that slides.
 
-export const AGENT_KIND = { BUILDER: 1, HAULER: 2, CAR: 3, TAXI: 4, TRUCK: 5, BUS: 6 } as const;
+export const AGENT_KIND = { BUILDER: 1, HAULER: 2, CAR: 3, TAXI: 4, TRUCK: 5, BUS: 6, FIREFIGHTER: 7 } as const;
 /** Mirrors AST in sim/robots/constants.ts and VST in sim/traffic/constants.ts (the renderer does not import sim internals beyond the protocol). */
-export const AGENT_STATE = { IDLE: 0, TO_SITE: 1, WORK: 2, RETURN: 3, TO_PICKUP: 4, HAUL: 5, DRIVE: 10, SLOW: 11 } as const;
-/** Robots are kinds below this; vehicles are this and above. */
+export const AGENT_STATE = { IDLE: 0, TO_SITE: 1, WORK: 2, RETURN: 3, TO_PICKUP: 4, HAUL: 5, FF_GO: 6, FF_SPRAY: 7, REPAIR_GO: 8, REPAIR_WORK: 9, DRIVE: 10, SLOW: 11 } as const;
+/** Vehicles are the kinds from this up to BUS; robots are builders, haulers and firefighters. */
 export const FIRST_VEHICLE_KIND = AGENT_KIND.CAR;
+export const isVehicleKind = (kind: number): boolean => kind >= AGENT_KIND.CAR && kind <= AGENT_KIND.BUS;
 export type AgentGroup = 'robots' | 'vehicles';
 
 interface Frame { tick: number; t: number; count: number; pos: Float32Array; ids: Uint32Array; index: Map<number, number> }
@@ -40,7 +41,7 @@ const lerpAngle = (a: number, b: number, t: number): number => {
 };
 
 const inGroup = (kind: number, group: AgentGroup | undefined): boolean =>
-  group === undefined || (kind >= FIRST_VEHICLE_KIND) === (group === 'vehicles');
+  group === undefined || isVehicleKind(kind) === (group === 'vehicles');
 
 export class AgentStore {
   private prev: Frame = emptyFrame();
@@ -154,7 +155,7 @@ export class AgentStore {
     const out: number[] = [];
     for (let i = 0; i < this.cur.count; i++) {
       const k = this.cur.ids[i * 2 + 1]! & 0xff;
-      if (kind === undefined ? k < FIRST_VEHICLE_KIND : k === kind) out.push(this.cur.ids[i * 2]!);
+      if (kind === undefined ? !isVehicleKind(k) : k === kind) out.push(this.cur.ids[i * 2]!);
     }
     return out;
   }
@@ -183,19 +184,19 @@ export class AgentStore {
   }
 
   /** Counts of the robots in the latest message by kind. */
-  counts(): { builders: number; haulers: number } {
-    let builders = 0, haulers = 0;
+  counts(): { builders: number; haulers: number; fighters: number } {
+    let builders = 0, haulers = 0, fighters = 0;
     for (let i = 0; i < this.cur.count; i++) {
       const k = this.cur.ids[i * 2 + 1]! & 0xff;
-      if (k === AGENT_KIND.BUILDER) builders++; else if (k === AGENT_KIND.HAULER) haulers++;
+      if (k === AGENT_KIND.BUILDER) builders++; else if (k === AGENT_KIND.FIREFIGHTER) fighters++; else if (k === AGENT_KIND.HAULER) haulers++;
     }
-    return { builders, haulers };
+    return { builders, haulers, fighters };
   }
 
   /** Vehicles in the latest message. */
   vehicleCount(): number {
     let n = 0;
-    for (let i = 0; i < this.cur.count; i++) if ((this.cur.ids[i * 2 + 1]! & 0xff) >= FIRST_VEHICLE_KIND) n++;
+    for (let i = 0; i < this.cur.count; i++) if (isVehicleKind(this.cur.ids[i * 2 + 1]! & 0xff)) n++;
     return n;
   }
 }

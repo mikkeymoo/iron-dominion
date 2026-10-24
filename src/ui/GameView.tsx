@@ -18,7 +18,7 @@ import { PhotoMode } from './PhotoMode';
 import { factsFromLayers, type CityFacts } from './progress';
 import { ServicesPanel } from './ServicesPanel';
 import { Tools, type ToolHints } from './Tools';
-import type { ToolsRuntime } from './toolsStore.ts';
+import type { SandboxDisaster, ToolsRuntime } from './toolsStore.ts';
 
 interface Props {
   client: SimClient;
@@ -131,6 +131,12 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
     mark: (id) => { if (!onboarding.hintsSeen.includes(id)) onSetting('onboarding', { ...onboarding, hintsSeen: [...onboarding.hintsSeen, id] }); },
   };
 
+  const trigger = (kind: SandboxDisaster): void => {
+    const cam = game.current?.debug.camera;
+    if (cam) tools.triggerDisaster(kind, Math.floor(cam.x), Math.floor(cam.z));
+  };
+  const jump = (x: number, y: number): void => { game.current?.debug.jumpTo(x, y); };
+
   return (
     <div className="game" data-render={phase} data-worker={worker}>
       <div className="game-host" ref={host} />
@@ -146,9 +152,9 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       {photoOn && game.current && <PhotoMode photo={game.current.photo} lifecycle={lifecycle} passes={game.current.debug.fx.postPasses} touring={touring} onTour={() => { game.current?.tour(); setTouring(!!game.current?.debug.cinematic.active); }} />}
       <div className="hud" hidden={photoOn}>
         <AudioSync settings={settings} />
-        <Hud photo={phase === 'running' ? { enter: () => game.current?.photo.enter(), tour: () => { game.current?.tour(); } } : undefined} photoActive={photoOn} lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
+        <Hud photo={phase === 'running' ? { enter: () => game.current?.photo.enter(), tour: () => { game.current?.tour(); } } : undefined} photoActive={photoOn} lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onTrigger={phase === 'running' ? trigger : undefined} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
         {phase === 'running' && facts && <Checklist facts={facts} state={listState} onChange={onList} onPick={(t) => { setPanel(null); tools.controller.select(t); }} collapseOnPick={phone} />}
-        {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} />}
+        {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} onJump={jump} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}
         {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}
         {projectsOpen && <MilestonesPanel stats={stats.milestone} population={stats.population} runtime={tools} onClose={() => setPanel(null)} />}

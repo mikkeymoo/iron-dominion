@@ -47,7 +47,11 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
   const seed = wid.add(0.5).floor().add(iState.y.mul(1000).floor().mul(131));
   const litRand = hash(seed);
   // iState.w = 1 marks a finished building without power (utilities solve): its windows and signs go dark, day and night.
-  const powered = float(1).sub(iState.w);
+  // iState.w = 2 marks a building on fire: a flickering orange glow over the walls, on top of whatever its windows do.
+  const dark = step(0.5, iState.w).mul(step(iState.w, 1.5));
+  const burning = step(1.5, iState.w);
+  const powered = float(1).sub(dark);
+  const flicker = sin(fxU.time.mul(9).add(seed.mul(0.37))).mul(0.25).add(0.75);
   const lit = step(float(1).sub(LIT_FRACTION), litRand).mul(isGlass).mul(powered);
   const warmth = hash(seed.add(7919));
   const litColor = mix(vec3(1.0, 0.78, 0.45), vec3(0.75, 0.88, 1.0), step(0.8, warmth));
@@ -70,7 +74,8 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
   const breathe = sin(time.mul(2.4)).mul(0.5).add(1.9);
   const accentGlow = mix(buildingLight.night.mul(1.3).add(0.12), breathe, pulse);
   material.emissiveNode = litColor.mul(pane).mul(glow).mul(lit).mul(buildingLight.night).mul(1.7)
-    .add(base.mul(isAccent).mul(accentGlow).mul(powered.mul(0.92).add(0.08)));
+    .add(base.mul(isAccent).mul(accentGlow).mul(powered.mul(0.92).add(0.08)))
+    .add(vec3(1.0, 0.34, 0.07).mul(burning).mul(flicker).mul(float(0.6).sub(isGlass.mul(0.25))));
   material.roughnessNode = mix(mix(float(0.86), float(0.42), isMetal), mix(float(0.55), float(0.12), pane), isGlass);
   material.metalnessNode = mix(mix(float(0), float(0.7), isMetal), pane.mul(0.25), isGlass);
 

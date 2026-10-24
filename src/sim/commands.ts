@@ -1,6 +1,7 @@
 import { ARCH, archetype, BFLAG, type Archetype } from './catalog.ts';
 import { DEPOT_START_STOCK } from './robots/constants.ts';
 import { clearJob } from './robots/pool.ts';
+import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
@@ -33,6 +34,10 @@ export type CommandBody =
   | { type: 'takeLoan'; tier: number }
   /** Repay the whole principal of the loan in `slot` from the treasury. */
   | { type: 'repayLoan'; slot: number }
+  /** Disasters setting: 0 off, 1 rare, 2 normal. Off stops random ignition, lightning fires, quakes and meteors; fires already burning run out. */
+  | { type: 'setDisasters'; mode: number }
+  /** Sandbox: start a fire in the building at (x, y) (or nearest), a quake centred on it, or a meteor that lands on it. Allowed in normal play, in any mode. */
+  | { type: 'triggerDisaster'; kind: 'fire' | 'quake' | 'meteor'; x: number; y: number }
   | { type: 'undo'; target: number };
 
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
@@ -57,7 +62,7 @@ function fixRoad(world: World, x: number, y: number): void {
     if (world.road[j]! & ROAD.CLASS_MASK) conn |= bit;
     if (Math.abs(world.height[j]! - world.height[i]!) > SLOPE_LIMIT) slope = ROAD.SLOPE;
   }
-  world.road[i] = (r & ROAD.CLASS_MASK) | (r & ROAD.BRIDGE) | conn | slope;
+  world.road[i] = (r & ROAD.CLASS_MASK) | (r & ROAD.BRIDGE) | (r & ROAD.DAMAGED) | conn | slope;
 }
 
 interface Capture {
@@ -163,7 +168,7 @@ export function clearBuilding(sim: Sim, slot: number): void {
   }
   w.bArch[slot] = 0; w.bX[slot] = 0; w.bY[slot] = 0; w.bW[slot] = 0; w.bH[slot] = 0;
   w.bRot[slot] = 0; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0; w.bAband[slot] = 0;
-  w.bStock[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0;
+  w.bStock[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0; w.bDmg[slot] = 0; w.bHeat[slot] = 0;
   clearJob(w, slot);
   w.bGen[slot] = (w.bGen[slot]! + 1) & 0xffff;
   for (let u = 0; u < UMAX; u++) if (w.uKind[u] === UNDO.BUILDING && w.uArg[u] === slot) { w.uKind[u] = UNDO.NONE; w.uCmd[u] = 0; }
@@ -300,7 +305,7 @@ function debugTier(sim: Sim, c: Extract<Command, { type: 'debugTier' }>): void {
 }
 
 /** Heights moved inside the rect: road slope flags and building ground heights in and around it are stale. Clamps to the map. */
-function settleGround(sim: Sim, rx0: number, ry0: number, rx1: number, ry1: number): void {
+export function settleGround(sim: Sim, rx0: number, ry0: number, rx1: number, ry1: number): void {
   const w = sim.world;
   const ex0 = Math.max(0, rx0), ey0 = Math.max(0, ry0), ex1 = Math.min(MAP - 1, rx1), ey1 = Math.min(MAP - 1, ry1);
   for (let y = ey0; y <= ey1; y++) for (let x = ex0; x <= ex1; x++) {
@@ -389,6 +394,8 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'debugTier': debugTier(sim, cmd); break;
       case 'setTax': setTax(sim, cmd); break;
       case 'takeLoan': case 'repayLoan': loan(sim, cmd); break;
+      case 'setDisasters': { const why = setDisasterMode(sim.world, cmd.mode); if (why) reject(why); break; }
+      case 'triggerDisaster': { const why = triggerDisaster(sim, cmd.kind, cmd.x, cmd.y); if (why) reject(why); break; }
       case 'undo': undo(sim, cmd); break;
       default: reject('unknown-command');
     }

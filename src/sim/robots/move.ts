@@ -1,6 +1,6 @@
 import { AMAX, MAP, ROAD, S, type World } from '../layers.ts';
 import { findPath, pathTiles, type RoadNet } from '../roads/index.ts';
-import { AKIND, BACKOFF_BASE, BACKOFF_MAX, BUILDER_SPEED, HAULER_SPEED } from './constants.ts';
+import { AKIND, BACKOFF_BASE, BACKOFF_MAX, BUILDER_SPEED, DAMAGED_ROAD_SPEED, FIREFIGHTER_SPEED, HAULER_SPEED } from './constants.ts';
 import { nearestTileOf } from './pool.ts';
 import { ONE, REPAIR_BOOST_Q } from '../services/tables.ts';
 
@@ -80,7 +80,8 @@ export function stepAgent(net: RoadNet, w: World, a: number): MoveResult {
   const first = step === 0 && frac === 0, from = step;
   const cls = w.road[tiles[step]!]! & ROAD.CLASS_MASK;
   const boost = w.covRepair[tiles[step]!] !== 0 ? REPAIR_BOOST_Q / ONE : 1;
-  frac += (w.aKind[a] === AKIND.BUILDER ? BUILDER_SPEED : HAULER_SPEED)[cls]! * boost;
+  const speeds = w.aKind[a] === AKIND.BUILDER ? BUILDER_SPEED : w.aKind[a] === AKIND.FIREFIGHTER ? FIREFIGHTER_SPEED : HAULER_SPEED;
+  frac += speeds[cls]! * boost * ((w.road[tiles[step]!]! & ROAD.DAMAGED) !== 0 ? DAMAGED_ROAD_SPEED : 1);
   while (frac >= 1 && step < last) { frac -= 1; step++; }
   if (step >= last) {
     w.aStep[a] = last; w.aFrac[a] = 0;

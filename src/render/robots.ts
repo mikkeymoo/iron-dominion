@@ -14,7 +14,15 @@ import { PIVOTS, generateBuilder, generateHauler, type RobotModel } from './kit/
 import type { RenderMirror } from './mirror.ts';
 import { TIER_TABLE, type Tier } from './tier.ts';
 
-export interface RobotStats { visible: number; builders: number; haulers: number; beams: number; sparks: number }
+export interface RobotStats { visible: number; builders: number; haulers: number; fighters: number; beams: number; sparks: number; sprays: number }
+
+/** What the robots view emits into the particle system: welding sparks, and the fire hose as a directed jet of water. */
+export interface RobotEmit {
+  spark(x: number, y: number, z: number, n: number): number;
+  water(x: number, y: number, z: number, dx: number, dz: number, n: number): number;
+}
+const SPRAY_RATE = 46;
+const MAX_SPRAY_PER_FRAME = 40;
 
 /** Drone hover height above the road, in tiles. */
 const HOVER = 0.42;
@@ -47,7 +55,7 @@ const botClock = uniform(0);
  * their pivots, rotors spin, the crate hangs and sways (and vanishes when empty), the whole body bobs or hovers. The instance matrix
  * places the robot; the animation offset is rotated into world space with the per-instance yaw and added on top.
  */
-function robotMaterial(kind: 'builder' | 'hauler'): MeshStandardNodeMaterial {
+function robotMaterial(kind: 'builder' | 'hauler', livery = false): MeshStandardNodeMaterial {
   const piv: any = uniformArray(PIVOTS.map((p) => new Vector4(p[0], p[1], p[2], p[3])), 'vec4');
   const rb = attribute('rb', 'vec2');
   const iBot = attribute('iBot', 'vec4');
@@ -86,7 +94,9 @@ function robotMaterial(kind: 'builder' | 'hauler'): MeshStandardNodeMaterial {
   const base: any = vertexColor().rgb;
   const isGlass: any = step(0.5, slot).mul(step(slot, 1.5));
   const isAccent: any = step(3.5, slot).mul(step(slot, 4.5));
-  m.colorNode = base.mul(ao.mul(0.55).add(0.45));
+  // Fire robots wear red: everything but the visor and the lights is pulled toward fire-engine red.
+  const painted: any = livery ? mix(base, vec3(0.62, 0.025, 0.02), float(1).sub(isGlass).sub(isAccent).clamp(0, 1).mul(0.82)) : base;
+  m.colorNode = painted.mul(ao.mul(0.55).add(0.45));
   m.aoNode = ao;
   // Visors and rotor lights always glow a little and blaze at night, so the workforce sparkles across the dark city.
   const night: any = fxU.night;
@@ -176,27 +186,31 @@ export class RobotsView {
   readonly group = new Group();
   private readonly builders: Fleet;
   private readonly haulers: Fleet;
+  private readonly fighters: Fleet;
+  private sprayCarry = 0;
+  private sprayed = 0;
   private readonly beams = new Beams();
   private readonly mats: MeshStandardNodeMaterial[];
   private sample: AgentSample;
   private capacity: number;
-  private stats: RobotStats = { visible: 0, builders: 0, haulers: 0, beams: 0, sparks: 0 };
+  private stats: RobotStats = { visible: 0, builders: 0, haulers: 0, fighters: 0, beams: 0, sparks: 0, sprays: 0 };
   private sparkSpawned = 0;
   private sparkCarry = 0;
   private time = 0;
   private readonly mat = new Float32Array(16);
 
   constructor(
-    private readonly store: AgentStore, private readonly mirror: RenderMirror, private readonly emit: (kind: 'spark', x: number, y: number, z: number, n: number) => number,
+    private readonly store: AgentStore, private readonly mirror: RenderMirror, private readonly emit: RobotEmit,
     tier: Tier,
   ) {
     this.group.name = 'robots';
     this.capacity = Math.min(RMAX, TIER_TABLE[tier].visibleAgents);
-    this.mats = [robotMaterial('builder'), robotMaterial('hauler')];
+    this.mats = [robotMaterial('builder'), robotMaterial('hauler'), robotMaterial('hauler', true)];
     this.builders = new Fleet(geometryOf(generateBuilder()), this.mats[0]!, RMAX, 'builders');
     this.haulers = new Fleet(geometryOf(generateHauler()), this.mats[1]!, RMAX, 'haulers');
+    this.fighters = new Fleet(geometryOf(generateHauler()), this.mats[2]!, RMAX, 'firefighters');
     this.sample = makeSample(RMAX);
-    this.group.add(this.builders.mesh, this.haulers.mesh, this.beams.mesh);
+    this.group.add(this.builders.mesh, this.haulers.mesh, this.fighters.mesh, this.beams.mesh);
   }
 
   setTier(tier: Tier): void { this.capacity = Math.min(RMAX, TIER_TABLE[tier].visibleAgents); }
@@ -209,8 +223,8 @@ export class RobotsView {
     botClock.value = this.time;
     const s = this.store.sample(nowMs, this.sample, this.capacity, focusX, focusZ, 'robots');
     const heights = this.mirror.layers.height!;
-    let nb = 0, nh = 0, beams = 0;
-    const work: number[] = [];
+    let nb = 0, nh = 0, nf = 0, beams = 0;
+    const work: number[] = [], spray: number[] = [];
     for (let i = 0; i < s.count; i++) {
       const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
       const gy = surfaceHeight(heights, x, z);
@@ -219,10 +233,16 @@ export class RobotsView {
       if (s.kind[i] === AGENT_KIND.BUILDER) {
         composeMatrix(this.mat, x, gy, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.builders.matrix.set(this.mat, nb * 16);
-        const working = s.state[i] === AGENT_STATE.WORK ? 1 : 0;
+        const working = s.state[i] === AGENT_STATE.WORK || s.state[i] === AGENT_STATE.REPAIR_WORK ? 1 : 0;
         this.builders.iBot.set([phase, 0, working, yaw], nb * 4);
         if (working) work.push(i);
         nb++;
+      } else if (s.kind[i] === AGENT_KIND.FIREFIGHTER) {
+        composeMatrix(this.mat, x, gy + HOVER, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
+        this.fighters.matrix.set(this.mat, nf * 16);
+        this.fighters.iBot.set([phase, 0, 0, yaw], nf * 4);
+        if (s.state[i] === AGENT_STATE.FF_SPRAY) spray.push(i);
+        nf++;
       } else {
         composeMatrix(this.mat, x, gy + HOVER, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.haulers.matrix.set(this.mat, nh * 16);
@@ -230,8 +250,19 @@ export class RobotsView {
         nh++;
       }
     }
-    this.builders.count = nb; this.haulers.count = nh;
-    this.builders.flush(); this.haulers.flush();
+    this.builders.count = nb; this.haulers.count = nh; this.fighters.count = nf;
+    this.builders.flush(); this.haulers.flush(); this.fighters.flush();
+
+    // Fire hoses: each spraying robot throws a jet of water from its nozzle toward the building it faces (the sim aims its heading).
+    this.sprayCarry = spray.length > 0 ? this.sprayCarry + spray.length * SPRAY_RATE * dt : 0;
+    let nSpray = Math.min(MAX_SPRAY_PER_FRAME, Math.floor(this.sprayCarry));
+    this.sprayCarry -= nSpray;
+    for (let k = 0; nSpray > 0 && spray.length > 0; k++, nSpray--) {
+      const i = spray[k % spray.length]!;
+      const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
+      const dx = Math.sin(yaw), dz = Math.cos(yaw);
+      this.sprayed += this.emit.water(x + dx * 0.12 * ROBOT_SCALE, surfaceHeight(heights, x, z) + HOVER + 0.08, z + dz * 0.12 * ROBOT_SCALE, dx, dz, 1);
+    }
 
     const sparkBudget = Math.min(MAX_SPARKS_PER_FRAME, Math.max(0, emitBudget));
     this.sparkCarry += work.length * SPARK_RATE * dt;
@@ -262,17 +293,17 @@ export class RobotsView {
         const i = work[k++ % work.length]!;
         const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
         const gy = surfaceHeight(heights, x, z);
-        sparks += this.emit('spark', x + Math.sin(yaw) * 0.085 * ROBOT_SCALE, gy + 0.075 * ROBOT_SCALE, z + Math.cos(yaw) * 0.085 * ROBOT_SCALE, 1);
+        sparks += this.emit.spark(x +Math.sin(yaw) * 0.085 * ROBOT_SCALE, gy + 0.075 * ROBOT_SCALE, z + Math.cos(yaw) * 0.085 * ROBOT_SCALE, 1);
         n--;
       }
       this.sparkSpawned += sparks;
     } else if (work.length === 0) this.sparkCarry = 0;
     const counts = this.store.counts();
-    this.stats = { visible: nb + nh, builders: counts.builders, haulers: counts.haulers, beams, sparks: this.sparkSpawned };
+    this.stats = { visible: nb + nh + nf, builders: counts.builders, haulers: counts.haulers, fighters: counts.fighters, beams, sparks: this.sparkSpawned, sprays: this.sprayed };
   }
 
   dispose(): void {
-    this.builders.dispose(); this.haulers.dispose(); this.beams.dispose();
+    this.builders.dispose(); this.haulers.dispose(); this.fighters.dispose(); this.beams.dispose();
     for (const m of this.mats) m.dispose();
   }
 }

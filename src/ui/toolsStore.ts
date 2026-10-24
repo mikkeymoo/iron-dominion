@@ -2,6 +2,7 @@ import { ARCH, archetype, BFLAG } from '../sim/catalog.ts';
 import { countBuildings } from './progress.ts';
 import type { CommandBody } from '../sim/commands.ts';
 import { tileReadOf } from '../sim/estimate.ts';
+import { placeName } from '../sim/disasters/names.ts';
 import { BMAX, S } from '../sim/layers.ts';
 import type { ViewState } from '../render/viewState.ts';
 import { tileIdx } from '../sim/tiles.ts';
@@ -42,8 +43,11 @@ const REASONS: Record<string, string> = {
 /** Plain-words text for a sim or estimate rejection reason. */
 export const reasonText = (reason: string): string => REASONS[reason] ?? 'That could not be done.';
 
-/** `tone: 'hint'` is advice, not an error; `good` marks a celebration (milestone, project progress) so it is not styled like a refusal. */
-export interface Toast { id: number; text: string; tone?: 'hint'; good?: boolean }
+/**
+ * `tone: 'hint'` is advice, not an error; `good` marks a celebration (milestone, project progress) so it is not styled like a refusal;
+ * `jump` is the tile a "Jump to" button on the toast flies the camera to, and `alert` toasts (disasters) stay longer.
+ */
+export interface Toast { id: number; text: string; tone?: 'hint'; good?: boolean; jump?: { x: number; y: number }; alert?: boolean }
 
 /** The nudge a player gets when drawing roads or zones before any Robot Depot exists. */
 export const NO_DEPOT_HINT = 'Robots build your city. Place a Robot Depot first.';
@@ -53,7 +57,7 @@ export interface Banner { id: number; text: string; victory: boolean }
 export interface FloatText { id: number; text: string; x: number; y: number; gain: boolean }
 
 interface Pending {
-  kind: 'build' | 'undo';
+  kind: 'build' | 'undo' | 'sandbox';
   cost: number;
   label: string;
   /** Journal id an undo targets. */
@@ -70,6 +74,22 @@ export interface ToolsRuntimeDeps {
 
 const TOAST_MS = 4000;
 export const BANNER_MS = 6000;
+const ALERT_MS = 12000;
+
+export type SandboxDisaster = 'fire' | 'quake' | 'meteor';
+
+/** The toast a disaster event earns, or null when it needs none (spread is silent, a meteor's impact follows its warning). */
+export function disasterToast(e: Extract<SimEvent, { type: 'disaster' }>): { text: string; jump: { x: number; y: number } } | null {
+  const jump = { x: e.x, y: e.y };
+  if (e.kind === 'fire') return e.phase === 'start' ? { text: `Fire at ${placeName(e.arch)}!`, jump } : null;
+  if (e.kind === 'quake') return { text: 'Earthquake!', jump };
+  return e.phase === 'start' ? { text: 'Meteor incoming!', jump } : null;
+}
+
+const SANDBOX_REJECT: Record<string, string> = {
+  noop: 'There is no building to set alight near the middle of the view.',
+  blocked: 'A meteor is already on its way.',
+};
 const FLOAT_MS = 1600;
 
 const labelOf = (cmd: CommandBody): string =>
@@ -110,11 +130,19 @@ export class ToolsRuntime {
     this.timers.add(t);
   }
 
-  toast(text: string, kind?: 'hint' | 'good'): void {
+  toast(text: string, kind?: 'hint' | 'good' | { jump: { x: number; y: number } }): void {
     const id = this.seq++;
-    this.toasts = [...this.toasts.slice(-2), kind === 'hint' ? { id, text, tone: 'hint' } : kind === 'good' ? { id, text, good: true } : { id, text }];
-    this.later(TOAST_MS, () => { this.toasts = this.toasts.filter((t) => t.id !== id); });
+    const toast: Toast = typeof kind === 'object' ? { id, text, jump: kind.jump, alert: true } : kind === 'hint' ? { id, text, tone: 'hint' } : kind === 'good' ? { id, text, good: true } : { id, text };
+    this.toasts = [...this.toasts.slice(-2), toast];
+    this.later(toast.alert ? ALERT_MS : TOAST_MS, () => { this.toasts = this.toasts.filter((t) => t.id !== id); });
     this.notify();
+  }
+
+  /** Sandbox: ask the sim for a fire, quake or meteor at a tile (the view's centre, from the HUD). Works with disasters set to Off. */
+  triggerDisaster(kind: SandboxDisaster, x: number, y: number): number {
+    const id = this.deps.submit({ type: 'triggerDisaster', kind, x, y });
+    this.pending.set(id, { kind: 'sandbox', cost: 0, label: kind, at: { x, y } });
+    return id;
   }
 
   showBanner(text: string, victory = false): void {
@@ -157,6 +185,11 @@ export class ToolsRuntime {
   handleEvents(events: readonly SimEvent[]): void {
     let changed = false;
     for (const e of events) {
+      if (e.type === 'disaster') {
+        const t = disasterToast(e);
+        if (t) this.toast(t.text, { jump: t.jump });
+        continue;
+      }
       if (e.type === 'accepted' || e.type === 'rejected') for (const fn of this.eventListeners) fn(e);
       if (e.type !== 'accepted' && e.type !== 'rejected') { this.celebrate(e); continue; }
       const p = this.pending.get(e.cmd);
@@ -166,7 +199,9 @@ export class ToolsRuntime {
       changed = true;
       if (e.type === 'rejected') {
         if (p.kind === 'undo') this.undo.rejected(p.target!, e.reason);
-        this.toast(reasonText(e.reason));
+        this.toast(p.kind === 'sandbox' ? (SANDBOX_REJECT[e.reason] ?? reasonText(e.reason)) : reasonText(e.reason));
+      } else if (p.kind === 'sandbox') {
+        continue;
       } else if (p.kind === 'build') {
         if (e.journal) this.undo.push({ id: e.journal, cost: p.cost, label: p.label });
         if (p.cost > 0) this.float(`-$${p.cost.toLocaleString('en-US')}`, p.at, false);
@@ -254,6 +289,7 @@ export class ToolsRuntime {
         }
         return out;
       },
+      disaster: (kind, x, y) => rt.triggerDisaster(kind, x, y),
       findSite: (size = 14) => findFlatSite(tileReadOf(w.layers), size),
       findWater: () => findWaterTile(tileReadOf(w.layers)),
       tileFor: (name, topLeft) => {
@@ -287,6 +323,8 @@ export interface ToolsDebug {
   findWater(): Tile | null;
   /** The cursor tile that puts a building (by catalog name) with its top-left at `topLeft`. */
   tileFor(name: string, topLeft: Tile): Tile;
+  /** The sandbox trigger the HUD menu uses: a fire, quake or meteor at a tile. Returns the command id. */
+  disaster(kind: SandboxDisaster, x: number, y: number): number;
 }
 
 declare module '../render/debug.ts' {

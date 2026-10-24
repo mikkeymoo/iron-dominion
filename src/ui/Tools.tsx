@@ -52,9 +52,11 @@ interface Props {
   onPanel?(p: PanelId | null): void;
   /** Phones fold the tool bar back into its button after a few idle seconds (default true). */
   autoCollapse?: boolean;
+  /** Flies the camera to a tile: the "Jump to" button on a disaster toast. */
+  onJump?(x: number, y: number): void;
 }
 
-export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, onPanel, autoCollapse = true }: Props) {
+export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, onPanel, autoCollapse = true, onJump }: Props) {
   const detected = useLayout();
   const layout = forced ?? detected;
   const [, bump] = useReducer((n: number) => n + 1, 0);
@@ -132,7 +134,10 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
       </div>
       <div className="tool-toasts" role="status" aria-live="polite">
         {runtime.toasts.map((t) => (
-          <div key={t.id} className={`tool-toast${t.tone === 'hint' ? ' hint' : ''}${t.good ? ' good' : ''}`} data-testid={t.tone === 'hint' ? 'hint-toast' : 'toast'}>{t.text}</div>
+          <div key={t.id} className={`tool-toast${t.tone === 'hint' ? ' hint' : ''}${t.good ? ' good' : ''}${t.alert ? ' alert' : ''}`} data-testid={t.tone === 'hint' ? 'hint-toast' : 'toast'}>
+            <span>{t.text}</span>
+            {t.jump && onJump && <button type="button" className="toast-jump" data-testid="toast-jump" onClick={() => onJump(t.jump!.x, t.jump!.y)}>Jump to</button>}
+          </div>
         ))}
       </div>
 

@@ -44,12 +44,14 @@ export interface RenderDebug {
   /** Simulate a lost device / context to exercise recovery. */
   loseDevice(): void;
   /** Robots in the latest agent message: drawn (visible), and how many are builders and haulers; beams and sparks are what the view has emitted. */
-  readonly robots: { readonly visible: number; readonly builders: number; readonly haulers: number; readonly beams: number; readonly sparks: number };
+  readonly robots: { readonly visible: number; readonly builders: number; readonly haulers: number; readonly fighters: number; readonly beams: number; readonly sparks: number; readonly sprays: number };
   /**
    * Vehicles: `visible` drawn this frame (tier cap, view culling), `active` in the latest agent message, `lit` drawn with lights on,
    * `braking` drawn with brake lights; `sample(n)` returns up to n drawn vehicles' tile-space positions, headings, kinds (3 car, 4 taxi, 5 truck, 6 bus) and states.
    */
   readonly traffic: { readonly visible: number; readonly active: number; readonly lit: number; readonly braking: number; sample(n: number): { x: number; z: number; yaw: number; kind: number; state: number }[] };
+  /** Frame the camera on tile (x, y) at a close pose, as the "Jump to" button on a disaster toast does. */
+  jumpTo(x: number, y: number): void;
   /** Follow-a-robot chase camera. `follow(true)` picks a random active robot and returns whether one was found. */
   readonly following: boolean;
   follow(on: boolean, kind?: number): boolean;

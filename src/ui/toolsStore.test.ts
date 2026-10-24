@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ARCH } from '../sim/catalog.ts';
+import { ARCH, rciId } from '../sim/catalog.ts';
 import type { CommandBody } from '../sim/commands.ts';
 import { S, TERRAIN } from '../sim/layers.ts';
 import { tileIdx } from '../sim/tiles.ts';
@@ -125,6 +125,39 @@ describe('tools runtime events', () => {
     expect(rt.lastEvent).toMatchObject({ type: 'rejected', reason: 'funds' });
     vi.advanceTimersByTime(5000);
     expect(rt.toasts).toEqual([]);
+  });
+
+  it('turns disaster events into toasts that carry a jump target and stay longer than a plain one', () => {
+    vi.useFakeTimers();
+    const { rt } = setup();
+    const base = { type: 'disaster' as const, tick: 5, radius: 0, impactTick: 0 };
+    rt.handleEvents([
+      { ...base, kind: 'fire', phase: 'start', x: 40, y: 50, arch: rciId(3, 0, 1) },
+      { ...base, kind: 'quake', phase: 'impact', x: 10, y: 11, radius: 14, arch: 0 },
+      { ...base, kind: 'meteor', phase: 'start', x: 7, y: 8, arch: 0, impactTick: 30 },
+      { ...base, kind: 'meteor', phase: 'impact', x: 7, y: 8, arch: 0, radius: 6 },
+    ]);
+    expect(rt.toasts.map((t) => t.text)).toEqual(['Fire at Industrial district!', 'Earthquake!', 'Meteor incoming!']);
+    expect(rt.toasts.map((t) => t.jump)).toEqual([{ x: 40, y: 50 }, { x: 10, y: 11 }, { x: 7, y: 8 }]);
+    vi.advanceTimersByTime(5000);
+    expect(rt.toasts).toHaveLength(3);
+    vi.advanceTimersByTime(8000);
+    expect(rt.toasts).toEqual([]);
+  });
+
+  it('names a service building on fire, and sends the sandbox trigger with a plain refusal when nothing is near', () => {
+    const { rt, sent } = setup();
+    rt.handleEvents([{ type: 'disaster', tick: 1, kind: 'fire', phase: 'start', x: 1, y: 2, radius: 0, arch: ARCH.POWER_PLANT, impactTick: 0 }]);
+    expect(rt.toasts[0]!.text).toBe('Fire at the power plant!');
+    const id = rt.triggerDisaster('fire', 30, 31);
+    expect(sent[sent.length - 1]).toEqual({ type: 'triggerDisaster', kind: 'fire', x: 30, y: 31 });
+    rt.handleEvents([{ type: 'rejected', cmd: id, tick: 2, reason: 'noop' }]);
+    expect(rt.toasts[rt.toasts.length - 1]!.text).toMatch(/no building to set alight/);
+    const ok = rt.triggerDisaster('quake', 30, 31);
+    const before = rt.toasts.length;
+    rt.handleEvents([{ type: 'accepted', cmd: ok, tick: 3 }]);
+    expect(rt.toasts.length).toBe(before);
+    expect(rt.canUndo).toBe(false);
   });
 
   it('forgets the undo stack, pending commands and tool when a snapshot replaces the sim', () => {

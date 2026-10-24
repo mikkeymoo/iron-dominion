@@ -59,7 +59,7 @@ describe('AgentStore', () => {
     const out = makeSample(2);
     s.sample(0, out, 2);
     expect([out.kind[0], out.state[0], out.carry[0]]).toEqual([2, 5, 1]);
-    expect(s.counts()).toEqual({ builders: 0, haulers: 1 });
+    expect(s.counts()).toEqual({ builders: 0, haulers: 1, fighters: 0 });
   });
 
   it('keeps the nearest agents when over the cap', () => {

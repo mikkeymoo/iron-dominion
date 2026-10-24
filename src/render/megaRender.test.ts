@@ -77,7 +77,7 @@ describe('megaproject models', () => {
 
 const ALL = new Set(Array.from({ length: CHUNKS * CHUNKS }, (_, i) => i));
 const rec = (slot: number, arch: number, x: number, y: number, w: number, extra: Partial<BuildingRec> = {}): BuildingRec =>
-  ({ slot, arch, x, y, w, h: w, rot: 0, level: 0, prog: 0, flags: 0, ...extra });
+  ({ slot, arch, x, y, w, h: w, rot: 0, level: 0, prog: 0, flags: 0, dmg: 0, ...extra });
 
 function setup(fine: Set<number> = ALL) {
   const mirror = new RenderMirror();

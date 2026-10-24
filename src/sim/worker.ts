@@ -152,7 +152,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
         fail(`build mismatch: worker ${BUILD_HASH}, app ${m.buildHash} (stale cache? reload the page)`);
         return;
       }
-      sim = createSim(m.seed ?? 1, { debug: m.debug === true });
+      sim = createSim(m.seed ?? 1, { debug: m.debug === true, disasters: m.disasters });
       haltAt = m.haltAt ?? 0;
       hashEvery = m.hashEvery ?? 0;
       handshaken = true;

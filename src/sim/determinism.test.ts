@@ -7,11 +7,17 @@ import { fnv1a } from './hash.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
 import { runScripted, runTicks, scriptedCity } from './testkit.ts';
 import { gridCity } from './traffic/testkit.ts';
+import { disasterModeOf, DEFAULT_SETTINGS } from '../platform/settings.ts';
+
+const DEFAULT_DISASTERS = disasterModeOf(DEFAULT_SETTINGS.disasters);
 
 interface Golden {
   seed: number;
   scripted: { ticks: number; hash: number };
-  /** Seed 42, no commands, 200 ticks: what `?seed=42&haltAt=200` must report in the browser worker. */
+  /**
+   * Seed 42, no commands, 200 ticks, opened on the default Disasters setting (Rare, which the app's Hello carries): what
+   * `?seed=42&haltAt=200` must report in the browser worker.
+   */
   idle: { ticks: number; hash: number };
   /** A completed 4x4 block street grid on flat land (traffic/testkit.ts gridCity) with traffic running: the scripted city builds no completed buildings in 2000 ticks, so this is the golden that covers vehicles. */
   traffic: { ticks: number; hash: number };
@@ -20,7 +26,7 @@ interface Golden {
 function compute(): Golden {
   const sim = createSim(42);
   runScripted(sim, scriptedCity(sim.world), 2000);
-  const idle = createSim(42);
+  const idle = createSim(42, { disasters: DEFAULT_DISASTERS });
   runTicks(idle, 200);
   const town = trafficTown();
   return {

@@ -4,13 +4,19 @@ import type { PlatformDb } from './db.ts';
 export type TierOverride = 'auto' | Tier;
 export const TIER_OVERRIDES: readonly TierOverride[] = ['auto', ...TIERS];
 
+/** How often random disasters strike. The index is the sim's mode (see DMODE in sim/disasters/tables.ts), sent as the setDisasters command. */
+export type DisastersSetting = 'off' | 'rare' | 'normal';
+export const DISASTER_MODES: readonly DisastersSetting[] = ['off', 'rare', 'normal'];
+export const isDisastersSetting = (v: unknown): v is DisastersSetting => DISASTER_MODES.includes(v as DisastersSetting);
+export const disasterModeOf = (s: DisastersSetting): number => DISASTER_MODES.indexOf(s);
+
 export interface Settings {
   tier: TierOverride;
   graphics: { shadows: boolean; bloom: boolean; resolutionScale: number };
   audio: { muted: boolean; volume: number };
   /** Per-bus levels under the master `audio.volume`; `musicOn` mutes music alone. */
   soundMix: { music: number; ambience: number; sfx: number; musicOn: boolean };
-  disasters: boolean;
+  disasters: DisastersSetting;
   /** Starter checklist and first-use tool hints: dismissed, collapsed to a chip, and the hint ids already shown. */
   onboarding: { dismissed: boolean; collapsed: boolean; hintsSeen: string[] };
   /** Performance panel: null follows the device (shown on desktop, hidden on a phone). */
@@ -26,7 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   graphics: { shadows: true, bloom: true, resolutionScale: 1 },
   audio: { muted: false, volume: 0.7 },
   soundMix: { music: 0.6, ambience: 0.8, sfx: 0.9, musicOn: true },
-  disasters: true,
+  disasters: 'rare',
   onboarding: { dismissed: false, collapsed: false, hintsSeen: [] },
   showPerf: null,
   autoTier: null,
@@ -55,7 +61,8 @@ function sanitize(raw: Record<string, unknown>): Settings {
     graphics: { shadows: bool(g.shadows, d.graphics.shadows), bloom: bool(g.bloom, d.graphics.bloom), resolutionScale: num(g.resolutionScale, d.graphics.resolutionScale, 0.25, 2) },
     audio: { muted: bool(a.muted, d.audio.muted), volume: num(a.volume, d.audio.volume, 0, 1) },
     soundMix: { music: num(m.music, d.soundMix.music, 0, 1), ambience: num(m.ambience, d.soundMix.ambience, 0, 1), sfx: num(m.sfx, d.soundMix.sfx, 0, 1), musicOn: bool(m.musicOn, d.soundMix.musicOn) },
-    disasters: bool(raw.disasters, d.disasters),
+    // Before the Off / Rare / Normal choice the setting was a boolean: on becomes Normal, off stays Off.
+    disasters: isDisastersSetting(raw.disasters) ? raw.disasters : raw.disasters === true ? 'normal' : raw.disasters === false ? 'off' : d.disasters,
   };
 }
 

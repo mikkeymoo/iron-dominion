@@ -104,6 +104,21 @@ describe('settings and tier migration', () => {
     expect((await loadSettings(db, memoryStorage())).tier).toBe('ultra');
   });
 
+  it('persists the disasters choice, migrates the old boolean, and falls back to Rare on junk', async () => {
+    const db = await fresh();
+    expect(DEFAULT_SETTINGS.disasters).toBe('rare');
+    expect(await saveSetting(db, undefined, 'disasters', 'off')).toBe(true);
+    expect((await loadSettings(db, undefined)).disasters).toBe('off');
+    await db.setSetting('disasters', 'normal');
+    expect((await loadSettings(db, undefined)).disasters).toBe('normal');
+    await db.setSetting('disasters', true);
+    expect((await loadSettings(db, undefined)).disasters).toBe('normal');
+    await db.setSetting('disasters', false);
+    expect((await loadSettings(db, undefined)).disasters).toBe('off');
+    await db.setSetting('disasters', 'catastrophic');
+    expect((await loadSettings(db, undefined)).disasters).toBe('rare');
+  });
+
   it('sanitizes out-of-range stored values and works with no database', async () => {
     const db = await fresh();
     await db.setSetting('audio', { muted: 'x', volume: 9 });

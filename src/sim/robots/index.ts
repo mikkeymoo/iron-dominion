@@ -8,12 +8,12 @@ import {
   AKIND, DISPATCH_PERIOD, GROWTH_PERIOD, ROBOT_UPKEEP, SPAWN_PERIOD, UPKEEP_PERIOD,
 } from './constants.ts';
 import { growthDirector, materialSystem, sanitizeJobs, settleJobs } from './jobs.ts';
-import { SPEND, countAgents } from './pool.ts';
+import { SPEND, countAgents, disasterOwned } from './pool.ts';
 
 export * from './constants.ts';
 export * from './pool.ts';
 export { startTrip, stepAgent, pathOf } from './move.ts';
-export { dispatch, spawnPass, updateAgent, depotAccess } from './agents.ts';
+export { dispatch, spawnPass, updateAgent, depotAccess, goHome } from './agents.ts';
 export {
   adoptOrphans, canLevelUp, cancelJob, growthDirector, materialSystem, refreshAccess, releaseLot, sanitizeJobs, scanStats, settleJobs, startBuild,
   startDemolish, startLevelUp,
@@ -31,7 +31,7 @@ export function robotsSystem(sim: Sim): void {
   if (tick % SPAWN_PERIOD === 0) spawnPass(sim, net);
   if (tick % DISPATCH_PERIOD === 0) dispatch(sim, net);
   if (tick % GROWTH_PERIOD === 0) growthDirector(sim, countAgents(w).builders);
-  for (let a = 0; a < RMAX; a++) if (w.aKind[a] !== AKIND.NONE) updateAgent(sim, net, a);
+  for (let a = 0; a < RMAX; a++) if (w.aKind[a] !== AKIND.NONE && !disasterOwned(w, a)) updateAgent(sim, net, a);
   settleJobs(sim);
   if (tick % UPKEEP_PERIOD === 0) {
     let n = 0;

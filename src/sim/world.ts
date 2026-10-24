@@ -18,7 +18,13 @@ export type SimEvent =
   | { type: 'megaStage'; tick: number; arch: number; slot: number; stage: number; stages: number; x: number; y: number; w: number; h: number }
   | { type: 'megaComplete'; tick: number; arch: number; slot: number; x: number; y: number; w: number; h: number }
   /** The Space Elevator was completed for the first time. */
-  | { type: 'victory'; tick: number };
+  | { type: 'victory'; tick: number }
+  /**
+   * A disaster began or landed at tile (x, y). Fires report only the ignition of a new blaze (spread is silent), with the burning
+   * building's archetype. A meteor reports twice: 'start' when it is seen coming (it lands at impactTick) and 'impact'. A quake
+   * reports once, 'impact', with its radius.
+   */
+  | { type: 'disaster'; tick: number; kind: 'fire' | 'quake' | 'meteor'; phase: 'start' | 'impact'; x: number; y: number; radius: number; arch: number; impactTick: number };
 
 export interface DirtySets {
   geometry: Set<number>;

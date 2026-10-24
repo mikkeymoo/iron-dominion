@@ -115,6 +115,22 @@ describe('buildRoadMesh', () => {
     expect(m.triangleCount).toBeGreaterThan(dry);
   });
 
+  it('adds dark cracks to a quake-damaged tile, in both detail levels, and keeps them inside the tile', () => {
+    const plain = one(1 | ROAD.N | ROAD.S), cracked = one(1 | ROAD.N | ROAD.S | ROAD.DAMAGED);
+    expect(selectRoadTile(1 | ROAD.N | ROAD.S | ROAD.DAMAGED)).toMatchObject({ shape: 'straight', damaged: true });
+    expect(selectRoadTile(1 | ROAD.N | ROAD.S).damaged).toBe(false);
+    for (const detail of [true, false]) {
+      const a = buildRoadMesh(plain, 0, 0, 64, () => detail), b = buildRoadMesh(cracked, 0, 0, 64, () => detail);
+      expect(b.triangleCount, detail ? 'full detail' : 'simple').toBeGreaterThan(a.triangleCount + 4);
+      for (let v = 0; v < b.vertexCount; v++) {
+        expect(b.positions[v * 3]!).toBeGreaterThanOrEqual(39.99); expect(b.positions[v * 3]!).toBeLessThanOrEqual(41.01);
+        expect(Number.isFinite(b.positions[v * 3 + 1]!)).toBe(true);
+      }
+    }
+    const again = buildRoadMesh(cracked, 0, 0, 64), once = buildRoadMesh(cracked, 0, 0, 64);
+    expect(Array.from(again.positions)).toEqual(Array.from(once.positions));
+  });
+
   it('switches to 32-bit indices when a region needs more than 65535 vertices', () => {
     const dense = layers((x, y) => (x < 64 && y < 64 ? { r: 1 | ROAD.N | ROAD.E | ROAD.S | ROAD.W } : {}));
     const m = buildRoadMesh(dense, 0, 0, 64);

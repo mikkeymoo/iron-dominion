@@ -1,9 +1,9 @@
-import { AMAX, MAP, PATH_CAP, RMAX, S, TILES, type World } from '../layers.ts';
+import { AMAX, MAP, PATH_CAP, RMAX, ROAD, S, TILES, type World } from '../layers.ts';
 import { liveSlot } from '../robots/pool.ts';
 import { neighbor } from '../roads/graph.ts';
 import { findPath, pathTiles, type RoadNet } from '../roads/index.ts';
 import {
-  CFAIL_CYCLE, CFAIL_ROWS, FAIL_BUMP, FAIL_RADIUS, FREE_Q, GRIDLOCK_TICKS, LANES, LANE_SLOTS, LENGTH_Q, MAX_LOAD, POS_MASK, POS_ONE, POS_SHIFT,
+  CFAIL_CYCLE, CFAIL_ROWS, DAMAGED_SPEED_Q, FAIL_BUMP, FAIL_RADIUS, FREE_Q, GRIDLOCK_TICKS, LANES, LANE_SLOTS, LENGTH_Q, MAX_LOAD, POS_MASK, POS_ONE, POS_SHIFT,
   PURPOSE, REPLAN_BUDGET, SPEED_Q, TRIP_PER_TILE, TRIP_SLACK, VKIND, VST, slotStart,
 } from './constants.ts';
 import { dirOfStep, poseAlong, type Pose } from './pose.ts';
@@ -241,7 +241,8 @@ export function updateVehicles(net: RoadNet, w: World, out: TickFlow): void {
     let fSeg = s, fCell = cell, fLane = lane < laneCount[cls]! ? lane : laneCount[cls]! - 1;
     const load = tLoad[cell]!;
     const free = freeQ[kind * 8 + cls]!;
-    const adv = speedQ[(kind * 8 + cls) * LOADS + (load >= LOADS ? LOADS - 1 : load)]!;
+    let adv = speedQ[(kind * 8 + cls) * LOADS + (load >= LOADS ? LOADS - 1 : load)]!;
+    if ((road[tile]! & ROAD.DAMAGED) !== 0) adv = Math.max(1, (adv * DAMAGED_SPEED_Q) >> 10);
     const end = (L - 1) << SHIFT;
     let target = p + adv, arrive = false;
     if (target >= end) { target = end; arrive = true; }

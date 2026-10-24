@@ -130,7 +130,7 @@ describe('orphan sites', () => {
     expect(sim.world.bProg[slot]).toBe(255);
   });
 
-  it('is on protocol version 7 (U7 raised it to 3, utilities to 4, traffic to 5, services to 6, milestones to 7)', () => { expect(PROTOCOL_VERSION).toBe(7); });
+  it('is on protocol version 7 (U7 raised it to 3, utilities to 4, traffic to 5, services to 6, milestones to 7, disasters to 8)', () => { expect(PROTOCOL_VERSION).toBe(8); });
 });
 
 describe('the robot budget', () => {

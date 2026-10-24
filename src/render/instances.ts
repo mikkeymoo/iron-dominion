@@ -9,6 +9,7 @@ import { generate, variantOf, type KitModel } from './kit/generate.ts';
 import { hash32 } from './kit/geo.ts';
 import { InstancePacker, MATRIX_STRIDE } from './instancePacker.ts';
 import type { RenderMirror } from './mirror.ts';
+import type { BuildingRec } from '../sim/protocol.ts';
 
 export interface FineSet {
   has(chunk: number): boolean;
@@ -29,7 +30,7 @@ export interface InstanceDeps {
 export interface InstanceStats { near: number; far: number; sites: number; cranes: number }
 
 /** A continuous particle source anchored to a building: stack smoke on finished industry, dust on a building site. */
-export interface EmitterRec { kind: 'smoke' | 'dust' | 'debris'; x: number; y: number; z: number; rate: number }
+export interface EmitterRec { kind: 'smoke' | 'dust' | 'debris' | 'fire' | 'spark'; x: number; y: number; z: number; rate: number }
 
 /** A finished building that lost power and/or water: where its outage icon floats (tile units, above the roof). */
 export interface OutageRec { x: number; y: number; z: number; power: boolean; water: boolean }
@@ -46,6 +47,16 @@ const MEGA_ICON_MAX = 6;
 const SMOKE_RATE = 2.4;
 const DEBRIS_RATE_PER_TILE = 1.1;
 const DUST_RATE_PER_TILE = 1.6;
+const FLAME_RATE = 7;
+const FIRE_SMOKE_RATE = 5;
+const EMBER_RATE = 2.2;
+const RUIN_SMOKE_RATE = 0.7;
+/** How dark a fully damaged building gets: tint is scaled by 1 - CHAR_DARKEN * damage^CHAR_CURVE. */
+const CHAR_DARKEN = 0.8;
+const CHAR_CURVE = 0.7;
+/** iState.w: 0 normal, 1 unpowered, 2 on fire (flickering glow in the building material). */
+const STATE_DARK = 1;
+const STATE_BURNING = 2;
 
 const modelCache = new Map<string, KitModel>();
 export function cachedModel(arch: number, variant: number): KitModel {
@@ -97,6 +108,8 @@ export class BuildingInstances {
   readonly far = new InstancePacker();
   readonly site = new InstancePacker();
   readonly crane = new InstancePacker();
+  /** Ruins of destroyed buildings, drawn instead of the building (shrinking while the robots clear them). */
+  readonly rubble = new InstancePacker();
   /** Particle sources per building slot, rebuilt whenever the slot is written. */
   readonly emitters = new Map<number, EmitterRec[]>();
   /** Buildings currently showing an outage icon, rebuilt whenever the slot is written; `outageVersion` bumps on any change. */
@@ -161,11 +174,25 @@ export class BuildingInstances {
   }
 
   private removeAll(slot: number): void {
-    this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot);
+    this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot); this.rubble.remove(slot);
     for (let i = 0; i < MEGA_CRANES; i++) this.crane.remove(extraCrane(slot, i));
     this.cls.delete(slot);
     this.emitters.delete(slot);
     if (this.outages.delete(slot)) this.outageVersion++;
+  }
+
+  /** A destroyed building: rubble instead of the model. While robots clear it the heap shrinks with the demolition progress. */
+  private writeRuin(slot: number, b: BuildingRec, gy: number, hsh: number, p: number, mat: Float32Array): void {
+    const cx = b.x + b.w / 2, cz = b.y + b.h / 2;
+    const clearing = (b.flags & BFLAG.DEMOLISHING) !== 0;
+    composeMatrix(mat, cx, gy, cz, ((hsh >>> 20) & 3) * (Math.PI / 2), 1, clearing ? Math.max(0.06, p) : 1, 1);
+    this.rubble.set(slot, `${Math.max(b.w, b.h)}:${(hsh >>> 4) & 3}`, { matrix: mat, tint: [1, 1, 1], state: [1, 0, 0, 0] });
+    this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot);
+    if (this.outages.delete(slot)) this.outageVersion++;
+    const area = Math.max(1, b.w * b.h);
+    this.emitters.set(slot, [clearing
+      ? { kind: 'dust', x: cx, y: gy + 0.05, z: cz, rate: DUST_RATE_PER_TILE * area * 0.6 }
+      : { kind: 'smoke', x: cx, y: gy + 0.12, z: cz, rate: RUIN_SMOKE_RATE }]);
   }
 
   private write(slot: number): void {
@@ -198,7 +225,21 @@ export class BuildingInstances {
     this.cls.set(slot, near ? 0 : 1);
     const mat = new Float32Array(MATRIX_STRIDE);
 
+    if ((b.flags & BFLAG.RUBBLE) !== 0) { this.writeRuin(slot, b, gy, hsh, p, mat); return; }
+    this.rubble.remove(slot);
+    const burning = p >= 1 && (b.flags & BFLAG.BURNING) !== 0;
+    const char = 1 - CHAR_DARKEN * Math.pow(Math.min(1, b.dmg / 255), CHAR_CURVE);
+
     const recs: EmitterRec[] = [];
+    if (burning) {
+      const area = Math.max(1, b.w * b.h), live = 1 - 0.5 * (1 - char) / CHAR_DARKEN;
+      for (let i = 0; i < 3; i++) {
+        const ox = (((hsh >>> (3 * i)) & 7) / 7 - 0.5) * 0.6 * b.w, oz = (((hsh >>> (3 * i + 9)) & 7) / 7 - 0.5) * 0.6 * b.h;
+        recs.push({ kind: 'fire', x: cx + ox, y: gy + model.height * (0.3 + 0.14 * i), z: cz + oz, rate: FLAME_RATE * Math.sqrt(area) * live });
+      }
+      recs.push({ kind: 'smoke', x: cx, y: gy + model.height * 0.85, z: cz, rate: FIRE_SMOKE_RATE + 2 * area });
+      recs.push({ kind: 'spark', x: cx, y: gy + model.height * 0.7, z: cz, rate: EMBER_RATE });
+    }
     if (p >= 1) {
       const c = Math.cos(rot), s = Math.sin(rot);
       for (const [lx, ly, lz] of model.smoke) recs.push({ kind: 'smoke', x: cx + c * lx + s * lz, y: gy + ly, z: cz - s * lx + c * lz, rate: SMOKE_RATE });
@@ -221,14 +262,15 @@ export class BuildingInstances {
 
     if (near) {
       composeMatrix(mat, cx, gy, cz, rot);
-      this.near.set(slot, `${b.arch}:${variant}`, { matrix: mat, tint: [v, v, v], state: [p, lit, model.height, dark ? 1 : 0] });
+      const vc = v * char;
+      this.near.set(slot, `${b.arch}:${variant}`, { matrix: mat, tint: [vc, vc, vc], state: [p, lit, model.height, burning ? STATE_BURNING : dark ? STATE_DARK : 0] });
       this.far.remove(slot);
     } else {
       const hh = Math.max(0.12, model.bodyHeight * Math.max(0.05, p >= 1 ? 1 : builtFraction(p)));
       const s = model.footprint * 0.9;
       composeMatrix(mat, cx, gy, cz, rot, s, hh, s);
       const w = model.wallColor, r = model.roofColor;
-      this.far.set(slot, 'far', { matrix: mat, tint: [w[0] * v, w[1] * v, w[2] * v], state: [r[0], r[1], r[2], 0] });
+      this.far.set(slot, 'far', { matrix: mat, tint: [w[0] * v * char, w[1] * v * char, w[2] * v * char], state: [r[0] * char, r[1] * char, r[2] * char, 0] });
       this.near.remove(slot);
     }
 

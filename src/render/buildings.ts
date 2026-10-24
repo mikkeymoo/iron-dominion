@@ -14,7 +14,7 @@ import { InstancePacker, type Batch } from './instancePacker.ts';
 import { BuildingInstances, cachedModel, type EmitterRec, type OutageRec } from './instances.ts';
 import { boxGeometry, createAtlasTexture, createBuildingMaterial, createFarMaterial, createSiteMaterial } from './buildingMaterial.ts';
 import { mergeParts } from './kit/generate.ts';
-import { generateCrane, generateSite } from './kit/site.ts';
+import { generateCrane, generateRubble, generateSite } from './kit/site.ts';
 import type { PartData } from './kit/geo.ts';
 import type { RenderMirror } from './mirror.ts';
 import type { TerrainView } from './terrain.ts';
@@ -129,6 +129,7 @@ export class BuildingsView {
   private readonly farSet: BatchSet;
   private readonly siteSet: BatchSet;
   private readonly craneSet: BatchSet;
+  private readonly rubbleSet: BatchSet;
   private variants = TIER_TABLE.low.variants;
   private pending = 0;
 
@@ -157,19 +158,24 @@ export class BuildingsView {
     // Scaffolds and cranes only receive shadows: as casters they were half of every cascade's draw calls for thin geometry.
     this.siteSet = new BatchSet(this.group, this.data.site, this.siteMat, site, false, 'site');
     this.craneSet = new BatchSet(this.group, this.data.crane, this.siteMat, () => fromPart(generateCrane().part), false, 'crane');
+    // Rubble uses the site material: it has no scaffold parts, so nothing is clipped.
+    this.rubbleSet = new BatchSet(this.group, this.data.rubble, this.siteMat, (key) => {
+      const [w, variant] = key.split(':').map(Number) as [number, number];
+      return fromPart(generateRubble(w, variant).part);
+    }, false, 'rubble');
   }
 
   setTier(tier: Tier): void {
     const spec = TIER_TABLE[tier];
     this.variants = spec.variants;
     const on = spec.shadows !== 'blob';
-    for (const s of [this.nearSet, this.farSet, this.siteSet, this.craneSet]) s.setShadows(on);
+    for (const s of [this.nearSet, this.farSet, this.siteSet, this.craneSet, this.rubbleSet]) s.setShadows(on);
   }
 
   /** Drain dirty building slots into instance buffers and upload the batches that changed. */
   update(budgetMs = 6): void {
     this.pending = this.data.sync(budgetMs);
-    this.nearSet.sync(); this.farSet.sync(); this.siteSet.sync(); this.craneSet.sync();
+    this.nearSet.sync(); this.farSet.sync(); this.siteSet.sync(); this.craneSet.sync(); this.rubbleSet.sync();
   }
 
   /** Continuous particle sources (stack smoke, site dust), keyed by building slot. */
@@ -183,12 +189,13 @@ export class BuildingsView {
     const s = this.data.stats;
     return {
       instances: s.near, farInstances: s.far, sites: s.sites, cranes: s.cranes,
-      drawCalls: this.nearSet.drawCalls + this.farSet.drawCalls + this.siteSet.drawCalls + this.craneSet.drawCalls, pending: this.pending,
+      drawCalls: this.nearSet.drawCalls + this.farSet.drawCalls + this.siteSet.drawCalls + this.craneSet.drawCalls + this.rubbleSet.drawCalls,
+      pending: this.pending,
     };
   }
 
   dispose(): void {
-    for (const s of [this.nearSet, this.farSet, this.siteSet, this.craneSet]) s.dispose();
+    for (const s of [this.nearSet, this.farSet, this.siteSet, this.craneSet, this.rubbleSet]) s.dispose();
     this.nearMat.dispose(); this.farMat.dispose(); this.siteMat.dispose(); this.atlas.dispose();
   }
 }

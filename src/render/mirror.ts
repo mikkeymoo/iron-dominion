@@ -6,6 +6,8 @@ import type { SimEvent } from '../sim/world.ts';
 const renderInfos = REGISTRY.filter((l) => l.render);
 
 export type CelebrationEvent = Extract<SimEvent, { type: 'milestone' | 'megaStage' | 'megaComplete' | 'victory' }>;
+/** A disaster event from the sim, queued for the effects (meteor streak, shockwave, quake shake). */
+export type DisasterEvent = Extract<SimEvent, { type: 'disaster' }>;
 
 /**
  * Main-thread copy of the render-relevant sim state. The renderer, picking and ghost preview read only this;
@@ -23,6 +25,7 @@ export class RenderMirror {
   roadVersion = 0;
   private lightning: { x: number; y: number; tick: number }[] = [];
   private celebrations: CelebrationEvent[] = [];
+  private disasters: DisasterEvent[] = [];
   private terrainDirty = new Set<number>();
   private dirtyGeometry = new Set<number>();
   private dirtyOverlay = new Set<number>();
@@ -35,7 +38,7 @@ export class RenderMirror {
     this.table = {
       bArch: L.bArch as Uint8Array, bX: L.bX as Uint16Array, bY: L.bY as Uint16Array, bW: L.bW as Uint8Array,
       bH: L.bH as Uint8Array, bRot: L.bRot as Uint8Array, bLevel: L.bLevel as Uint8Array,
-      bProg: L.bProg as Uint8Array, bFlags: L.bFlags as Uint8Array,
+      bProg: L.bProg as Uint8Array, bFlags: L.bFlags as Uint8Array, bDmg: L.bDmg as Uint8Array,
     };
   }
 
@@ -87,10 +90,12 @@ export class RenderMirror {
         for (const e of m.events) {
           if (e.type === 'lightning') this.lightning.push({ x: e.x, y: e.y, tick: e.tick });
           else if (e.type === 'milestone' || e.type === 'megaStage' || e.type === 'megaComplete' || e.type === 'victory') this.celebrations.push(e);
+          else if (e.type === 'disaster') this.disasters.push(e);
         }
         if (this.celebrations.length > 32) this.celebrations.splice(0, this.celebrations.length - 32);
         if (this.lightning.length > 16) this.lightning.splice(0, this.lightning.length - 16);
-        return this.lightning.length > 0;
+        if (this.disasters.length > 16) this.disasters.splice(0, this.disasters.length - 16);
+        return this.lightning.length > 0 || this.disasters.length > 0;
       default:
         return false;
     }
@@ -110,6 +115,13 @@ export class RenderMirror {
   takeLightning(): { x: number; y: number; tick: number }[] {
     const r = this.lightning;
     this.lightning = [];
+    return r;
+  }
+
+  /** Disaster events received since the last call, oldest first. */
+  takeDisasters(): DisasterEvent[] {
+    const r = this.disasters;
+    this.disasters = [];
     return r;
   }
 

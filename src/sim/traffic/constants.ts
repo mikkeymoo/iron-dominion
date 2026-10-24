@@ -2,13 +2,13 @@
 // the golden hash never depend on float rounding; speeds are tables built once from the numbers below.
 import { DAY_TICKS } from '../layers.ts';
 
-/** Vehicle kinds share the agent pool with the robots (AKIND 1, 2); BUS has no spawner yet and is the hook for bus lines. */
+/** Vehicle kinds share the agent pool with the robots (AKIND 1, 2, and 7 for firefighters); BUS has no spawner yet and is the hook for bus lines. */
 export const VKIND = { CAR: 3, TAXI: 4, TRUCK: 5, BUS: 6 } as const;
 /** Vehicle states (aState). SLOW is a vehicle crawling or stopped behind another: the renderer lights its brake lights. */
 export const VST = { DRIVE: 10, SLOW: 11 } as const;
 /** Why a vehicle is out. The first two are commutes: failing one feeds the economy (see commutePenalty). */
 export const PURPOSE = { OUT: 0, BACK: 1, SHOP: 2, FREIGHT: 3 } as const;
-export const isVehicleKind = (k: number): boolean => k >= VKIND.CAR;
+export const isVehicleKind = (k: number): boolean => k >= VKIND.CAR && k <= VKIND.BUS;
 
 // ---- Lanes ----
 /** A road tile-direction is cut into LANE_SLOTS slots per lane; a vehicle owns every slot its body overlaps, so two never share one. */
@@ -42,6 +42,9 @@ export function speedFactor(load: number, cls: number): number {
   const r = Math.min(1, load / cap), r2 = r * r;
   return 1 / (1 + CONGESTION_K * r2 * r2);
 }
+
+/** A vehicle keeps this share (out of 1024, so 0.4) of its advance on a cracked road tile (ROAD.DAMAGED), like the robots (DAMAGED_ROAD_SPEED). */
+export const DAMAGED_SPEED_Q = 410;
 
 const KINDS = 7;
 /** Advance (1/1024 tile per tick) at free flow, [kind][class]. */

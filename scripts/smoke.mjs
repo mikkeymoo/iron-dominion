@@ -914,6 +914,7 @@ async function workforceChecks(open, phone) {
     await setSpeedUi(page, '1x');
     const sparks = await page.evaluate(() => window.__iron.render.robots.sparks);
     add('welding sparks were emitted at active sites', sparks > 0 ? null : `sparks ${sparks}`);
+    out.push(...await disasterChecks(page, site));
   }
   await page.close();
   return out;
@@ -1219,6 +1220,52 @@ async function hudChecks(open, vp) {
   return out;
 }
 // ---- end U14a block ----
+
+// ---- U12 disasters (runs on the finished U7 city, desktop only) ----
+// The sandbox menu path (tools.disaster) goes through the same triggerDisaster command the HUD button sends.
+async function disasterChecks(page, site) {
+  const out = [];
+  const add = (name, problem) => out.push([`disasters: ${name}`, problem]);
+  const cx = site.x + 6, cy = site.y + 7;
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const sel = page.locator('[data-testid="disasters-setting"]');
+  const was = await sel.inputValue().catch(() => '');
+  await sel.selectOption('normal');
+  const now = await sel.inputValue().catch(() => '');
+  add('the Settings menu has a Disasters choice (Off / Rare / Normal), Rare by default', was === 'rare' && now === 'normal' ? null : `was ${was}, now ${now}`);
+  await sel.selectOption('off');
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Trigger disaster...' }).click();
+  const hasTriggers = (await page.locator('[data-testid="trigger-fire"], [data-testid="trigger-quake"], [data-testid="trigger-meteor"]').count()) === 3;
+  add('the menu offers Fire, Earthquake and Meteor in the sandbox', hasTriggers ? null : 'trigger buttons missing');
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  await page.evaluate(({ x, y }) => window.__iron.tools.disaster('quake', x, y), { x: cx, y: cy });
+  const shook = await until(page, () => window.__iron.render.fx.disasters.quakes >= 1, null, 20000);
+  add('a sandbox earthquake reaches the renderer (camera shake effect) even with disasters set to Off', shook ? null : JSON.stringify(await page.evaluate(() => window.__iron.render.fx.disasters)));
+  const quakeToast = await until(page, () => window.__iron.tools.toasts.includes('Earthquake!'), null, 10000);
+  add('an "Earthquake!" toast appears', quakeToast ? null : JSON.stringify(await page.evaluate(() => window.__iron.tools.toasts)));
+  const jumpBtn = page.locator('[data-testid="toast-jump"]').first();
+  const toastWithJump = await jumpBtn.waitFor({ timeout: 5000 }).then(() => true, () => false);
+  add('the toast has a "Jump to" button', toastWithJump ? null : 'no toast-jump button');
+  if (toastWithJump) {
+    await page.evaluate(() => window.__iron.render.resetCamera({ x: 5, z: 5, dist: 120 }));
+    await jumpBtn.click();
+    const cam = await camOf(page);
+    add('Jump to flies the camera to the disaster', Math.hypot(cam.x - (cx + 0.5), cam.z - (cy + 0.5)) < 14 && cam.dist < 60 ? null : JSON.stringify(cam));
+  }
+
+  const before = await page.evaluate(({ x, y }) => window.__iron.tools.peek('height', x, y), { x: cx, y: cy });
+  await page.evaluate(({ x, y }) => window.__iron.tools.disaster('meteor', x, y), { x: cx, y: cy });
+  const landed = await until(page, () => window.__iron.render.fx.disasters.impacts >= 1, null, 30000);
+  add('a meteor lands: streak, impact flash and shockwave are handled by the renderer', landed ? null : JSON.stringify(await page.evaluate(() => window.__iron.render.fx.disasters)));
+  const crater = await until(page, ({ x, y, h }) => window.__iron.tools.peek('height', x, y) < h - 8, { x: cx, y: cy, h: before }, 10000);
+  add('the impact lowers the terrain at the crater centre in the render mirror', crater ? null : `height ${before} -> ${await page.evaluate(({ x, y }) => window.__iron.tools.peek('height', x, y), { x: cx, y: cy })}`);
+  return out;
+}
+// ---- end U12 block ----
 
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true, fx: true, rain: true }, { backend: 'webgpu', showcaseTier: 'high', fx: true }],

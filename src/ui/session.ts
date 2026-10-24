@@ -33,6 +33,8 @@ export interface SessionOptions {
   haltAt?: number;
   /** Enables debug-only sim commands (debugGrow, debugLevel); set by ?debug=1 or ?showcase=1. */
   debug?: boolean;
+  /** The Disasters setting the city opens with (0 off, 1 rare, 2 normal). */
+  disasters?: number;
   getDb(): PlatformDb | undefined;
   onState(state: ClientState): void;
   onStats(s: Stats): void;
@@ -47,6 +49,7 @@ export function openSession(o: SessionOptions): Session {
   const client: SimClient = createSimClient(w, {
     seed: o.seed,
     debug: o.debug,
+    disasters: o.disasters,
     haltAt: o.haltAt,
     hashEvery: HASH_EVERY,
     buildHash: BUILD_HASH,
