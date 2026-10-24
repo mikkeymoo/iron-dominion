@@ -4,6 +4,7 @@ import { TERRAIN } from '../sim/layers.ts';
 import { allocWorld } from '../sim/world.ts';
 import type { ToolWorld } from '../render/tools/controller.ts';
 import { ViewState } from '../render/viewState.ts';
+import { gesture } from '../test/pointer';
 import { Tools, groupOf } from './Tools';
 import { ToolsRuntime } from './toolsStore.ts';
 
@@ -173,9 +174,55 @@ describe('collapsible tool bar', () => {
   it('closes the Views popover on Escape and on a swipe down, through the shared panel state', () => {
     const onPanel = vi.fn();
     mount('phone', [], true, { panel: 'views', onPanel });
-    fireEvent.pointerDown(screen.getByTestId('views-pop'), { clientX: 100, clientY: 100 });
-    fireEvent.pointerUp(screen.getByTestId('views-pop'), { clientX: 104, clientY: 220 });
+    const head = screen.getByTestId('views-pop').querySelector('.pnl-head')!;
+    gesture(head, { x: 100, y: 100 }, { x: 104, y: 220 });
     expect(onPanel).toHaveBeenCalledWith(null);
+    onPanel.mockClear();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onPanel).toHaveBeenCalledWith(null);
+  });
+});
+
+describe('one-handed layout and focus mode', () => {
+  it('mirrors the dock order and the button side for a left-handed player', () => {
+    mount('phone', [], true, { handedness: 'left' });
+    expect(barNames()).toEqual(['Views', 'Undo', 'Terraform', 'Utilities', 'Services', 'Zone', 'Road', 'Bulldoze']);
+    expect(document.querySelector('.toolsheet')!.getAttribute('data-hand')).toBe('left');
+  });
+
+  it('puts the build button cluster on the thumb side', () => {
+    mount('phone', [], false, { handedness: 'left' });
+    expect(document.querySelector('.fab-cluster')!.getAttribute('data-hand')).toBe('left');
+  });
+
+  it('folds the dock into the build button on a desktop in focus mode, and the small button leaves focus mode', () => {
+    const onFocus = vi.fn();
+    mount('desktop', [], true, { focus: true, onFocus });
+    expect(screen.queryByTestId('toolbar')).toBeNull();
+    expect(screen.getByTestId('build-fab')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('focus-exit'));
+    expect(onFocus).toHaveBeenCalledWith(false);
+  });
+
+  it('shows no focus-exit button outside focus mode', () => {
+    mount('phone', [], false);
+    expect(screen.queryByTestId('focus-exit')).toBeNull();
+  });
+
+  it('folds the dock on a tap or swipe down on its header, and a swipe up on the button opens it', () => {
+    mount('phone');
+    gesture(screen.getByTestId('dock-head'), { x: 100, y: 100 }, { x: 100, y: 180 });
+    expect(screen.queryByTestId('toolbar')).toBeNull();
+    gesture(screen.getByTestId('build-fab'), { x: 300, y: 700 }, { x: 302, y: 620 }, 2);
+    expect(screen.getByTestId('toolbar')).toBeTruthy();
+  });
+
+  it('gives the tool options strip a header that collapses it to a tab', () => {
+    mount('phone');
+    fireEvent.click(screen.getByTestId('tool-zone'));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Tool options' }));
+    expect(screen.getByRole('button', { name: 'Expand Tool options' }).getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('optstrip').closest('[hidden]')).not.toBeNull();
   });
 });
 

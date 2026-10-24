@@ -5,14 +5,15 @@ import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import { InstallMenuItem } from './PwaUi';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
-import { DEFAULT_SETTINGS, DISASTER_MODES, TIER_OVERRIDES, type DisastersSetting, type Settings, type TierOverride } from '../platform/settings.ts';
+import { DEFAULT_SETTINGS, DISASTER_MODES, HANDEDNESS, TIER_OVERRIDES, type DisastersSetting, type Handedness, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { SandboxDisaster } from './toolsStore.ts';
 import type { FailReason } from '../platform/db.ts';
 import { isEditableTarget } from '../render/editable.ts';
 import { SoundSettings, SpeakerToggle } from '../audio/ui.tsx';
 import { IconChevron, IconMenu, IconPause, IconPlay, IconRobot } from './icons';
 import { nextSpeed, speedLabel, topBarControls, useLayout, type Layout, type TopControl } from './layout';
-import { PANEL_ATTR, useSwipeDown, usePresence, type PanelId } from './panels';
+import { Panel, useHeaderGestures } from './Panel';
+import { PANEL_ATTR, usePresence, type PanelId } from './panels';
 import { NO_FACTS, type CityFacts } from './progress';
 
 export const SPEEDS: { speed: Speed; label: string; key: string }[] = [
@@ -152,11 +153,13 @@ export function Hud({
     if (onTopOpen) onTopOpen(open); else setLocalTop(open);
     if (!open && (openPanel === 'menu' || openPanel === 'status')) setOpenPanel(null);
   };
-  const menu = openPanel === 'menu';
-  const status = openPanel === 'status';
+  const focus = settings.focus;
+  const menu = openPanel === 'menu' && !focus;
+  const status = openPanel === 'status' && !focus;
   const menuPresence = usePresence(menu);
   const statusPresence = usePresence(phone && status);
   const extraPresence = usePresence(phone && topOpen);
+  const readoutGestures = useHeaderGestures((g) => setTopOpen(g === 'tap' ? !topOpen : g === 'swipeUp'));
   const [mode, setMode] = useState<'main' | 'saveAs' | 'settings' | 'sandbox'>('main');
   const [name, setName] = useState('');
   const [quitName, setQuitName] = useState('');
@@ -186,7 +189,6 @@ export function Hud({
 
   useEffect(() => { if (!menu) setMode('main'); }, [menu]);
   const closeMenu = (): void => setOpenPanel(null);
-  const swipeMenu = useSwipeDown(closeMenu);
   const bar = topBarControls(layout, topOpen);
   const has = (c: TopControl): boolean => bar.includes(c);
   const paused = lc.speed === 0;
@@ -209,6 +211,7 @@ export function Hud({
 
   return (
     <>
+      {!focus && (
       <div className="topbar" data-layout={layout} data-open={topOpen} {...{ [PANEL_ATTR]: 'top' }} data-testid="topbar" role="toolbar" aria-label="Game controls">
         {has('playPause') && (
           <button
@@ -230,7 +233,7 @@ export function Hud({
             ))}
           </div>
         )}
-        <div className="readouts" data-testid="readouts">
+        <div className="readouts" data-testid="readouts" {...(phone ? readoutGestures : {})}>
           {has('clock') && <span>Day {stats.day} {clock(stats.dayFrac)}</span>}
           {has('money') && <span className="money" data-testid="money">{usd(stats.treasury)}</span>}
           {has('population') && <span className="pop" data-testid="population">Pop {Math.round(stats.population).toLocaleString('en-US')}</span>}
@@ -240,6 +243,7 @@ export function Hud({
             </span>
           )}
         </div>
+        <div data-slot="advisor" />
         {has('workforce') && <WorkforceReadout w={stats.workforce} depots={facts.depots} />}
         {has('workforce') && <TrafficReadout t={stats.traffic} />}
         {!phone && has('rci') && rciEl}
@@ -269,42 +273,51 @@ export function Hud({
         )}
         <span className="notice" role="status" aria-live="polite" data-testid="notice">{noticeText}</span>
       </div>
+      )}
 
       {phone && statusPresence.mounted && (
-        <div className="menu status-pop" data-state={statusPresence.state} {...{ [PANEL_ATTR]: 'status' }} {...swipeMenu} role="dialog" aria-label="City status" data-testid="status-pop">
+        <Panel id="status" kind="popover" title="City status" className="menu status-pop" dataState={statusPresence.state} panelAttr="status" testId="status-pop" onClose={() => setOpenPanel(null)}>
           <div className="status-line"><span>Day {stats.day} {clock(stats.dayFrac)}</span><span className={stats.lastNet < 0 ? 'net neg' : 'net'} data-testid="monthly-net" title="Net of the last budget month">{stats.lastNet < 0 ? '-' : '+'}${Math.abs(Math.round(stats.lastNet)).toLocaleString('en-US')}/mo</span></div>
           <WorkforceReadout w={stats.workforce} depots={facts.depots} />
           <TrafficReadout t={stats.traffic} />
           <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} modelled={stats.modelled} />
-        </div>
+        </Panel>
       )}
 
       {menuPresence.mounted && (
-        <div className={`menu${phone ? ' menu-phone' : ''}`} data-state={menuPresence.state} {...{ [PANEL_ATTR]: 'menu' }} {...swipeMenu} role="dialog" aria-label="Menu" data-testid="menu">
+        <Panel id="menu" kind="popover" title="Menu" className={`menu${phone ? ' menu-phone' : ''}`} dataState={menuPresence.state} panelAttr="menu" testId="menu" onClose={closeMenu}>
           {mode === 'main' && (
             <>
-              {phone && <button type="button" className="tb row" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" onClick={() => { closeMenu(); onBudget(); }}>Budget</button>}
-              {phone && follow && (
-                <button type="button" className="tb row" aria-pressed={follow.active} onClick={() => { closeMenu(); follow.toggle(); }}>{follow.active ? 'Stop following' : 'Follow a robot'}</button>
-              )}
-              {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
-              <button type="button" className="tb row" data-testid="services-menu" onClick={() => { onServices(); }}>City services</button>
-              {onProjects && <button type="button" className="tb row" data-testid="projects-menu" onClick={() => { onProjects(); }}>Milestones and projects ({TIERS[stats.milestone?.tier ?? 0]!.name})</button>}
-              <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>
-              <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
-              <label className="check">
-                <input type="checkbox" data-testid="perf-toggle" checked={perfOn} onChange={(e) => onPerf?.(e.target.checked)} />
-                Performance panel
-              </label>
-              {phone && (
+              <Panel id="menu-city" kind="section" title="City">
+                {phone && <button type="button" className="tb row" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" onClick={() => { closeMenu(); onBudget(); }}>Budget</button>}
+                {phone && follow && (
+                  <button type="button" className="tb row" aria-pressed={follow.active} onClick={() => { closeMenu(); follow.toggle(); }}>{follow.active ? 'Stop following' : 'Follow a robot'}</button>
+                )}
+                {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
+                <button type="button" className="tb row" data-testid="services-menu" onClick={() => { onServices(); }}>City services</button>
+                {onProjects && <button type="button" className="tb row" data-testid="projects-menu" onClick={() => { onProjects(); }}>Milestones and projects ({TIERS[stats.milestone?.tier ?? 0]!.name})</button>}
+                <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>
+                <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
+              </Panel>
+              <Panel id="menu-display" kind="section" title="Display">
                 <label className="check">
-                  <input type="checkbox" data-testid="autocollapse-toggle" checked={settings.panels.autoCollapse} onChange={(e) => onSetting('panels', { ...settings.panels, autoCollapse: e.target.checked })} />
-                  Auto-collapse the tool bar
+                  <input type="checkbox" data-testid="perf-toggle" checked={perfOn} onChange={(e) => onPerf?.(e.target.checked)} />
+                  Performance panel
                 </label>
-              )}
-              <button type="button" className="tb row" onClick={() => { onSetting('onboarding', { ...DEFAULT_SETTINGS.onboarding }); closeMenu(); }}>Show tips again</button>
-              {photo && <button type="button" className="tb row" data-testid="photo-menu" onClick={() => { closeMenu(); photo.enter(); }}>Photo mode (F2)</button>}
-              {photo && <button type="button" className="tb row" data-testid="tour-menu" onClick={() => { closeMenu(); photo.tour(); }}>City tour</button>}
+                <label className="check">
+                  <input type="checkbox" data-testid="focus-toggle" checked={settings.focus} onChange={(e) => { onSetting('focus', e.target.checked); closeMenu(); }} />
+                  Focus mode (hide the HUD)
+                </label>
+                {phone && (
+                  <label className="check">
+                    <input type="checkbox" data-testid="autocollapse-toggle" checked={settings.panels.autoCollapse} onChange={(e) => onSetting('panels', { ...settings.panels, autoCollapse: e.target.checked })} />
+                    Auto-collapse the tool bar
+                  </label>
+                )}
+                <button type="button" className="tb row" onClick={() => { onSetting('onboarding', { ...DEFAULT_SETTINGS.onboarding }); closeMenu(); }}>Show tips again</button>
+                {photo && <button type="button" className="tb row" data-testid="photo-menu" onClick={() => { closeMenu(); photo.enter(); }}>Photo mode (F2)</button>}
+                {photo && <button type="button" className="tb row" data-testid="tour-menu" onClick={() => { closeMenu(); photo.tour(); }}>City tour</button>}
+              </Panel>
               <button type="button" className="tb row" onClick={() => setMode('settings')}>Settings</button>
               {onTrigger && <button type="button" className="tb row" data-testid="sandbox-menu" onClick={() => setMode('sandbox')}>Trigger disaster...</button>}
               <InstallMenuItem />
@@ -321,20 +334,34 @@ export function Hud({
           )}
           {mode === 'settings' && (
             <div className="settings">
-              <label>Graphics tier
-                <select value={settings.tier} data-testid="tier-select" onChange={(e) => onSetting('tier', e.target.value as TierOverride)}>
-                  {TIER_OVERRIDES.map((t) => <option key={t} value={t}>{t === 'auto' ? `Auto${activeTier ? ` (${activeTier})` : ''}` : t}</option>)}
-                </select>
-              </label>
-              {activeTier && <p className="hint" data-testid="tier-now">Running at {activeTier}{settings.tier === 'auto' ? ' (auto: the game raises or lowers it to keep the frame rate up)' : ' (pinned)'}.</p>}
-              <p className="hint">A pinned tier takes effect the next time a city starts.</p>
-              <label>Disasters
-                <select value={settings.disasters} data-testid="disasters-setting" onChange={(e) => onSetting('disasters', e.target.value as DisastersSetting)}>
-                  {DISASTER_MODES.map((m) => <option key={m} value={m}>{m === 'off' ? 'Off' : m === 'rare' ? 'Rare' : 'Normal'}</option>)}
-                </select>
-              </label>
-              <p className="hint">Fires, storms, quakes and meteors. Off stops new ones; the sandbox menu still works.</p>
-              <SoundSettings settings={settings} onSetting={onSetting} />
+              <Panel id="settings-graphics" kind="section" title="Graphics">
+                <label>Graphics tier
+                  <select value={settings.tier} data-testid="tier-select" onChange={(e) => onSetting('tier', e.target.value as TierOverride)}>
+                    {TIER_OVERRIDES.map((t) => <option key={t} value={t}>{t === 'auto' ? `Auto${activeTier ? ` (${activeTier})` : ''}` : t}</option>)}
+                  </select>
+                </label>
+                {activeTier && <p className="hint" data-testid="tier-now">Running at {activeTier}{settings.tier === 'auto' ? ' (auto: the game raises or lowers it to keep the frame rate up)' : ' (pinned)'}.</p>}
+                <p className="hint">A pinned tier takes effect the next time a city starts.</p>
+              </Panel>
+              <Panel id="settings-gameplay" kind="section" title="Gameplay">
+                <label>Disasters
+                  <select value={settings.disasters} data-testid="disasters-setting" onChange={(e) => onSetting('disasters', e.target.value as DisastersSetting)}>
+                    {DISASTER_MODES.map((m) => <option key={m} value={m}>{m === 'off' ? 'Off' : m === 'rare' ? 'Rare' : 'Normal'}</option>)}
+                  </select>
+                </label>
+                <p className="hint">Fires, storms, quakes and meteors. Off stops new ones; the sandbox menu still works.</p>
+              </Panel>
+              <Panel id="settings-controls" kind="section" title="Controls">
+                <label>Handedness
+                  <select value={settings.handedness} data-testid="handedness-select" onChange={(e) => onSetting('handedness', e.target.value as Handedness)}>
+                    {HANDEDNESS.map((h) => <option key={h} value={h}>{h === 'right' ? 'Right' : 'Left'}</option>)}
+                  </select>
+                </label>
+                <p className="hint">Puts the build button and tool bar on the side of your thumb.</p>
+              </Panel>
+              <Panel id="settings-sound" kind="section" title="Sound">
+                <SoundSettings settings={settings} onSetting={onSetting} />
+              </Panel>
               <button type="button" className="tb row" onClick={() => setMode('main')}>Back</button>
             </div>
           )}
@@ -347,7 +374,7 @@ export function Hud({
               <button type="button" className="tb row" onClick={() => setMode('main')}>Back</button>
             </div>
           )}
-        </div>
+        </Panel>
       )}
 
       {quitPrompt !== null && (

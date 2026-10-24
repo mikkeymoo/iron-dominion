@@ -11,7 +11,7 @@ import { tourCandidates } from './tourSites.ts';
 import { blockGestureZoom, createRenderContext, parseBackend, type RenderContext } from './context.ts';
 import type { RenderDebug } from './debug.ts';
 import { surfaceHeight } from './heightfield.ts';
-import { bindCameraInput } from './input.ts';
+import { bindCameraInput, type RadialHost } from './input.ts';
 import type { RenderMirror } from './mirror.ts';
 import { pickPoint, pickTile } from './picking.ts';
 import { computeViewRect } from './viewrect.ts';
@@ -40,6 +40,8 @@ export interface GameDeps {
   onFatal: (message: string) => void;
   /** Called when the auto governor moves the tier (down or up), so the app can persist the settled tier. */
   onTier?: (tier: Tier) => void;
+  /** The radial build menu a long press or right-click on the map opens. */
+  radial?: RadialHost;
 }
 
 /** Phone-class device: a coarse pointer on a small screen, or any window 600 CSS px wide or less. */
@@ -206,7 +208,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   };
 
   const input = bindCameraInput({
-    element: host, rig, groundAt,
+    element: host, rig, groundAt, radial: deps.radial,
     tool: toolInput ? { ...toolInput, active: () => !photo.active && toolInput.active() } : undefined,
   });
 

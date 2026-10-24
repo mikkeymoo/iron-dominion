@@ -20,8 +20,10 @@ describe('top bar contents', () => {
     expect(TOP_BAR.phone).toEqual(['playPause', 'speedCycle', 'money', 'population', 'rci', 'status', 'menu', 'chevron']);
   });
 
-  it('collapses a phone to pause, speed, money and the chevron, and never collapses a desktop', () => {
-    expect(topBarControls('phone', false)).toEqual(['playPause', 'speedCycle', 'money', 'chevron']);
+  it('collapses a phone to pause, speed, money, population and the chevron, and never collapses a desktop', () => {
+    expect(topBarControls('phone', false)).toEqual(['playPause', 'speedCycle', 'money', 'population', 'chevron']);
+    expect(topBarControls('phone', true, true)).toEqual([]);
+    expect(topBarControls('desktop', false, true)).toEqual([]);
     expect(PHONE_STRIP).toEqual(topBarControls('phone', false));
     expect(topBarControls('phone', true)).toBe(TOP_BAR.phone);
     expect(topBarControls('desktop', false)).toBe(TOP_BAR.desktop);

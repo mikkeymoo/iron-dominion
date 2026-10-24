@@ -4,6 +4,7 @@ import type { Lifecycle } from '../platform/lifecycle.ts';
 import type { PhotoController } from '../render/photo.ts';
 import { ASPECT_IDS, ASPECT_LABELS, EXPOSURE_RANGE, FOV_RANGE, PHOTO_WEATHERS, SATURATION_RANGE, type PhotoSettings } from '../render/photoSettings.ts';
 import { savePhoto } from '../render/photoSave.ts';
+import { Panel } from './Panel';
 import './photo.css';
 
 interface Props {
@@ -25,7 +26,6 @@ type NumKey = { [K in keyof PhotoSettings]: PhotoSettings[K] extends number ? K 
 /** The photo-mode overlay: aspect guide, capture bar and the collapsible look panel. Mounted only while photo mode is on. */
 export function PhotoMode({ photo, lifecycle, passes, touring, onTour }: Props) {
   const [, bump] = useState(0);
-  const [open, setOpen] = useState(true);
   const [status, setStatus] = useState('');
   const saved = useRef<Speed | null>(null);
 
@@ -80,11 +80,9 @@ export function PhotoMode({ photo, lifecycle, passes, touring, onTour }: Props) 
         <div className="photo-bar">
           <button type="button" className="tb shutter" disabled={photo.capturing} onClick={() => void capture()}>Capture</button>
           <button type="button" className="tb" aria-pressed={touring} onClick={onTour}>{touring ? 'Stop tour' : 'Tour'}</button>
-          <button type="button" className="tb" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? 'Hide controls' : 'Controls'}</button>
           <button type="button" className="tb" onClick={() => photo.exit()}>Exit (Esc)</button>
         </div>
-        {open && (
-          <div className="photo-panel">
+        <Panel id="photo" title="Look controls" kind="card" role="group" className="photo-panel" escape="none">
             {slider('Time of day', 'time', 0, 0.999, 0.002, clock)}
             <div className="chips" role="group" aria-label="Weather">
               {PHOTO_WEATHERS.map((w) => (
@@ -116,8 +114,7 @@ export function PhotoMode({ photo, lifecycle, passes, touring, onTour }: Props) 
             <div className="chips">
               <button type="button" className="tb" onClick={() => photo.reset()}>Reset look</button>
             </div>
-          </div>
-        )}
+        </Panel>
       </div>
     </>
   );

@@ -8,8 +8,11 @@ import {
 } from '../render/tools/toolSpec.ts';
 import type { ViewState } from '../render/viewState.ts';
 import { IconBulldoze, IconCancel, IconHammer, IconRoad, IconServices, IconTerraform, IconUndo, IconUtilities, IconViews, IconZone } from './icons';
+import type { Handedness } from '../platform/settings.ts';
+import { mirrorRow } from './handedness';
 import { useLayout, type Layout } from './layout';
-import { AUTO_COLLAPSE_MS, PANEL_ATTR, useIdleTimer, useOutsideDismiss, usePresence, useSwipeDown, type PanelId } from './panels';
+import { Panel, PanelHeader, useHeaderGestures } from './Panel';
+import { AUTO_COLLAPSE_MS, PANEL_ATTR, useIdleTimer, useOutsideDismiss, usePresence, type PanelId } from './panels';
 import { TOOL_HINTS } from './progress';
 import { reasonText, type ToolsRuntime } from './toolsStore.ts';
 import { ViewControls, useUndergroundKey } from './ViewControls';
@@ -54,18 +57,24 @@ interface Props {
   autoCollapse?: boolean;
   /** Flies the camera to a tile: the "Jump to" button on a disaster toast. */
   onJump?(x: number, y: number): void;
+  /** Which thumb the dock and the build button are built around (default right). */
+  handedness?: Handedness;
+  /** Focus mode: the dock folds into the build button on every layout, and a small button next to it leaves focus mode. */
+  focus?: boolean;
+  onFocus?(on: boolean): void;
 }
 
-export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, onPanel, autoCollapse = true, onJump }: Props) {
+export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, onPanel, autoCollapse = true, onJump, handedness = 'right', focus = false, onFocus }: Props) {
   const detected = useLayout();
   const layout = forced ?? detected;
   const [, bump] = useReducer((n: number) => n + 1, 0);
   const phone = layout === 'phone';
+  const floating = phone || focus;
   const [localPanel, setLocalPanel] = useState<PanelId | null>(null);
   const openPanel = panelProp !== undefined ? panelProp : localPanel;
   const setOpenPanel = onPanel ?? setLocalPanel;
   const viewsOpen = openPanel === 'views';
-  const [toolOpen, setToolOpen] = useState(!phone);
+  const [toolOpen, setToolOpen] = useState(!floating);
   const [hint, setHint] = useState<string | null>(null);
   useEffect(() => runtime.subscribe(bump), [runtime]);
   useEffect(() => view.subscribe(bump), [view]);
@@ -89,18 +98,21 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
   const pick = (s: ToolSel): void => c.select(s);
   const group = groupOf(sel);
   const active = sel !== null;
-  const open = !phone || toolOpen;
+  const open = !floating || toolOpen;
   const sheet = usePresence(open);
   const viewsPresence = usePresence(viewsOpen);
-  const swipeViews = useSwipeDown(() => setOpenPanel(null));
 
-  // A tool picked elsewhere (the checklist button) opens the bar; another panel opening folds an idle bar away.
-  useEffect(() => { if (phone && active) setToolOpen(true); }, [phone, active]);
-  useEffect(() => { if (phone && !active && openPanel !== null && openPanel !== 'views') setToolOpen(false); }, [phone, active, openPanel]);
-  useEffect(() => { if (!phone) setToolOpen(true); }, [phone]);
+  // A tool picked elsewhere (the checklist button, the radial menu) opens the bar; another panel opening folds an idle bar away.
+  useEffect(() => { if (floating && active) setToolOpen(true); }, [floating, active]);
+  useEffect(() => { if (floating && !active && openPanel !== null && openPanel !== 'views') setToolOpen(false); }, [floating, active, openPanel]);
+  useEffect(() => { if (!floating) setToolOpen(true); }, [floating]);
+  useEffect(() => { if (focus) setToolOpen(false); }, [focus]);
   const collapse = (): void => { setOpenPanel(null); setToolOpen(false); };
-  useOutsideDismiss(phone && toolOpen && !active, collapse, collapse);
-  const touch = useIdleTimer(phone && toolOpen && !active && autoCollapse, AUTO_COLLAPSE_MS, collapse);
+  const expand = (): void => { setOpenPanel(null); setToolOpen(true); };
+  useOutsideDismiss(floating && toolOpen && !active, collapse, collapse);
+  const touch = useIdleTimer(floating && toolOpen && !active && autoCollapse, AUTO_COLLAPSE_MS, collapse);
+  const fabGestures = useHeaderGestures((g) => { if (g === 'swipeUp') expand(); });
+  const dockGestures = (g: 'tap' | 'swipeDown' | 'swipeUp'): void => { if (g !== 'swipeUp') collapse(); };
 
   useEffect(() => {
     if (!group || !hints || hints.seen.includes(group) || !TOOL_HINTS[group]) return;
@@ -141,22 +153,31 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
         ))}
       </div>
 
-      {phone && !toolOpen && (
-        <button
-          type="button" className="build-fab" {...{ [PANEL_ATTR]: 'fab' }} data-testid="build-fab" aria-label="Build tools" aria-expanded={false} title="Build tools"
-          onClick={() => { setOpenPanel(null); setToolOpen(true); }}
-        ><IconHammer /></button>
+      {floating && !toolOpen && (
+        <div className="fab-cluster" data-hand={handedness} {...{ [PANEL_ATTR]: 'fab' }}>
+          {focus && (
+            <button type="button" className="tb icon focus-exit" data-testid="focus-exit" aria-label="Show the HUD" title="Show the HUD" onClick={() => onFocus?.(false)}><IconViews /></button>
+          )}
+          <button
+            type="button" className="build-fab" {...fabGestures} data-testid="build-fab" aria-label="Build tools" aria-expanded={false} title="Build tools"
+            onClick={expand}
+          ><IconHammer /></button>
+        </div>
       )}
       {sheet.mounted && (
-      <div className="toolsheet" data-layout={layout} data-state={sheet.state} {...{ [PANEL_ATTR]: 'tools' }} onPointerDown={touch}>
+      <div className="toolsheet" data-layout={layout} data-hand={handedness} data-state={sheet.state} {...{ [PANEL_ATTR]: 'tools' }} onPointerDown={touch}>
         {hint && <div className="tool-firsthint" role="status" data-testid="tool-hint">{hint}</div>}
         {viewsPresence.mounted && (
-          <div className="views-pop" data-state={viewsPresence.state} {...swipeViews} role="dialog" aria-label="Views" data-testid="views-pop">
+          <Panel id="views" kind="popover" title="Views" className="views-pop" dataState={viewsPresence.state} testId="views-pop" onClose={() => setOpenPanel(null)}>
             <ViewControls view={view} keys={false} />
-          </div>
+          </Panel>
+        )}
+        {floating && (
+          <PanelHeader title="Build tools" label="Build tools" collapsed={false} testId="dock-head" onGesture={dockGestures} onToggle={collapse} />
         )}
         {sel && (
-          <div className="optstrip" role="group" aria-label="Tool options" data-testid="optstrip">
+          <Panel id="tool-options" kind="card" title="Tool options" role="group" className="strip">
+          <div className="optstrip" role="group" aria-label="Options for the selected tool" data-testid="optstrip">
             <button type="button" className="tb icon cancel" aria-label="Cancel" title="Cancel (Esc)" data-testid="cancel-tool" onClick={() => c.cancel()}><IconCancel /></button>
             {sel.tool === 'road' && ([1, 2, 3] as const).map((cls) => (
               <button key={cls} type="button" className="tb" disabled={tier < ROAD_UNLOCK[cls]!} aria-pressed={sel.cls === cls} title={lockTitle(ROAD_UNLOCK[cls]!)} onClick={() => pick({ tool: 'road', cls })}>
@@ -216,20 +237,23 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
               <span className="tool-hint">{sel.kind === 'power' ? 'Power flows through lines and touching buildings, not roads.' : `Pipes run underground and serve buildings within ${WATER_REACH} tiles.`}</span>
             )}
           </div>
+          </Panel>
         )}
         <div className="toolbar" data-testid="toolbar" role="toolbar" aria-label="Build tools">
-          {CATEGORIES.map((cat) => (
+          {mirrorRow([
+            ...CATEGORIES.map((cat) => (
+              <button
+                key={cat.id} type="button" className="tb tool" aria-pressed={group === cat.id} aria-label={cat.label} data-testid={`tool-${cat.id}`}
+                title={cat.key ? `${cat.label} (${cat.key})` : cat.label}
+                onClick={() => (group === cat.id ? c.cancel() : pick(cat.start))}
+              >{cat.icon()}<span className="tl" aria-hidden="true">{cat.label}</span></button>
+            )),
+            <button key="undo" type="button" className="tb tool" aria-label="Undo" data-testid="tool-undo" disabled={!runtime.canUndo} title="Undo (Ctrl+Z)" onClick={() => runtime.undoLast()}><IconUndo /><span className="tl" aria-hidden="true">Undo</span></button>,
             <button
-              key={cat.id} type="button" className="tb tool" aria-pressed={group === cat.id} aria-label={cat.label} data-testid={`tool-${cat.id}`}
-              title={cat.key ? `${cat.label} (${cat.key})` : cat.label}
-              onClick={() => (group === cat.id ? c.cancel() : pick(cat.start))}
-            >{cat.icon()}<span className="tl" aria-hidden="true">{cat.label}</span></button>
-          ))}
-          <button type="button" className="tb tool" aria-label="Undo" data-testid="tool-undo" disabled={!runtime.canUndo} title="Undo (Ctrl+Z)" onClick={() => runtime.undoLast()}><IconUndo /><span className="tl" aria-hidden="true">Undo</span></button>
-          <button
-            type="button" className="tb tool" aria-label="Views" aria-pressed={viewsOpen} aria-expanded={viewsOpen} aria-haspopup="dialog" data-testid="views-toggle"
-            title="Views: overlays and underground (U)" onClick={() => setOpenPanel(viewsOpen ? null : 'views')}
-          ><IconViews /><span className="tl" aria-hidden="true">Views</span></button>
+              key="views" type="button" className="tb tool" aria-label="Views" aria-pressed={viewsOpen} aria-expanded={viewsOpen} aria-haspopup="dialog" data-testid="views-toggle"
+              title="Views: overlays and underground (U)" onClick={() => setOpenPanel(viewsOpen ? null : 'views')}
+            ><IconViews /><span className="tl" aria-hidden="true">Views</span></button>,
+          ], handedness)}
         </div>
       </div>
       )}

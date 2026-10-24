@@ -1105,13 +1105,13 @@ async function hudChecks(open, vp) {
     // A phone starts folded: a minimal top strip, a single build button and the checklist as a chip.
     const strip = await page.locator('[data-testid="topbar"]').boundingBox();
     add('the top bar starts as a minimal strip <= 56 CSS px tall', strip.height <= 56 ? null : JSON.stringify(strip));
-    add('the collapsed strip holds only pause, speed, money and the chevron', (await page.locator('[data-testid="menu-button"]').count()) === 0 && (await page.locator('[data-testid="population"]').count()) === 0 && (await page.locator('[data-testid="status-chip"]').count()) === 0 && (await visible(page, '[data-testid="topbar-chevron"]')) ? null : 'extra controls in the strip');
+    add('the collapsed strip holds only pause, speed, money, population, the advisor slot and the chevron', (await page.locator('[data-testid="menu-button"]').count()) === 0 && (await visible(page, '[data-testid="population"]')) && (await page.locator('[data-testid="topbar"] [data-slot="advisor"]').count()) === 1 && (await page.locator('[data-testid="status-chip"]').count()) === 0 && (await visible(page, '[data-testid="topbar-chevron"]')) ? null : 'extra controls in the strip');
     add('the bottom shows only the build button', (await visible(page, '[data-testid="build-fab"]')) && (await page.locator('[data-testid="toolbar"]').count()) === 0 ? null : 'tool bar showing');
     const fab = await page.locator('[data-testid="build-fab"]').boundingBox();
     add('the build button is a 44px target in the bottom-right corner', fab.width >= 44 && fab.height >= 44 && fab.x + fab.width > (await page.evaluate(() => window.innerWidth)) * 0.7 ? null : JSON.stringify(fab));
     add('the checklist starts as a chip', (await visible(page, '[data-testid="checklist-chip"]')) && (await page.locator('[data-testid="checklist"]').count()) === 0 ? null : 'card open on load');
     await page.locator('[data-testid="topbar-chevron"]').click();
-    add('the chevron expands the rest of the top bar', await until(page, () => !!document.querySelector('[data-testid="menu-button"]') && !!document.querySelector('[data-testid="population"]'), null, 5000) ? null : 'top bar did not expand');
+    add('the chevron expands the rest of the top bar', await until(page, () => !!document.querySelector('[data-testid="menu-button"]') && !!document.querySelector('[data-testid="status-chip"]'), null, 5000) ? null : 'top bar did not expand');
     await page.locator('[data-testid="build-fab"]').click();
     add('the build button expands the icon row', await until(page, () => !!document.querySelector('[data-testid="toolbar"]') && !document.querySelector('[data-testid="build-fab"]'), null, 5000) ? null : 'tool bar did not open');
   }
@@ -1159,6 +1159,67 @@ async function hudChecks(open, vp) {
     await page.locator('[data-testid="menu-button"]').click();
     await page.keyboard.press('Escape');
     add('Escape closes the menu drawer', await until(page, () => !document.querySelector('[data-testid="menu"]'), null, 5000) ? null : 'menu stayed open');
+
+    // Touch-collapse panels: a tap on a panel's header collapses it to a slim tab and a second tap expands it.
+    await page.locator('[data-testid="menu-button"]').click();
+    await page.getByRole('button', { name: 'Budget', exact: true }).click();
+    await page.locator('[data-testid="budget"]').waitFor({ timeout: 5000 });
+    const budgetHead = page.locator('[data-testid="budget"] > .pnl-head');
+    const hb = await budgetHead.boundingBox();
+    await page.touchscreen.tap(hb.x + hb.width * 0.4, hb.y + hb.height / 2);
+    add('tapping a panel header collapses it to a slim titled tab', await until(page, () => document.querySelector('[data-testid="budget"]')?.getAttribute('data-collapsed') === 'true' && document.querySelector('[data-testid="budget"] > .pnl-body')?.hidden === true && document.querySelector('[data-testid="budget"] .pnl-chev')?.getAttribute('aria-expanded') === 'false', null, 5000) ? null : 'budget did not collapse');
+    const tab = await budgetHead.boundingBox();
+    add('a collapsed panel is a slim tab (<= 60 CSS px tall)', tab && tab.height <= 60 ? null : JSON.stringify(tab));
+    await page.touchscreen.tap(tab.x + tab.width * 0.4, tab.y + tab.height / 2);
+    add('tapping the tab again expands the panel', await until(page, () => document.querySelector('[data-testid="budget"]')?.getAttribute('data-collapsed') === 'false', null, 5000) ? null : 'budget stayed collapsed');
+
+    // F4: with a tool selected and a panel open, the tap that closes the panel must not also use the tool on the map.
+    const toolEvent = () => page.evaluate(() => ({ ev: JSON.stringify(window.__iron.tools.lastEvent), toasts: window.__iron.tools.toasts.length }));
+    await page.keyboard.press('Escape');
+    await until(page, () => !document.querySelector('[data-testid="budget"]'), null, 5000);
+    await page.evaluate(() => window.__iron.tools.select('line', { kind: 'power' }));
+    const before = await toolEvent();
+    await tapCanvas();
+    const control = await until(page, (b) => JSON.stringify(window.__iron.tools.lastEvent) !== b.ev || window.__iron.tools.toasts.length !== b.toasts, before, 5000);
+    add('control: with a tool selected a tap on the map sends the tool command', control ? null : 'no command from a plain tap');
+    await page.evaluate(() => { window.__iron.tools.undo(); window.__iron.tools.select('line', { kind: 'power' }); });
+    await until(page, () => window.__iron.tools.undoDepth === 0, null, 10000);
+    await page.locator('[data-testid="menu-button"]').click();
+    await page.getByRole('button', { name: 'Budget', exact: true }).click();
+    await page.locator('[data-testid="budget"]').waitFor({ timeout: 5000 });
+    // The open Budget panel fills the phone screen, so fold it to its tab first: the map is then under the finger.
+    const hb2 = await budgetHead.boundingBox();
+    await page.touchscreen.tap(hb2.x + hb2.width * 0.4, hb2.y + hb2.height / 2);
+    await until(page, () => document.querySelector('[data-testid="budget"]')?.getAttribute('data-collapsed') === 'true', null, 5000);
+    const held = await toolEvent();
+    await tapCanvas();
+    await page.waitForTimeout(800);
+    const after = await toolEvent();
+    add('tapping the map to close a panel closes it without using the selected tool', !(await page.locator('[data-testid="budget"]').count()) && after.ev === held.ev && after.toasts === held.toasts ? null : `budget open ${await page.locator('[data-testid="budget"]').count()}, event changed ${after.ev !== held.ev}`);
+    await page.evaluate(() => window.__iron.tools.cancel());
+
+    // Long press on the map opens the radial build menu; press-drag-release onto an item selects it.
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] });
+    const cb = await page.locator('canvas').boundingBox();
+    const cx = cb.x + cb.width / 2, cy = cb.y + cb.height / 2;
+    await touch('touchStart', cx, cy);
+    await page.waitForTimeout(250);
+    add('a touch shorter than the long-press delay does not open the radial', (await page.locator('[data-testid="radial"]').count()) === 0 ? null : 'radial opened early');
+    await page.waitForTimeout(450);
+    add('a long press on the map opens the radial menu', await visible(page, '[data-testid="radial"]') ? null : 'no radial after 700 ms');
+    const items = await page.evaluate(() => [...document.querySelectorAll('[data-testid="radial"] [role="menuitem"]')].map((b) => b.getAttribute('aria-label')));
+    add('the radial on empty land offers Road, Zone, Services, Utilities and Terraform', JSON.stringify(items) === JSON.stringify(['Road', 'Zone', 'Services', 'Utilities', 'Terraform']) ? null : JSON.stringify(items));
+    const road = await page.locator('[data-testid="radial-road"]').boundingBox();
+    const inView = road && road.x >= 0 && road.y >= 0 && road.x + road.width <= (await page.evaluate(() => window.innerWidth));
+    add('every radial item is on screen', inView ? null : JSON.stringify(road));
+    await touch('touchMove', road.x + road.width / 2, road.y + road.height / 2);
+    await touch('touchEnd');
+    const sel = await until(page, () => window.__iron.tools.selected?.tool === 'road', null, 5000);
+    add('releasing over a radial item selects it (press, drag, release)', sel && (await page.locator('[data-testid="radial"]').count()) === 0 ? null : JSON.stringify(await page.evaluate(() => window.__iron.tools.selected)));
+    await page.evaluate(() => window.__iron.tools.cancel());
+    await tapCanvas();
+    await until(page, () => !document.querySelector('[data-testid="toolbar"]') && !!document.querySelector('[data-testid="build-fab"]'), null, 5000);
     await page.locator('[data-testid="topbar-chevron"]').click();
     await until(page, () => !document.querySelector('[data-testid="menu-button"]'), null, 5000);
     await page.locator('[data-testid="topbar-chevron"]').click();
