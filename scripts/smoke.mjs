@@ -1344,6 +1344,70 @@ async function scenarioChecks(open) {
 }
 // ---- end scenarios block ----
 
+// ---- Districts: paint one through the tools, its name floats over it, an edict is enacted from the panel and the budget books its price (webgl2 low; desktop) ----
+// Paints a district with __iron.tools, waits for the generated name in the sim stats and as a floating label, renames it from the panel,
+// enacts High-Rise Permit ($200 a month) and checks the projected month's services rose by exactly that, then undoes the paint.
+async function districtChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`districts: ${name}`, problem]);
+  const page = await open(`${BUILD_QUERY}&debug=1`);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  if (!up) { add('debug session boots with the tools and the economy hook', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
+  const site = await siteWhenReady(page, 14);
+  if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
+  const services = () => page.evaluate(async () => (await window.__iron.economy.requestBudget()).current.services);
+  const before = await services();
+
+  const id = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    t.select('district', { mode: 'paint', district: 1 });
+    return t.dragTiles({ x: s.x + 2, y: s.y + 2 }, { x: s.x + 9, y: s.y + 7 });
+  }, site);
+  add('a district is painted through tools.dragTiles (command sent)', id > 0 ? null : `dragTiles returned ${id}`);
+  if (!(id > 0)) { await page.close(); return out; }
+  const named = await until(page, () => { const d = window.__iron.sim.districts?.[0]; return !!d && d.name === 'Rustbelt' && d.tiles === 48; }, null, 20000);
+  add('the sim reports one district, named Rustbelt, with the 48 painted tiles', named ? null : JSON.stringify(await page.evaluate(() => window.__iron.sim.districts)));
+  add('the district layer holds the id on a painted tile and not beside it', (await page.evaluate((s) => [window.__iron.tools.peek('district', s.x + 2, s.y + 2), window.__iron.tools.peek('district', s.x + 10, s.y + 2)], site)).join() === '1,0' ? null : 'layer wrong');
+  const label = await until(page, () => { const el = document.querySelector('[data-testid="district-label-1"]'); return !!el && !el.hidden && el.textContent === 'Rustbelt'; }, null, 15000);
+  add('the name floats over the district at mid zoom', label ? null : 'label hidden or missing');
+  await page.evaluate(() => window.__iron.render.resetCamera({ dist: 280 }));
+  add('the label hides at far zoom', await until(page, () => document.querySelector('[data-testid="district-label-1"]')?.hidden === true, null, 10000) ? null : 'label still shown');
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
+
+  await page.locator('[data-testid="district-manage"]').click();
+  add('Edit districts opens the District panel on that district', await until(page, () => (document.querySelector('[data-testid="district-name"]')?.value ?? '') === 'Rustbelt', null, 5000) ? null : 'panel or name missing');
+  const stats = await page.evaluate(() => ({ tiles: document.querySelector('[data-testid="district-tiles"]')?.textContent, cost: document.querySelector('[data-testid="district-cost"]')?.textContent }));
+  add('it shows the land and no edict cost yet', stats.tiles === '48 tiles' && stats.cost === 'None' ? null : JSON.stringify(stats));
+  const small = await page.evaluate(() => [...document.querySelectorAll('[data-testid="district-panel"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, w: r.width, h: r.height }; }).filter((t) => t.w < 43.5 || t.h < 43.5));
+  add('every District panel button is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
+
+  await page.locator('[data-testid="district-name"]').fill('Old Docks');
+  await page.locator('[data-testid="district-rename"]').click();
+  add('renaming from the panel reaches the sim and the label', await until(page, () => window.__iron.sim.districts?.[0]?.name === 'Old Docks' && document.querySelector('[data-testid="district-label-1"]')?.textContent === 'Old Docks', null, 10000) ? null : JSON.stringify(await page.evaluate(() => window.__iron.sim.districts)));
+  await page.locator('[data-testid="district-style-4"]').click();
+  add('picking a style reaches the sim', await until(page, () => window.__iron.sim.districts?.[0]?.style === 4, null, 10000) ? null : 'style not set');
+
+  await page.locator('[data-testid="district-edict-set-3"]').click();
+  add('enacting High-Rise Permit shows in the sim stats at $200 a month', await until(page, () => { const d = window.__iron.sim.districts?.[0]; return d?.edict === 3 && d.cost === 200; }, null, 10000) ? null : JSON.stringify(await page.evaluate(() => window.__iron.sim.districts)));
+  add('the panel marks it enacted and totals the cost', await until(page, () => document.querySelector('[data-testid="district-edict-3"]')?.dataset.active === 'true' && /\$200 a month in edicts/.test(document.querySelector('[data-testid="district-total"]')?.textContent ?? ''), null, 5000) ? null : 'panel did not update');
+  const after = await services();
+  add('the projected month books the edict: services rose by exactly 200', after - before === 200 ? null : `services ${before} -> ${after}`);
+  await page.locator('[data-testid="district-panel"]').getByRole('button', { name: 'Close', exact: true }).click();
+  add('the Close button dismisses the District panel', await until(page, () => !document.querySelector('[data-testid="district-panel"]'), null, 5000) ? null : 'panel still open');
+  await page.getByRole('button', { name: 'Budget', exact: true }).click();
+  const shown = await until(page, (want) => { const row = [...document.querySelectorAll('[data-testid="budget-month"] dt')].find((e) => e.textContent === 'Services'); return !!row && Number(row.nextElementSibling.textContent.replace(/[^0-9]/g, '')) === want; }, after, 10000);
+  add('the Budget panel lists that Services figure', shown ? null : await page.locator('[data-testid="budget-month"]').innerText().catch(() => 'no budget panel'));
+  await page.keyboard.press('Escape');
+
+  const undone = await page.evaluate(() => window.__iron.tools.undo());
+  add('undo removes the painted district', undone > 0 && await until(page, () => (window.__iron.sim.districts?.length ?? 0) === 0 && !document.querySelector('[data-testid="district-label-1"]'), null, 10000) ? null : JSON.stringify(await page.evaluate(() => window.__iron.sim.districts)));
+  add('and with it the edict cost', await until(page, async (b) => (await window.__iron.economy.requestBudget()).current.services === b, before, 10000) ? null : `services ${await services()}, want ${before}`);
+  await page.close();
+  return out;
+}
+// ---- end districts block ----
+
 // ---- Why is this happening: advisor chip, jump to an issue, tap for details (webgl2 low; desktop) ----
 // A debug city with a power plant and one house that has no line to it: the sim names the house as an unpowered building, the advisor
 // chip shows a power issue, tapping the issue flies the camera to the house within a few tiles, and tapping the house shows its card.
@@ -1490,7 +1554,7 @@ async function hudChecks(open, vp) {
   const names = await page.evaluate(() => [...document.querySelectorAll('[data-testid="topbar"] button, [data-testid="toolbar"] button')].filter((b) => !(b.getAttribute('aria-label') || b.textContent || '').trim()).length);
   add('every bar button has an accessible name', names === 0 ? null : `${names} unnamed`);
   const toolNames = await page.evaluate(() => [...document.querySelectorAll('[data-testid="toolbar"] button')].map((b) => b.getAttribute('aria-label')));
-  add('the bottom row holds Bulldoze, Road, Zone, Services, Utilities, Terraform, Undo and Views', JSON.stringify(toolNames) === JSON.stringify(['Bulldoze', 'Road', 'Zone', 'Services', 'Utilities', 'Terraform', 'Undo', 'Views']) ? null : JSON.stringify(toolNames));
+  add('the bottom row holds Bulldoze, Road, Zone, Services, Utilities, Terraform, Districts, Undo and Views', JSON.stringify(toolNames) === JSON.stringify(['Bulldoze', 'Road', 'Zone', 'Services', 'Utilities', 'Terraform', 'Districts', 'Undo', 'Views']) ? null : JSON.stringify(toolNames));
   add('Cancel is absent until a tool is active', (await page.locator('[data-testid="cancel-tool"]').count()) === 0 ? null : 'Cancel visible with no tool');
   if (phone) add('Save, Budget and Follow are not in the phone top bar', (await page.locator('[data-testid="topbar"] button', { hasText: /^(Save|Follow a robot)$/ }).count()) === 0 && (await page.locator('[data-testid="topbar"] button[aria-label="Budget"]').count()) === 0 ? null : 'a moved control is still in the bar');
 
@@ -1781,6 +1845,7 @@ try {
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await hazardChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await councilChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await scenarioChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await districtChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

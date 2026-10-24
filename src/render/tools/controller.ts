@@ -1,6 +1,7 @@
 import type { CommandBody } from '../../sim/commands.ts';
 import { estimate, tileReadOf, type Estimate } from '../../sim/estimate.ts';
 import { MAP, S } from '../../sim/layers.ts';
+import type { DistrictStat } from '../../sim/protocol.ts';
 import { commandFor, type Tile, type ToolSel } from './toolSpec.ts';
 
 /** The slice of RenderMirror the tools read: the ghost estimate runs on these arrays exactly as the sim runs on its own. */
@@ -8,6 +9,8 @@ export interface ToolWorld {
   layers: Record<string, ArrayLike<number>>;
   scalars: ArrayLike<number>;
   tick: number;
+  /** The named districts from the newest Stats message (the mirror keeps them); absent in a hand-built world. */
+  districts?: readonly DistrictStat[];
 }
 
 export interface Plan {

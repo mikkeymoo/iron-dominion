@@ -2,6 +2,7 @@ import { ARCH, archetype, BFLAG } from '../sim/catalog.ts';
 import { countBuildings } from './progress.ts';
 import type { CommandBody } from '../sim/commands.ts';
 import { tileReadOf } from '../sim/estimate.ts';
+import type { DistrictStat } from '../sim/protocol.ts';
 import { HAZARD_HELP, HAZARD_NAMES, READY_PHRASES, leadText } from '../sim/disasters/hazardNames.ts';
 import { placeName } from '../sim/disasters/names.ts';
 import { BMAX, S } from '../sim/layers.ts';
@@ -53,6 +54,7 @@ const REASONS: Record<string, string> = {
   'tax-cap': 'This scenario caps taxes at 12 percent.',
   'scenario-locked': 'This scenario locks the power plant. Build solar or fusion power.',
   'not-ready': 'Earn at least one star first.',
+  'no-district': 'That district has no land left. Paint it again to bring it back.',
 };
 
 /** Plain-words text for a sim or estimate rejection reason. */
@@ -290,6 +292,9 @@ export class ToolsRuntime {
 
   /** Population tier the city has reached, as the mirror last heard it. */
   get tier(): number { return this.deps.world.scalars[S.tier] ?? 0; }
+
+  /** The named districts as the mirror last heard them (the District tool's chips and the District panel read these). */
+  get districts(): readonly DistrictStat[] { return this.deps.world.districts ?? []; }
 
   /** The sim state was replaced (snapshot loaded): journal ids and in-flight commands from before mean nothing now. */
   reset(): void {

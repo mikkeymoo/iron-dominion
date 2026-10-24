@@ -1,6 +1,7 @@
 // Turns the mirror's building table into packed instance data. Only dirty slots are rewritten (plus slots whose near/far
 // class flips when the fine-detail set moves). Pure of three: buildings.ts uploads what these packers hold.
 import { BFLAG, isRci } from '../sim/catalog.ts';
+import { STYLES } from '../sim/districtTables.ts';
 import { BMAX, ROAD } from '../sim/layers.ts';
 import { chunkIdx } from '../sim/tiles.ts';
 import { isMega, megaStages } from '../sim/megaprojects.ts';
@@ -105,6 +106,7 @@ export function facingRot(mirror: RenderMirror, x: number, y: number, w: number,
 }
 
 const TINT_VAR = 0.1;
+const NO_STYLE = [1, 1, 1] as const;
 
 export class BuildingInstances {
   readonly near = new InstancePacker();
@@ -227,6 +229,9 @@ export class BuildingInstances {
     const v = 1 + ((((hsh >>> 10) & 255) / 255) - 0.5) * 2 * TINT_VAR;
     const near = this.classify(slot) === 0;
     this.cls.set(slot, near ? 0 : 1);
+    // A district's style colours the walls and roofs of every building inside it (and lights their trim), multiplying the per-building variation.
+    const style = m.buildingStyle(b.x, b.y, b.w, b.h);
+    const [dr, dg, db] = style >= 0 ? STYLES[style]!.tint : NO_STYLE;
     const mat = new Float32Array(MATRIX_STRIDE);
 
     if ((b.flags & BFLAG.RUBBLE) !== 0) { this.writeRuin(slot, b, gy, hsh, p, mat); return; }
@@ -266,14 +271,14 @@ export class BuildingInstances {
     if (near) {
       composeMatrix(mat, cx, gy, cz, rot);
       const vc = v * char;
-      this.near.set(slot, `${b.arch}:${variant}`, { matrix: mat, tint: [vc, vc, vc], state: [p, lit, model.height, burning ? STATE_BURNING : dark ? STATE_DARK : 0] });
+      this.near.set(slot, `${b.arch}:${variant}`, { matrix: mat, tint: [vc * dr, vc * dg, vc * db], state: [p, lit, model.height, burning ? STATE_BURNING : dark ? STATE_DARK : 0] });
       this.far.remove(slot);
     } else {
       const hh = Math.max(0.12, model.bodyHeight * Math.max(0.05, p >= 1 ? 1 : builtFraction(p)));
       const s = model.footprint * 0.9;
       composeMatrix(mat, cx, gy, cz, rot, s, hh, s);
       const w = model.wallColor, r = model.roofColor;
-      this.far.set(slot, 'far', { matrix: mat, tint: [w[0] * v * char, w[1] * v * char, w[2] * v * char], state: [r[0] * char, r[1] * char, r[2] * char, 0] });
+      this.far.set(slot, 'far', { matrix: mat, tint: [w[0] * v * char * dr, w[1] * v * char * dg, w[2] * v * char * db], state: [r[0] * char * dr, r[1] * char * dg, r[2] * char * db, 0] });
       this.near.remove(slot);
     }
 

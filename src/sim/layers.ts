@@ -19,6 +19,9 @@ export const MAX_LOANS = 3;
 export const BUDGET_MONTHS = 12;
 /** Doubles per monthly budget record in the `budget` ring; see BUDGET_FIELD in economy/budget.ts. */
 export const BUDGET_FIELDS = 15;
+/** Most districts a city can hold, and bytes per row of the `districtTab` layer. */
+export const DMAX = 16;
+export const DSTRIDE = 24;
 
 export type DirtyClass = 'geometry' | 'overlay' | 'none';
 export type TypedCtor =
@@ -195,6 +198,11 @@ export const SPEC = {
   // (not scalars) so a save from before them still loads: a missing layer reads as zeros, which is "nothing planned".
   hazard: L(Int32Array, 16, false, 'none'),
   hrng: L(Uint32Array, 4, false, 'none'),
+
+  // Named districts (sim/districts.ts): district id per tile (0 none, 1..DMAX), and the district table, DSTRIDE bytes per district
+  // (DT in sim/districtTables.ts). A district exists while it owns at least one tile. Layers of their own so an older save loads as "no districts".
+  district: L(Uint8Array, TILES, true, 'geometry'),
+  districtTab: L(Uint8Array, DMAX * DSTRIDE, false, 'none'),
 } as const;
 
 export type LayerName = keyof typeof SPEC;

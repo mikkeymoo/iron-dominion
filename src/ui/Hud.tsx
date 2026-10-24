@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CouncilStats, DirectiveStats, FirmwareStats, HazardStats, LoanInfo, MilestoneStats, ScenarioStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { CouncilStats, DirectiveStats, DistrictStat, FirmwareStats, HazardStats, LoanInfo, MilestoneStats, ScenarioStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { ApprovalChip } from './Council';
 import { DemandBars } from './DemandBars';
@@ -76,6 +76,8 @@ export interface HudStats {
   hazards?: HazardStats;
   /** Approval, council requests and festivals from the newest Stats message. */
   council?: CouncilStats;
+  /** The named districts from the newest Stats message. */
+  districts?: DistrictStat[];
   /** Goal progress of a scenario or challenge city; null or absent in the sandbox. */
   scenario?: ScenarioStats | null;
 }

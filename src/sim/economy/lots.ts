@@ -1,4 +1,6 @@
 import { ARCH, BFLAG, rciFootprint } from '../catalog.ts';
+import { districtMods, slotDistrictMods } from '../districts.ts';
+import { isNight } from '../firmware.ts';
 import { BMAX, MAP, ROAD, TILES, ZONE, type World } from '../layers.ts';
 import { lotAccess, roadsOf } from '../roads/index.ts';
 import type { RoadNet } from '../roads/graph.ts';
@@ -65,9 +67,10 @@ function lotScoreAt(world: World, x: number, y: number, bw: number, bh: number, 
     }
   }
   const n = bw * bh;
-  lv = Math.floor(lv / n); pol = Math.floor(pol / n);
+  const dm = districtMods(world, y * MAP + x);
+  lv = Math.floor(lv / n); pol = (Math.floor(pol / n) * dm.pollutionQ) >> 8;
   fire = Math.floor(fire / n); police = Math.floor(police / n); other = Math.floor(other / n);
-  const demand = Math.round(zoneDemand(world, zone) * ONE);
+  const demand = Math.round(zoneDemand(world, zone) * ONE) + (zone === ZONE.C && isNight(world) ? dm.nightDemandC : 0);
   const cls = world.road[access]! & ROAD.CLASS_MASK;
   // Once the city models power or water, a lot with no reachable supply is a poor site; it can still grow (level 1), just last.
   const svc = lotService(world, x, y, bw, bh);
@@ -104,6 +107,7 @@ export function growthCandidates(sim: Sim, zone: number, max: number): Lot[] {
     for (let x = 0; x < MAP; x++) {
       const i = y * MAP + x, zb = w.zone[i]!;
       if ((zb & 3) !== zone || claimed[i] || w.bId[i] !== 0) continue;
+      if (zone === ZONE.I && districtMods(w, i).noIndustry) continue;
       const density = (zb >> 2) & 3, f = rciFootprint(density, 1);
       if (x + f > MAP || y + f > MAP) continue;
       let ok = true;
@@ -136,10 +140,11 @@ export function levelUpCandidates(sim: Sim, zone: number, max: number): LevelUp[
     if (!needsMet(w, s, shops)) continue;
     // startLevelUp rebuilds from a foundation and clears flags and damage, so a burning or damaged building would be healed for free.
     if ((w.bFlags[s]! & BFLAG.BURNING) !== 0 || w.bDmg[s]! > 0) continue;
-    const lv = footprintMean(w, w.landValue, s);
+    const lv = footprintMean(w, w.landValue, s), dm = slotDistrictMods(w, s);
+    if (zone === ZONE.I && dm.noIndustry) continue;
     // Health and education coverage under the building: a lower land value is enough, and the building ranks higher.
     const edu = footprintMean(w, w.covHealth, s) + footprintMean(w, w.covEdu, s);
-    if (lv + (edu >> LEVELUP_SVC_SHIFT) < LEVELUP_LV) continue;
+    if (lv + (edu >> LEVELUP_SVC_SHIFT) < LEVELUP_LV - dm.levelUpLv) continue;
     out.push({ slot: s, x: w.bX[s]!, y: w.bY[s]!, arch, nextArch: arch + 1, level: w.bLevel[s]!, score: lv * 4 + demand + ((edu * LEVELUP_SVC_W) >> 8) });
   }
   out.sort((a, b) => b.score - a.score || a.slot - b.slot);

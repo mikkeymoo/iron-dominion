@@ -1,12 +1,14 @@
 import { ARCH, CATALOG, archetype } from '../../sim/catalog.ts';
 import type { CommandBody } from '../../sim/commands.ts';
 import { footprintOf, type Estimate } from '../../sim/estimate.ts';
+import { DMAX } from '../../sim/layers.ts';
 import { isMega } from '../../sim/megaprojects.ts';
 
 // Tool definitions, the drag-to-command mapping, the keyboard map and ghost tints. DOM-free and three-free so each piece is unit-tested.
 
 export type Tile = { x: number; y: number };
-export type ToolId = 'bulldoze' | 'road' | 'zone' | 'service' | 'terraform' | 'line';
+export type ToolId = 'bulldoze' | 'road' | 'zone' | 'service' | 'terraform' | 'line' | 'district';
+export type DistrictMode = 'paint' | 'erase';
 export type TerraformMode = 'raise' | 'lower' | 'level';
 export type LineKind = 'power' | 'water';
 
@@ -18,7 +20,9 @@ export type ToolSel =
   | { tool: 'service'; arch: number }
   | { tool: 'terraform'; mode: TerraformMode }
   /** Drag a power line (overhead) or a water pipe (underground) along the same L-shaped path as a road. */
-  | { tool: 'line'; kind: LineKind };
+  | { tool: 'line'; kind: LineKind }
+  /** Paint land into district `district` (1..DMAX; an id with no land yet founds a new district) or erase it from every district. */
+  | { tool: 'district'; mode: DistrictMode; district: number };
 
 export const ROAD_NAMES = ['', 'street', 'avenue', 'highway'] as const;
 export const ZONE_LABELS = ['', 'Residential', 'Commercial', 'Industrial'] as const;
@@ -74,6 +78,10 @@ export function commandFor(sel: ToolSel, from: Tile, to: Tile, rot: number, unde
     case 'zone': return { type: 'zone', x0: from.x, y0: from.y, x1: to.x, y1: to.y, zone: sel.zone, density: sel.density };
     case 'bulldoze': return under ? { type: 'bulldoze', x0: from.x, y0: from.y, x1: to.x, y1: to.y, under: true } : { type: 'bulldoze', x0: from.x, y0: from.y, x1: to.x, y1: to.y };
     case 'terraform': return { type: 'terraform', mode: sel.mode, x0: from.x, y0: from.y, x1: to.x, y1: to.y };
+    case 'district':
+      return sel.mode === 'paint'
+        ? { type: 'paintDistrict', district: sel.district, x0: from.x, y0: from.y, x1: to.x, y1: to.y }
+        : { type: 'eraseDistrict', x0: from.x, y0: from.y, x1: to.x, y1: to.y };
     case 'service': {
       const at = buildingAnchor(sel.arch, rot, to);
       return { type: 'placeBuilding', arch: sel.arch, x: at.x, y: at.y, rot };
@@ -93,6 +101,10 @@ export function selectionFrom(tool: string, opts: Record<string, unknown> = {}):
     }
     case 'terraform': { const m = String(opts.mode ?? 'raise') as TerraformMode; return TERRAFORM_MODES.includes(m) ? { tool, mode: m } : null; }
     case 'line': { const k = String(opts.kind ?? 'power'); return k === 'power' || k === 'water' ? { tool, kind: k } : null; }
+    case 'district': {
+      const mode = String(opts.mode ?? 'paint'), id = num('district') ?? 1;
+      return (mode === 'paint' || mode === 'erase') && Number.isInteger(id) && id >= 1 && id <= DMAX ? { tool, mode, district: id } : null;
+    }
     case 'service': {
       const named = typeof opts.name === 'string' ? PLACEABLE.find((s) => s.name === opts.name) : undefined;
       const a = named ?? PLACEABLE.find((s) => s.id === num('arch')) ?? PLACEABLE.find((s) => s.id === ARCH.DEPOT);

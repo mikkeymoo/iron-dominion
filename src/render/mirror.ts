@@ -1,5 +1,6 @@
-import { CHUNK, CHUNKS, F, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, TILES, isTileLayer, type LayerName } from '../sim/layers.ts';
-import type { BuildingRec, FromWorker, Typed } from '../sim/protocol.ts';
+import { districtOfFootprint } from '../sim/districts.ts';
+import { CHUNK, CHUNKS, DMAX, F, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, TILES, isTileLayer, type LayerName } from '../sim/layers.ts';
+import type { BuildingRec, DistrictStat, FromWorker, Typed } from '../sim/protocol.ts';
 import { chunkIdx, copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
 import type { SimEvent } from '../sim/world.ts';
 
@@ -37,6 +38,11 @@ export class RenderMirror {
    */
   readonly depotReach = new Uint8Array(TILES);
   depotReachVersion = 0;
+  /** The named districts from the newest Stats message (the sim keeps the table; only the district id per tile is a mirrored layer). */
+  districts: readonly DistrictStat[] = [];
+  /** Bumped when a district's style changed or a district appeared or went: the ground wash and the building tints follow it. */
+  districtStyleVersion = 0;
+  private readonly districtStyles = new Int8Array(DMAX + 1).fill(-1);
   private lightning: { x: number; y: number; tick: number }[] = [];
   private celebrations: CelebrationEvent[] = [];
   private disasters: DisasterEvent[] = [];
@@ -102,6 +108,7 @@ export class RenderMirror {
         // Patches only go out when something changed, so stats and events keep the clock moving for tick-driven effects.
         if (m.tick > this.tick) this.tick = m.tick;
         if (m.firmware) { this.firmware[F.RESEARCH] = m.firmware.research; this.firmware[F.EDICTS] = m.firmware.edicts; }
+        if (m.districts) this.setDistricts(m.districts);
         this.scalars[S.treasury] = m.treasury;
         this.scalars[S.population] = m.population;
         this.scalars[S.demandR] = m.rciDemand[0];
@@ -131,6 +138,36 @@ export class RenderMirror {
       default:
         return false;
     }
+  }
+
+  /** Style id of district `id`, or -1 when the id is not a live district. */
+  districtStyle(id: number): number { return id > 0 && id <= DMAX ? this.districtStyles[id]! : -1; }
+
+  /** Style of the district a building stands in, or -1. */
+  buildingStyle(x: number, y: number, w: number, h: number): number {
+    return this.districtStyle(districtOfFootprint(this.layers.district!, x, y, w, h));
+  }
+
+  /** A style changed (or a district came or went): rewrite the buildings standing in the districts concerned, and tell the ground wash. */
+  private setDistricts(list: readonly DistrictStat[]): void {
+    const next = new Int8Array(DMAX + 1).fill(-1);
+    for (const d of list) next[d.id] = d.style;
+    const changed = new Set<number>();
+    for (let id = 1; id <= DMAX; id++) if (next[id] !== this.districtStyles[id]) changed.add(id);
+    this.districts = list;
+    if (changed.size === 0) return;
+    this.districtStyles.set(next);
+    this.districtStyleVersion++;
+    this.markBuildingsIn(changed);
+  }
+
+  private markBuildingsIn(ids: ReadonlySet<number>): void {
+    const t = this.table, layer = this.layers.district!;
+    let any = false;
+    for (let s = 0; s < t.bArch.length; s++) {
+      if (t.bArch[s] && ids.has(districtOfFootprint(layer, t.bX[s]!, t.bY[s]!, t.bW[s]!, t.bH[s]!))) { this.dirtyBuildings.add(s); any = true; }
+    }
+    if (any) this.buildingVersion++;
   }
 
   /** Replace the depot reach tint (a layer of TILES values) and ask the overlay to repaint. */
@@ -172,20 +209,25 @@ export class RenderMirror {
 
   private writeChunks(chunks: number[], layers: Record<string, Typed>): void {
     const groundChanged = new Set<number>();
+    const districtChanged = new Set<number>();
     for (const name of Object.keys(layers)) {
       const info = renderInfos.find((l) => l.name === name);
       if (!info || !isTileLayer(info)) continue;
       const watch = name === 'height' || name === 'road';
       const lines = name === 'ugPower' || name === 'ugWater';
+      const districts = name === 'district';
       chunks.forEach((chunk, n) => {
-        const differs = (watch || lines) && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
+        const differs = (watch || lines || districts) && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
         if (watch && differs) groundChanged.add(chunk);
+        if (districts && differs) districtChanged.add(chunk);
         // Pylons and pipes sit on the ground, so a height change redraws the lines in that chunk too.
         if ((lines || name === 'height') && differs) this.dirtyLines.add(chunk);
         copyChunkIn(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
       });
     }
     if (groundChanged.size > 0) this.markBuildingsNear(groundChanged);
+    // A building takes its tint from the district under its middle tile, which can lie a chunk away from its corner.
+    if (districtChanged.size > 0) { this.markBuildingsNear(districtChanged); this.buildingVersion++; }
   }
 
   private chunkDiffers(dst: Typed, chunk: number, src: Typed, srcOffset: number): boolean {

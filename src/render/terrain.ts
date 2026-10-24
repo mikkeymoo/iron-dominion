@@ -1,5 +1,7 @@
 import { BufferAttribute, BufferGeometry, Group, Mesh, type Material, type Texture } from 'three/webgpu';
+import { STYLES } from '../sim/districtTables.ts';
 import { CHUNK, CHUNKS, MAP, ZONE } from '../sim/layers.ts';
+import { rimStyle } from './districtRim.ts';
 import type { RenderMirror } from './mirror.ts';
 import { buildTerrainMesh, buildWaterMesh, withNeighbours, type MeshData, type TerrainLayers } from './terrainMesh.ts';
 import { buildRoadMesh } from './kit/roads.ts';
@@ -19,6 +21,8 @@ const ZONE_TINT: Record<number, [number, number, number]> = {
   [ZONE.I]: [0.95, 0.68, 0.22],
 };
 const ZONE_STRENGTH = 0.2;
+/** Strength of the wash on a district's boundary tiles: a thin, quiet line in the district's colour. */
+const DISTRICT_LINE_STRENGTH = 0.5;
 
 function toGeometry(d: MeshData): BufferGeometry {
   const g = new BufferGeometry();
@@ -80,6 +84,8 @@ export class TerrainView {
   /** Bumped whenever the set of fine chunks changes; buildings reclassify near/far on it. */
   detailVersion = 0;
   private shadows = false;
+  /** districtStyleVersion the ground wash was last written for. */
+  private washStyles = 0;
   builds = 0;
 
   /** `waterMat` is owned by the atmosphere unit (fx/water.ts), which rebuilds its nodes in place on a tier change. */
@@ -139,7 +145,8 @@ export class TerrainView {
       this.water[s]!.stale = true;
       this.roads[s]!.stale = true;
     }
-    for (const c of dirty) this.writeZoneChunk(c);
+    // The boundary reads the neighbouring tile, so the chunks around an edit repaint their wash too.
+    for (const c of withNeighbours(dirty, CHUNKS)) this.writeZoneChunk(c);
     if (dirty.length > 0) for (const fn of this.invalidated) fn(dirty);
     this.slots.zoneTexture.needsUpdate = true;
   }
@@ -163,11 +170,18 @@ export class TerrainView {
 
   private writeZoneChunk(c: number): void {
     const data = this.slots.zoneTexture.image.data as Uint8Array;
-    const zone = this.mirror.layers.zone!;
+    const zone = this.mirror.layers.zone!, district = this.mirror.layers.district!;
+    const styleOf = (id: number): number => this.mirror.districtStyle(id);
     const cx = (c % CHUNKS) * CHUNK, cy = ((c / CHUNKS) | 0) * CHUNK;
     for (let y = cy; y < cy + CHUNK; y++) {
       for (let x = cx; x < cx + CHUNK; x++) {
         const t = y * MAP + x, o = t * 4;
+        const rim = rimStyle(district, styleOf, t);
+        if (rim >= 0) {
+          const line = STYLES[rim]!.line;
+          data[o] = line[0] * 255; data[o + 1] = line[1] * 255; data[o + 2] = line[2] * 255; data[o + 3] = DISTRICT_LINE_STRENGTH * 255;
+          continue;
+        }
         const tint = ZONE_TINT[zone[t]! & 3];
         if (tint) {
           data[o] = tint[0] * 255; data[o + 1] = tint[1] * 255; data[o + 2] = tint[2] * 255; data[o + 3] = ZONE_STRENGTH * 255;
@@ -200,6 +214,7 @@ export class TerrainView {
    */
   update(focusX: number, focusZ: number, fullDetailChunks: number, budget = 24): void {
     this.invalidate(this.mirror.takeDirtyGeometry());
+    if (this.washStyles !== this.mirror.districtStyleVersion) { this.washStyles = this.mirror.districtStyleVersion; this.rebuildZoneTint(); }
     this.pickDetail(focusX, focusZ, fullDetailChunks);
     let left = budget;
     const L = this.layers;

@@ -4,7 +4,7 @@ import {
 } from './catalog.ts';
 import type { CommandBody } from './commands.ts';
 import { scenarioMods } from './firmware.ts';
-import { MAP, ROAD, S, SC, SLOPE_LIMIT, TERRAIN, UCELLS, isWaterTerrain } from './layers.ts';
+import { DMAX, MAP, ROAD, S, SC, SLOPE_LIMIT, TERRAIN, UCELLS, isWaterTerrain } from './layers.ts';
 import { isMega } from './megaprojects.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { DENSITY_UNLOCK, ROAD_UNLOCK, isLocked } from './unlocks.ts';
@@ -27,11 +27,14 @@ export interface TileRead {
   scalars?: ArrayLike<number>;
   /** The scenario layer (SC): its modifier mask can forbid bridges and the burner power plant. Without it nothing is forbidden. */
   scenario?: ArrayLike<number>;
+  /** District id per tile. Without it every tile reads as outside any district. */
+  district?: ArrayLike<number>;
 }
 
 export const tileReadOf = (layers: Record<string, ArrayLike<number>>, scalars?: ArrayLike<number>): TileRead => ({
   terrain: layers.terrain!, height: layers.height!, waterDepth: layers.waterDepth!,
   road: layers.road!, zone: layers.zone!, bId: layers.bId!, ugPower: layers.ugPower, ugWater: layers.ugWater, scalars, scenario: layers.scenario,
+  district: layers.district,
 });
 
 const tierOf = (v: TileRead): number | undefined => v.scalars?.[S.tier];
@@ -175,6 +178,31 @@ function estimateBulldoze(v: TileRead, c: Extract<CommandBody, { type: 'bulldoze
   return { cost, validTiles: valid, invalidTiles: [] };
 }
 
+/**
+ * Painting a district or erasing one, over a rect. Both are free. Water tiles cannot belong to a district and are skipped (invalid);
+ * a tile that already carries the target id (0 for erase) is left alone, so validTiles lists only the tiles that would change.
+ */
+function estimateDistrict(v: TileRead, c: Extract<CommandBody, { type: 'paintDistrict' | 'eraseDistrict' }>): Estimate {
+  const paint = c.type === 'paintDistrict';
+  if (paint && (!isInts(c.district) || c.district < 1 || c.district > DMAX)) return fail('invalid');
+  const r = rectOf(c);
+  if (typeof r === 'string') return fail(r);
+  const [x0, y0, x1, y1] = r;
+  if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_ZONE_TILES) return fail('too-large');
+  const target = paint ? c.district : 0;
+  const changed: number[] = [], invalid: number[] = [];
+  let land = 0;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = tileIdx(x, y);
+    if (paint && (isWaterTerrain(v.terrain[i]!) || v.waterDepth[i]! > 0)) { invalid.push(i); continue; }
+    land++;
+    if ((v.district?.[i] ?? 0) !== target) changed.push(i);
+  }
+  if (paint && land === 0) return fail('terrain', [], invalid);
+  if (changed.length === 0) return fail('noop', [], invalid);
+  return { cost: 0, validTiles: changed, invalidTiles: invalid };
+}
+
 /** Footprint edges of an archetype at a rotation (quarter turns). */
 export const footprintOf = (a: Archetype, rot: number): { w: number; h: number } => (rot & 1 ? { w: a.h, h: a.w } : { w: a.w, h: a.h });
 
@@ -286,6 +314,12 @@ export function estimate(v: TileRead, cmd: CommandBody, treasury?: number): Esti
     case 'placeLine': return withFunds(estimateLine(v, cmd), treasury);
     case 'zone': case 'bulldoze': case 'terraform': {
       const e = withFunds(cmd.type === 'zone' ? estimateZone(v, cmd) : cmd.type === 'bulldoze' ? estimateBulldoze(v, cmd) : estimateTerraform(v, cmd), treasury);
+      const r = rectOf(cmd);
+      if (typeof r !== 'string') e.rect = r;
+      return e;
+    }
+    case 'paintDistrict': case 'eraseDistrict': {
+      const e = estimateDistrict(v, cmd);
       const r = rectOf(cmd);
       if (typeof r !== 'string') e.rect = r;
       return e;

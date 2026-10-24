@@ -5,6 +5,7 @@ import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
 import { councilStats } from './council/index.ts';
 import { directiveStats } from './directives.ts';
+import { districtStats } from './districts.ts';
 import { hazardStats } from './disasters/index.ts';
 import { answerInfo } from './info.ts';
 import { invalidateIssues, issuesOf } from './issues.ts';
@@ -126,6 +127,7 @@ function flush(now: number, force = false): void {
       firmware: firmwareStats(sim.world),
       hazards: hazardStats(sim.world),
       council: councilStats(sim.world),
+      districts: districtStats(sim.world),
       scenario: scenarioStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }

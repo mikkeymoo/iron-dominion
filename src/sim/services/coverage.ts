@@ -1,4 +1,5 @@
 import { BFLAG, RCI_BASE, SVC } from '../catalog.ts';
+import { slotDistrictMods } from '../districts.ts';
 import { mods } from '../firmware.ts';
 import { BMAX, MAP, TILES, ZONE, type World } from '../layers.ts';
 import { UNREACHED, lotAccess, roadFlow, roadsOf } from '../roads/index.ts';
@@ -195,7 +196,7 @@ export function crimeOf(w: World, slot: number): number {
   const base = ((255 - footprintMax(w, w.covPolice, slot)) * CRIME_POLICE_W + (255 - lv) * CRIME_POOR_W) >> 8;
   const density = CRIME_DENSITY[densityOf(arch)]!;
   const c = (base * density) >> 8;
-  return Math.min(255, Math.floor((c + ((w.bFlags[slot]! & BFLAG.ABANDONED) !== 0 ? CRIME_ABANDONED : 0)) * mods(w).crime));
+  return Math.min(255, Math.floor((c + ((w.bFlags[slot]! & BFLAG.ABANDONED) !== 0 ? CRIME_ABANDONED : 0)) * mods(w).crime * slotDistrictMods(w, slot).crime));
 }
 
 const densityOf = (arch: number): number => Math.floor(((arch - RCI_BASE) % 9) / 3);

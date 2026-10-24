@@ -124,6 +124,7 @@ export function createBuildingMaterial(atlas: Texture): { material: MeshStandard
     }
 
     const base = vertexColor().rgb;
+    // A district's style tint (iTint) also colours the glowing trim, which is how its neon accent shows after dark.
     const solid = base.mul(mix(vec3(1, 1, 1), iTint, float(1).sub(isGlass)));
     const frame = vec3(0.2, 0.21, 0.23).mul(relief.mul(1.4).add(0.3));
     const day = mix(base.mul(1.15), litColor.mul(0.5), lit.mul(0.3).mul(buildingLight.night.oneMinus().mul(0.6).add(0.4)));
@@ -142,7 +143,7 @@ export function createBuildingMaterial(atlas: Texture): { material: MeshStandard
     const breathe = sin(time.mul(2.4)).mul(0.5).add(1.9);
     const accentGlow = mix(buildingLight.night.mul(1.3).add(0.12), breathe, pulse);
     material.emissiveNode = litColor.mul(pane).mul(glow).mul(lit).mul(buildingLight.night).mul(roomGain).mul(1.7)
-      .add(base.mul(isAccent).mul(accentGlow).mul(powered.mul(0.92).add(0.08)))
+      .add(solid.mul(isAccent).mul(accentGlow).mul(powered.mul(0.92).add(0.08)))
       .add(vec3(1.0, 0.34, 0.07).mul(burning).mul(flicker).mul(float(0.6).sub(isGlass.mul(0.25))));
     const roughness = mix(mix(float(0.86), float(0.42), isMetal), mix(float(0.55), float(0.12), pane), isGlass);
     material.roughnessNode = roughness;

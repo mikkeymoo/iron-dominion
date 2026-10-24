@@ -267,6 +267,24 @@ export interface CouncilStats {
   completed: number;
   failed: number;
 }
+/** One named district (sim/districts.ts). (cx, cy) is the centroid tile; approval is the signed points it pulls the meter by, relative to the city average. */
+export interface DistrictStat {
+  id: number;
+  name: string;
+  style: number;
+  edict: number;
+  tiles: number;
+  cx: number;
+  cy: number;
+  x0: number; y0: number; x1: number; y1: number;
+  population: number;
+  jobs: number;
+  /** Mean land value of the district's dry tiles. */
+  landValue: number;
+  approval: number;
+  /** Credits per month the district's edict costs. */
+  cost: number;
+}
 /** Scenario progress for the goal chip and the results screen; null in the sandbox. `state` is 0 playing, 1 won, 2 failed (time out). */
 export interface ScenarioStats {
   id: number;
@@ -333,6 +351,8 @@ export interface Stats {
   firmware: FirmwareStats;
   hazards: HazardStats;
   council: CouncilStats;
+  /** The named districts, by id. */
+  districts: DistrictStat[];
   scenario: ScenarioStats | null;
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */

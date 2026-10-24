@@ -1,3 +1,4 @@
+import { districtMods } from '../districts.ts';
 import { mods, roll } from '../firmware.ts';
 import { AMAX, MAP, ROAD, S, type World } from '../layers.ts';
 import { findPath, pathTiles, type RoadNet } from '../roads/index.ts';
@@ -90,7 +91,7 @@ export function stepAgent(net: RoadNet, w: World, a: number): MoveResult {
   const own = kind === AKIND.HAULER ? m.haulerSpeed : kind === AKIND.FIREFIGHTER ? m.ffSpeed : 1;
   // Robots share the street with the cars: a jammed tile slows them, unless Priority lanes took them off it.
   const jam = m.jamSlow > 0 ? 1 - (m.jamSlow * w.traffic[tiles[step]!]!) / 255 : 1;
-  frac += speeds[cls]! * boost * own * jam * ((w.road[tiles[step]!]! & ROAD.DAMAGED) !== 0 ? DAMAGED_ROAD_SPEED : 1);
+  frac += speeds[cls]! * boost * own * jam * districtMods(w, tiles[step]!).robotSpeed * ((w.road[tiles[step]!]! & ROAD.DAMAGED) !== 0 ? DAMAGED_ROAD_SPEED : 1);
   while (frac >= 1 && step < last) { frac -= 1; step++; }
   if (step >= last) {
     w.aStep[a] = last; w.aFrac[a] = 0;

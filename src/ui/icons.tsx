@@ -12,7 +12,8 @@ function Svg({ children }: { children: ReactNode }) {
 export const IconBulldoze = () => <Svg><path d="M3 17h13M5 17V9h7l2 4h2v4" /><path d="M16 12l5-4M21 8v6" /><circle cx="7" cy="19" r="1.6" /><circle cx="13" cy="19" r="1.6" /></Svg>;
 export const IconRoad = () => <Svg><path d="M8 3L4 21M16 3l4 18" /><path d="M12 5v2.5M12 11v2.5M12 17v2.5" /></Svg>;
 export const IconZone = () => <Svg><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><path d="M13 16.5h7M16.5 13v7" /></Svg>;
-export const IconServices = () => <Svg><path d="M4 20V10l8-6 8 6v10z" /><path d="M12 9v6M9 12h6" /></Svg>;
+export const IconDistrict = () => <Svg><path d="M4 8l5-3 6 2 5-2v12l-5 2-6-2-5 3z" /><path d="M9 5v12M15 7v12" /></Svg>;
+export const IconServices =() => <Svg><path d="M4 20V10l8-6 8 6v10z" /><path d="M12 9v6M9 12h6" /></Svg>;
 export const IconUtilities = () => <Svg><path d="M13 3L5 13.5h6L10 21l9-11h-6.5z" /></Svg>;
 export const IconTerraform = () => <Svg><path d="M2 19l6-9 4 5 3-4 7 8z" /><path d="M12 3v4M10 5l2-2 2 2" /></Svg>;
 export const IconUndo = () => <Svg><path d="M9 7L4 12l5 5" /><path d="M4 12h10a6 6 0 010 8h-3" /></Svg>;

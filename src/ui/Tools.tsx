@@ -7,7 +7,8 @@ import {
   DENSITY_LABELS, LINE_NAMES, ROAD_NAMES, SERVICES, TERRAFORM_MODES, UTILITY_BUILDINGS, ZONE_LABELS, isUtilityArch, keyAction, type LineKind, type ToolId, type ToolSel,
 } from '../render/tools/toolSpec.ts';
 import type { ViewState } from '../render/viewState.ts';
-import { IconBulldoze, IconCancel, IconHammer, IconRoad, IconServices, IconTerraform, IconUndo, IconUtilities, IconViews, IconZone } from './icons';
+import { DistrictToolStrip, districtStart } from './Districts';
+import { IconBulldoze, IconCancel, IconDistrict, IconHammer, IconRoad, IconServices, IconTerraform, IconUndo, IconUtilities, IconViews, IconZone } from './icons';
 import type { Handedness } from '../platform/settings.ts';
 import { mirrorRow } from './handedness';
 import { useLayout, type Layout } from './layout';
@@ -29,6 +30,7 @@ const CATEGORIES: { id: Group; label: string; key: string; start: ToolSel; icon:
   { id: 'service', label: 'Services', key: '', start: { tool: 'service', arch: SERVICES[0]!.id }, icon: IconServices },
   { id: 'utilities', label: 'Utilities', key: 'L / P', start: { tool: 'line', kind: 'power' }, icon: IconUtilities },
   { id: 'terraform', label: 'Terraform', key: 'T', start: { tool: 'terraform', mode: 'raise' }, icon: IconTerraform },
+  { id: 'district', label: 'Districts', key: '', start: { tool: 'district', mode: 'paint', district: 1 }, icon: IconDistrict },
 ];
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -232,6 +234,7 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
             {sel.tool === 'terraform' && TERRAFORM_MODES.map((mode) => (
               <button key={mode} type="button" className="tb" aria-pressed={sel.mode === mode} onClick={() => pick({ tool: 'terraform', mode })}>{MODE_LABELS[mode]}</button>
             ))}
+            {sel.tool === 'district' && <DistrictToolStrip runtime={runtime} onManage={() => setOpenPanel('districts')} />}
             {sel.tool === 'bulldoze' && (
               <span className="tool-hint">{view.underground ? 'Underground: drag to dig up water pipes.' : 'Drag over roads, zones, power lines and buildings to clear them.'}</span>
             )}
@@ -247,7 +250,7 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
               <button
                 key={cat.id} type="button" className="tb tool" aria-pressed={group === cat.id} aria-label={cat.label} data-testid={`tool-${cat.id}`}
                 title={cat.key ? `${cat.label} (${cat.key})` : cat.label}
-                onClick={() => (group === cat.id ? c.cancel() : pick(cat.start))}
+                onClick={() => (group === cat.id ? c.cancel() : pick(cat.id === 'district' ? districtStart(runtime.districts) : cat.start))}
               >{cat.icon()}<span className="tl" aria-hidden="true">{cat.label}</span></button>
             )),
             <button key="undo" type="button" className="tb tool" aria-label="Undo" data-testid="tool-undo" disabled={!runtime.canUndo} title="Undo (Ctrl+Z)" onClick={() => runtime.undoLast()}><IconUndo /><span className="tl" aria-hidden="true">Undo</span></button>,

@@ -77,4 +77,5 @@ export const TOOL_HINTS: Record<string, string> = {
   service: 'Tap the map to place. Each extra depot adds robots.',
   utilities: 'Power lines and pipes connect plants and pumps to buildings.',
   terraform: 'Drag to raise, lower or level the ground.',
+  district: 'Drag over land to name a district. Give it an edict and a style.',
 };

@@ -1,0 +1,18 @@
+/* Districts: tool chips, the District panel and the floating names. Every control is at least 44 px tall. */
+.dist-swatch { display: inline-block; width: 12px; height: 12px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; border: 1px solid rgba(255, 255, 255, 0.55); }
+.dist-chip { display: inline-flex; align-items: center; }
+.dist-tabs, .dist-styles { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.dist-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0; }
+.dist-name label { font-weight: 600; }
+.dist-name input { flex: 1 1 10rem; min-height: 44px; padding: 0 10px; font: inherit; color: #e6edf3; background: rgba(230, 237, 243, 0.08); border: 1px solid rgba(230, 237, 243, 0.3); border-radius: 6px; }
+.dist-stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.dist-stats dt { opacity: 0.7; }
+.dist-stats dd { margin: 0; text-align: right; }
+.dist-h { margin: 10px 0 4px; font-size: 0.9rem; }
+.tb.dist-style { display: inline-flex; align-items: center; }
+.dist-edicts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) { .dist-edicts { grid-template-columns: 1fr; } }
+.dist-panel > .pnl-head .pnl-chev, .dist-panel > .pnl-head .pnl-close { height: 44px; min-height: 44px; }
+.hud > .district-labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.district-label { position: absolute; left: 0; top: 0; padding: 1px 8px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; background: rgba(11, 17, 22, 0.42); border-radius: 999px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); will-change: transform; }
+.district-label[hidden] { display: none; }

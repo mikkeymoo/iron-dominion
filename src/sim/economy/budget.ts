@@ -1,5 +1,6 @@
 import { BFLAG, CATALOG, isRci } from '../catalog.ts';
 import { approvalIncome } from '../council/effects.ts';
+import { districtUpkeep, slotDistrictMods } from '../districts.ts';
 import { accrueResearch, edictUpkeep, mods } from '../firmware.ts';
 import { BMAX, BUDGET_FIELDS, BUDGET_MONTHS, MAX_LOANS, ROAD, S, TILES, ZONE, type World } from '../layers.ts';
 import { isMega, megaSums } from '../megaprojects.ts';
@@ -48,7 +49,7 @@ export function computeBudget(world: World, month: number): BudgetRecord {
     const n = occupancyOf(arch);
     const payers = z === ZONE.R ? n : jobs > 0 ? Math.floor((n * t.employed) / jobs) : 0;
     const wealth = HEAD_BASE[z - 1]! + ((footprintMean(world, world.landValue, s) * HEAD_LV[z - 1]!) >> 8);
-    inc[z - 1]! += Math.floor((payers * wealth * taxRate(world, z)) / 100);
+    inc[z - 1]! += Math.floor(Math.floor((payers * wealth * taxRate(world, z)) / 100) * slotDistrictMods(world, s).income[z - 1]!);
   }
   // Edicts: Tax Holiday and Curfew scale what the zone pays; their costs are booked with the services.
   const m = mods(world);
@@ -57,7 +58,7 @@ export function computeBudget(world: World, month: number): BudgetRecord {
   // Low approval: citizens resist the tax, every zone pays a share less.
   const resist = approvalIncome(world);
   if (resist !== 1) for (let z = 0; z < 3; z++) inc[z] = Math.floor(inc[z]! * resist);
-  services += edictUpkeep(world);
+  services += edictUpkeep(world) + districtUpkeep(world);
   // Megaprojects pay a flat monthly sum (tourism, cargo, residents' rates) booked with the commercial income.
   inc[1]! += megaSums(world).income;
   // Overflow the production chain sold this month (robots/chain.ts) is industrial income.

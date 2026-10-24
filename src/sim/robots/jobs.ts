@@ -3,6 +3,7 @@ import { clearBuilding, reserveBuilding } from '../commands.ts';
 import {
   abandonedBuildings, growthCandidates, levelUpCandidates, reachAnchors, reachableAccess, zoneDemand, type Lot,
 } from '../economy/index.ts';
+import { slotDistrictMods } from '../districts.ts';
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
 import { mods } from '../firmware.ts';
 import { bytesOf, fnv1a } from '../hash.ts';
@@ -243,7 +244,7 @@ export function materialSystem(sim: Sim): void {
       }
     } else if (produce && zoneOfArch(arch) === ZONE.I && isOperating(w, s)) {
       // A multiplier on the output (Smog Permit) is paid in whole units by carrying the fraction: floor(x * (n + 1)) - floor(x * n) for the nth period.
-      const x = (1 + w.bLevel[s]!) * m.industryOutput, n = tick / PRODUCE_PERIOD;
+      const x = (1 + w.bLevel[s]!) * m.industryOutput * slotDistrictMods(w, s).industryOutput, n = tick / PRODUCE_PERIOD;
       const before = w.bStock[s]!;
       w.bStock[s] = Math.min(INDUSTRY_STOCK_CAP, before + Math.floor(x * (n + 1)) - Math.floor(x * n));
       made(w, RES.ORE, w.bStock[s]! - before);

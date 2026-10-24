@@ -7,6 +7,7 @@ import { clearJob } from './robots/pool.ts';
 import { isChainArch, used } from './robots/stock.ts';
 import { DMODE, LEAD_MIN, planHazard, rebuildAll, setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { debugPost, holdFestival, respond } from './council/index.ts';
+import { districtTileCounts, initDistrict, renameDistrict, setDistrictEdict, setDistrictStyle, touchDistricts } from './districts.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
@@ -70,12 +71,21 @@ export type CommandBody =
   /** Scenario: end it now as won with the stars earned so far (at least one). */
   | { type: 'finishScenario' }
   /** Debug-only: treat the scenario goal's metric as `value` and evaluate at once. */
-  | { type: 'debugScenario'; value: number };
+  | { type: 'debugScenario'; value: number }
+  /** Give the land in a rect to district `district` (1..DMAX; an id with no tiles founds a new district with a generated name). Free; undoable. */
+  | { type: 'paintDistrict'; x0: number; y0: number; x1: number; y1: number; district: number }
+  /** Take the land in a rect out of whichever districts hold it. A district with no tiles left is gone. Undoable. */
+  | { type: 'eraseDistrict'; x0: number; y0: number; x1: number; y1: number }
+  /** Rename a district to `name` (up to 20 letters, digits, spaces and ' - & .), or to the generated name at `pool`. */
+  | { type: 'renameDistrict'; district: number; name?: string; pool?: number }
+  /** Set a district's edict (DEDICT; 0 clears it). The edict's monthly price is booked in the budget. */
+  | { type: 'setDistrictEdict'; district: number; edict: number }
+  | { type: 'setDistrictStyle'; district: number; style: number };
 
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
 export type Command = { id: number; tick: number } & CommandBody;
 
-const UNDO = { NONE: 0, ROAD: 1, ZONE: 2, BUILDING: 3, LINE: 4 } as const;
+const UNDO = { NONE: 0, ROAD: 1, ZONE: 2, BUILDING: 3, LINE: 4, DISTRICT: 5 } as const;
 const NEI = [[0, -1, ROAD.N], [1, 0, ROAD.E], [0, 1, ROAD.S], [-1, 0, ROAD.W]] as const;
 
 class Reject extends Error {}
@@ -107,10 +117,10 @@ interface Capture {
 /** Power line (bit 0) and pipe (bit 1) presence of one tile. */
 const ugBits = (w: World, i: number): number => w.ugPower[i]! | (w.ugWater[i]! << 1);
 
-/** Previous road/zone/line values of the cells a command is about to change. */
-function capture(w: World, cells: Iterable<number>): Capture {
+/** Previous road/zone/line values of the cells a command is about to change. A district command keeps the district id in the `zone` slot. */
+function capture(w: World, cells: Iterable<number>, zoneLayer: Uint8Array = w.zone): Capture {
   const uniq = [...new Set(cells)];
-  return { cells: uniq, road: uniq.map((i) => w.road[i]!), zone: uniq.map((i) => w.zone[i]!), ug: uniq.map((i) => ugBits(w, i)) };
+  return { cells: uniq, road: uniq.map((i) => w.road[i]!), zone: uniq.map((i) => zoneLayer[i]!), ug: uniq.map((i) => ugBits(w, i)) };
 }
 
 /** Records the undo entry after the command mutated the world; returns the sim-assigned journal id (0 = not undoable). */
@@ -122,12 +132,13 @@ function journalCommit(sim: Sim, cap: Capture, kind: number, cost: number, arg: 
   const id = w.scalars[S.journalNext]! + 1;
   w.scalars[S.journalNext] = id;
   const base = slot * UCELLS;
+  const zoneLayer = kind === UNDO.DISTRICT ? w.district : w.zone;
   cap.cells.forEach((idx, n) => {
     w.jIdx[base + n] = idx;
     w.jPrevRoad[base + n] = cap.road[n]!;
     w.jPostRoad[base + n] = w.road[idx]!;
     w.jPrevZone[base + n] = cap.zone[n]!;
-    w.jPostZone[base + n] = w.zone[idx]!;
+    w.jPostZone[base + n] = zoneLayer[idx]!;
     w.jPrevUg[base + n] = cap.ug[n]!;
     w.jPostUg[base + n] = ugBits(w, idx);
   });
@@ -188,6 +199,29 @@ function zone(sim: Sim, c: Extract<Command, { type: 'zone' }>): number {
   for (const i of changed) { w.zone[i] = value; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); }
   w.scalars[S.treasury]! -= cost;
   return journalCommit(sim, cap, UNDO.ZONE, cost, 0);
+}
+
+/** Paint or erase a district rect. A paint into an id with no tiles founds the district first (generated name, style, no edict). */
+function districtRect(sim: Sim, c: Extract<Command, { type: 'paintDistrict' | 'eraseDistrict' }>): number {
+  const w = sim.world;
+  const { validTiles: changed } = checked(sim, c);
+  const cap = capture(w, changed, w.district);
+  const value = c.type === 'paintDistrict' ? c.district : 0;
+  if (value !== 0) {
+    const counts = districtTileCounts(w);
+    if (counts[value] === 0) initDistrict(w, value, counts);
+  }
+  for (const i of changed) { w.district[i] = value; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); }
+  touchDistricts(w);
+  return journalCommit(sim, cap, UNDO.DISTRICT, 0, 0);
+}
+
+function districtCommand(sim: Sim, c: Extract<Command, { type: 'renameDistrict' | 'setDistrictEdict' | 'setDistrictStyle' }>): void {
+  const w = sim.world;
+  const why = c.type === 'renameDistrict' ? renameDistrict(w, c.district, c.name, c.pool)
+    : c.type === 'setDistrictEdict' ? setDistrictEdict(w, c.district, c.edict) : setDistrictStyle(w, c.district, c.style);
+  if (why) reject(why);
+  touchDistricts(w);
 }
 
 /** Free a building slot: tiles, table row, stock and any robot job on it; bumps the slot generation. */
@@ -378,7 +412,7 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   const line = kind === UNDO.LINE, bit = 1 << w.uArg[slot]!;
   for (let k = 0; k < n; k++) {
     const i = w.jIdx[base + k]!;
-    if (line ? (ugBits(w, i) & bit) !== (w.jPostUg[base + k]! & bit) : w.road[i] !== w.jPostRoad[base + k] || w.zone[i] !== w.jPostZone[base + k]) reject('consumed');
+    if (kind === UNDO.DISTRICT ? w.district[i] !== w.jPostZone[base + k] : line ? (ugBits(w, i) & bit) !== (w.jPostUg[base + k]! & bit) : w.road[i] !== w.jPostRoad[base + k] || w.zone[i] !== w.jPostZone[base + k]) reject('consumed');
   }
   if (kind === UNDO.BUILDING) {
     const b = w.uArg[slot]!;
@@ -396,10 +430,12 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   const refund = w.uCost[slot]!;
   for (let k = 0; k < n; k++) {
     const i = w.jIdx[base + k]!;
-    if (line) (bit === 1 ? w.ugPower : w.ugWater)[i] = (w.jPrevUg[base + k]! & bit) === 0 ? 0 : 1;
+    if (kind === UNDO.DISTRICT) w.district[i] = w.jPrevZone[base + k]!;
+    else if (line) (bit === 1 ? w.ugPower : w.ugWater)[i] = (w.jPrevUg[base + k]! & bit) === 0 ? 0 : 1;
     else { w.road[i] = w.jPrevRoad[base + k]!; w.zone[i] = w.jPrevZone[base + k]!; }
     markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0);
   }
+  if (kind === UNDO.DISTRICT) touchDistricts(w);
   w.scalars[S.treasury]! += refund;
   w.uCmd[slot] = 0; w.uKind[slot] = UNDO.NONE; w.uCount[slot] = 0; w.uArg[slot] = 0; w.uGen[slot] = 0; w.uCost[slot] = 0;
   return 0;
@@ -492,6 +528,8 @@ export function execute(sim: Sim, cmd: Command): boolean {
       }
       case 'finishScenario': { const why = finishScenario(sim); if (why) reject(why); break; }
       case 'debugScenario': { const why = debugScenario(sim, cmd.value); if (why) reject(why); break; }
+      case 'paintDistrict': case 'eraseDistrict': journal = districtRect(sim, cmd); break;
+      case 'renameDistrict': case 'setDistrictEdict': case 'setDistrictStyle': districtCommand(sim, cmd); break;
       default: reject('unknown-command');
     }
     sim.events.push(journal ? { type: 'accepted', cmd: cmd.id, tick, journal } : { type: 'accepted', cmd: cmd.id, tick });

@@ -14,6 +14,7 @@ import { Budget } from './Budget';
 import { CouncilPanel } from './Council';
 import { Hud, type HudStats } from './Hud';
 import { DirectiveCard } from './DirectiveCard';
+import { DistrictLabels, DistrictPanel } from './Districts';
 import { EdictsPanel, ResearchPanel } from './FirmwarePanels';
 import { ForecastUi } from './Forecast';
 import { GoalChip } from './GoalChip';
@@ -233,6 +234,8 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
         {panel === 'research' && <ResearchPanel stats={stats.firmware} client={client} onClose={() => setPanel(null)} />}
         {panel === 'edicts' && <EdictsPanel stats={stats.firmware} tier={stats.milestone?.tier ?? 0} client={client} onClose={() => setPanel(null)} />}
         {panel === 'council' && stats.council && <CouncilPanel stats={stats.council} client={client} onShow={(x, y, overlay) => { setPanel(null); game.current?.glideTo(x, y); view.setOverlay(overlay); }} onClose={() => setPanel(null)} />}
+        {panel === 'districts' && <DistrictPanel districts={stats.districts ?? []} client={client} onShow={(x, y) => game.current?.glideTo(x, y)} onClose={() => setPanel(null)} />}
+        {phase === 'running' && !focus && stats.districts && stats.districts.length > 0 && <DistrictLabels districts={stats.districts} game={game} mirror={mirror} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}
         {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}
         {projectsOpen && <MilestonesPanel stats={stats.milestone} population={stats.population} runtime={tools} onClose={() => setPanel(null)} />}

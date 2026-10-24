@@ -25,15 +25,15 @@ function mount(layout: 'phone' | 'desktop', seen: string[] = [], expand = true, 
 const barNames = (): string[] => within(screen.getByTestId('toolbar')).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? '');
 
 describe('icon tool bar', () => {
-  it('is one row of Bulldoze, Road, Zone, Services, Utilities, Terraform, Undo and Views, each with an accessible name and an SVG icon', () => {
+  it('is one row of Bulldoze, Road, Zone, Services, Utilities, Terraform, Districts, Undo and Views, each with an accessible name and an SVG icon', () => {
     mount('phone');
-    expect(barNames()).toEqual(['Bulldoze', 'Road', 'Zone', 'Services', 'Utilities', 'Terraform', 'Undo', 'Views']);
+    expect(barNames()).toEqual(['Bulldoze', 'Road', 'Zone', 'Services', 'Utilities', 'Terraform', 'Districts', 'Undo', 'Views']);
     for (const b of within(screen.getByTestId('toolbar')).getAllByRole('button')) expect(b.querySelector('svg')).not.toBeNull();
   });
 
   it('is the same row on a desktop, with the text labels still present for sighted users', () => {
     mount('desktop');
-    expect(barNames()).toHaveLength(8);
+    expect(barNames()).toHaveLength(9);
     expect(screen.getByTestId('tool-road').textContent).toBe('Road');
   });
 
@@ -186,7 +186,7 @@ describe('collapsible tool bar', () => {
 describe('one-handed layout and focus mode', () => {
   it('mirrors the dock order and the button side for a left-handed player', () => {
     mount('phone', [], true, { handedness: 'left' });
-    expect(barNames()).toEqual(['Views', 'Undo', 'Terraform', 'Utilities', 'Services', 'Zone', 'Road', 'Bulldoze']);
+    expect(barNames()).toEqual(['Views', 'Undo', 'Districts', 'Terraform', 'Utilities', 'Services', 'Zone', 'Road', 'Bulldoze']);
     expect(document.querySelector('.toolsheet')!.getAttribute('data-hand')).toBe('left');
   });
 
