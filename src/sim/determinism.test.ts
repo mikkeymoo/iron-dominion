@@ -6,12 +6,15 @@ import { REGISTRY, S } from './layers.ts';
 import { fnv1a } from './hash.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
 import { runScripted, runTicks, scriptedCity } from './testkit.ts';
+import { gridCity } from './traffic/testkit.ts';
 
 interface Golden {
   seed: number;
   scripted: { ticks: number; hash: number };
   /** Seed 42, no commands, 200 ticks: what `?seed=42&haltAt=200` must report in the browser worker. */
   idle: { ticks: number; hash: number };
+  /** A completed 4x4 block street grid on flat land (traffic/testkit.ts gridCity) with traffic running: the scripted city builds no completed buildings in 2000 ticks, so this is the golden that covers vehicles. */
+  traffic: { ticks: number; hash: number };
 }
 
 function compute(): Golden {
@@ -19,7 +22,17 @@ function compute(): Golden {
   runScripted(sim, scriptedCity(sim.world), 2000);
   const idle = createSim(42);
   runTicks(idle, 200);
-  return { seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) } };
+  const town = trafficTown();
+  return {
+    seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) }, traffic: { ticks: 300, hash: stateHash(town) },
+  };
+}
+
+/** A 4x4 block grid in the morning rush, 300 ticks in: small enough to be quick, busy enough to have vehicles on the road and trips done. */
+function trafficTown(): ReturnType<typeof gridCity> {
+  const town = gridCity({ cols: 4, rows: 4 });
+  runTicks(town, 300);
+  return town;
 }
 
 describe('determinism', () => {
@@ -27,6 +40,11 @@ describe('determinism', () => {
     const got = compute();
     expect(got, `golden.json should become: ${JSON.stringify(got)}`).toEqual(golden);
   }, 30000);
+
+  it('the traffic golden city really carries traffic', () => {
+    const town = trafficTown();
+    expect(town.world.scalars[S.vehicles]! + town.world.scalars[S.tripsDone]!).toBeGreaterThan(5);
+  });
 
   it('executes the scripted city: every command accepted except the deliberate bad one', () => {
     const sim = createSim(42);

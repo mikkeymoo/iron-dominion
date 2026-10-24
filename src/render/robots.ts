@@ -5,7 +5,7 @@ import {
   Mesh, MeshBasicNodeMaterial, MeshStandardNodeMaterial, Vector4, type Material,
 } from 'three/webgpu';
 import { attribute, cameraPosition, cos, cross, float, mix, normalize, positionGeometry, positionLocal, sin, smoothstep, step, uniform, uniformArray, vec3, vec4, vertexColor } from 'three/tsl';
-import { AMAX } from '../sim/layers.ts';
+import { RMAX } from '../sim/layers.ts';
 import { AGENT_KIND, AGENT_STATE, makeSample, type AgentSample, type AgentStore } from './agentStore.ts';
 import { surfaceHeight } from './heightfield.ts';
 import { cachedModel, composeMatrix } from './instances.ts';
@@ -191,15 +191,15 @@ export class RobotsView {
     tier: Tier,
   ) {
     this.group.name = 'robots';
-    this.capacity = Math.min(AMAX, TIER_TABLE[tier].visibleAgents);
+    this.capacity = Math.min(RMAX, TIER_TABLE[tier].visibleAgents);
     this.mats = [robotMaterial('builder'), robotMaterial('hauler')];
-    this.builders = new Fleet(geometryOf(generateBuilder()), this.mats[0]!, AMAX, 'builders');
-    this.haulers = new Fleet(geometryOf(generateHauler()), this.mats[1]!, AMAX, 'haulers');
-    this.sample = makeSample(AMAX);
+    this.builders = new Fleet(geometryOf(generateBuilder()), this.mats[0]!, RMAX, 'builders');
+    this.haulers = new Fleet(geometryOf(generateHauler()), this.mats[1]!, RMAX, 'haulers');
+    this.sample = makeSample(RMAX);
     this.group.add(this.builders.mesh, this.haulers.mesh, this.beams.mesh);
   }
 
-  setTier(tier: Tier): void { this.capacity = Math.min(AMAX, TIER_TABLE[tier].visibleAgents); }
+  setTier(tier: Tier): void { this.capacity = Math.min(RMAX, TIER_TABLE[tier].visibleAgents); }
 
   get snapshot(): Readonly<RobotStats> { return this.stats; }
 
@@ -207,7 +207,7 @@ export class RobotsView {
   update(dt: number, nowMs: number, focusX: number, focusZ: number, emitBudget: number): void {
     this.time += Math.min(0.1, Math.max(0, dt));
     botClock.value = this.time;
-    const s = this.store.sample(nowMs, this.sample, this.capacity, focusX, focusZ);
+    const s = this.store.sample(nowMs, this.sample, this.capacity, focusX, focusZ, 'robots');
     const heights = this.mirror.layers.height!;
     let nb = 0, nh = 0, beams = 0;
     const work: number[] = [];

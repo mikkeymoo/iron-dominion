@@ -1,5 +1,5 @@
 import { ARCH } from '../catalog.ts';
-import { AMAX, BMAX, S, type World } from '../layers.ts';
+import { BMAX, RMAX, S, type World } from '../layers.ts';
 import { roadsOf } from '../roads/index.ts';
 import type { Workforce } from '../protocol.ts';
 import type { Sim } from '../world.ts';
@@ -31,11 +31,11 @@ export function robotsSystem(sim: Sim): void {
   if (tick % SPAWN_PERIOD === 0) spawnPass(sim, net);
   if (tick % DISPATCH_PERIOD === 0) dispatch(sim, net);
   if (tick % GROWTH_PERIOD === 0) growthDirector(sim, countAgents(w).builders);
-  for (let a = 0; a < AMAX; a++) if (w.aKind[a] !== AKIND.NONE) updateAgent(sim, net, a);
+  for (let a = 0; a < RMAX; a++) if (w.aKind[a] !== AKIND.NONE) updateAgent(sim, net, a);
   settleJobs(sim);
   if (tick % UPKEEP_PERIOD === 0) {
     let n = 0;
-    for (let a = 0; a < AMAX; a++) if (w.aKind[a] !== 0) n++;
+    for (let a = 0; a < RMAX; a++) if (w.aKind[a] !== 0) n++;
     w.spend[SPEND.UPKEEP]! += n * ROBOT_UPKEEP;
   }
 }

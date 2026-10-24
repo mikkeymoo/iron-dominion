@@ -182,6 +182,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     world.applyPose(pose);
     world.update(dt, now / 1000, pose, rig.state.dist, rig.state.pitch);
     world.updateRobots(dt, now, pose);
+    world.updateTraffic(now, pose, rig.state.dist);
 
     if (mirror.hasResync) {
       world.terrain.update(rig.state.x, rig.state.z, TIER_TABLE[tier].fullDetailChunks);
@@ -299,6 +300,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       return { x: s.x, z: s.z, ty: s.ty, yaw: s.yaw, pitch: s.pitch, dist: s.dist, px: p.px, py: p.py, pz: p.pz };
     },
     get robots() { return world.robots.snapshot; },
+    get traffic() { return { ...world.traffic.snapshot, sample: (n: number) => world.traffic.samplePositions(n) }; },
     get following() { return rig.following; },
     follow,
     pickTile: pickAt,

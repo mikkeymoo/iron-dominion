@@ -1,4 +1,4 @@
-import { CHUNK, CHUNKS, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, isTileLayer, type LayerName } from '../sim/layers.ts';
+import { CHUNK, CHUNKS, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, isTileLayer, type LayerName } from '../sim/layers.ts';
 import type { BuildingRec, FromWorker, Typed } from '../sim/protocol.ts';
 import { chunkIdx, copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
 
@@ -11,7 +11,7 @@ const renderInfos = REGISTRY.filter((l) => l.render);
 export class RenderMirror {
   readonly layers: Record<string, Typed> = {};
   readonly table: BuildingTable;
-  scalars = new Float64Array(32);
+  scalars = new Float64Array(SPEC.scalars.length);
   tick = 0;
   hasResync = false;
   /** Bumped when height, terrain or water depth may have changed (resync, or a patch carrying one of those layers). */

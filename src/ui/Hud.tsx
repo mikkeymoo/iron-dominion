@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LoanInfo, Speed, Workforce } from '../sim/protocol.ts';
+import type { LoanInfo, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
@@ -43,6 +43,7 @@ export interface HudStats {
   unwatered: number;
   modelled: { power: boolean; water: boolean };
   workforce: Workforce;
+  traffic?: TrafficStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -127,6 +128,13 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
           <span>Jobs {stats.workforce.jobs}</span>
           <span>Material {stats.workforce.stock}</span>
         </div>
+        {stats.traffic && (
+          <div className="traffic" data-testid="traffic" title="Vehicles on the road, how much traffic slows them below free flow, and the share of recent commutes that could not finish in time or find a route">
+            <span>Vehicles {stats.traffic.vehicles}</span>
+            <span>Congestion {Math.round(stats.traffic.congestion * 100)}%</span>
+            <span>Failed commutes {stats.traffic.failedPct}%</span>
+          </div>
+        )}
         <DemandBars demand={stats.rciDemand} />
         <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} modelled={stats.modelled} />
         {follow && (

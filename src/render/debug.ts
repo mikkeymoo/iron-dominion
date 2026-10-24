@@ -1,4 +1,4 @@
-import type { Workforce } from '../sim/protocol.ts';
+import type { TrafficStats, Workforce } from '../sim/protocol.ts';
 import type { FxDebug } from './fx/index.ts';
 import type { Backend, Tier } from './tier.ts';
 
@@ -28,7 +28,7 @@ export interface RenderDebug {
   readonly lines: { pylons: number; spans: number; pipeSegments: number; drawCalls: number };
   /** Outage icons uploaded this frame. */
   readonly outageIcons: number;
-  /** Set the overlay mode (none, power, water, landValue, pollution) the way the HUD buttons do; false for an unknown mode. */
+  /** Set the overlay mode (none, power, water, landValue, pollution, traffic) the way the HUD buttons do; false for an unknown mode. */
   setOverlay(mode: string): boolean;
   setUnderground(on: boolean): void;
   /** Set by ?showcase=1 once the district is planned: the camera pose that frames it. */
@@ -43,6 +43,11 @@ export interface RenderDebug {
   loseDevice(): void;
   /** Robots in the latest agent message: drawn (visible), and how many are builders and haulers; beams and sparks are what the view has emitted. */
   readonly robots: { readonly visible: number; readonly builders: number; readonly haulers: number; readonly beams: number; readonly sparks: number };
+  /**
+   * Vehicles: `visible` drawn this frame (tier cap, view culling), `active` in the latest agent message, `lit` drawn with lights on,
+   * `braking` drawn with brake lights; `sample(n)` returns up to n drawn vehicles' tile-space positions, headings, kinds (3 car, 4 taxi, 5 truck, 6 bus) and states.
+   */
+  readonly traffic: { readonly visible: number; readonly active: number; readonly lit: number; readonly braking: number; sample(n: number): { x: number; z: number; yaw: number; kind: number; state: number }[] };
   /** Follow-a-robot chase camera. `follow(true)` picks a random active robot and returns whether one was found. */
   readonly following: boolean;
   follow(on: boolean, kind?: number): boolean;
@@ -61,7 +66,7 @@ export interface BuildingDebug {
 
 export interface IronDebug {
   /** `workforce`, `population` and `jobs` (jobs in finished commercial and industrial buildings) come from the newest Stats message. */
-  sim: { tick: number; hash?: number; hashTick?: number; workforce?: Workforce; population?: number; jobs?: number };
+  sim: { tick: number; hash?: number; hashTick?: number; workforce?: Workforce; traffic?: TrafficStats; population?: number; jobs?: number };
   render?: RenderDebug;
 }
 

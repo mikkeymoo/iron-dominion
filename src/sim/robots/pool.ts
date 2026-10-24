@@ -1,5 +1,5 @@
 import { ARCH } from '../catalog.ts';
-import { AMAX, MAP, S, type World } from '../layers.ts';
+import { MAP, RMAX, S, type World } from '../layers.ts';
 import { AST } from './constants.ts';
 
 /** Robot spending accrued this month (paid with the month's budget): `spend` indices. */
@@ -39,7 +39,7 @@ export function jobSlot(w: World, a: number): number {
 /** Take the lowest free slot; the slot's generation was bumped when it was freed. Returns -1 when the pool is full. */
 export function spawnAgent(w: World, kind: number, homeRef: number, x: number, y: number): number {
   const a = w.aKind.indexOf(0);
-  if (a < 0) return -1;
+  if (a < 0 || a >= RMAX) return -1;
   w.aKind[a] = kind; w.aState[a] = AST.IDLE; w.aHome[a] = homeRef;
   w.aX[a] = x; w.aY[a] = y; w.aHead[a] = 0;
   w.aTarget[a] = 0; w.aGoal[a] = 0; w.aPlan[a] = 0; w.aStep[a] = 0; w.aFrac[a] = 0; w.aEpoch[a] = 0;
@@ -62,7 +62,7 @@ export function nearestTileOf(w: World, a: number): number {
 
 export function countAgents(w: World): { builders: number; haulers: number; activeBuilders: number; activeHaulers: number } {
   let builders = 0, haulers = 0, activeBuilders = 0, activeHaulers = 0;
-  for (let a = 0; a < AMAX; a++) {
+  for (let a = 0; a < RMAX; a++) {
     const k = w.aKind[a]!;
     if (k === 0) continue;
     const active = w.aState[a] !== AST.IDLE;

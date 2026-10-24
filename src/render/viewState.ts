@@ -1,8 +1,10 @@
 // What the player is looking at, shared by the HUD (which sets it) and the renderer (which reads it). DOM-free and three-free.
 
-export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution';
-export const OVERLAY_MODES: readonly OverlayMode[] = ['none', 'power', 'water', 'landValue', 'pollution'];
-export const OVERLAY_LABELS: Record<OverlayMode, string> = { none: 'None', power: 'Power', water: 'Water', landValue: 'Land value', pollution: 'Pollution' };
+import type { OVERLAY_MODE_TRAFFIC } from '../sim/traffic/constants.ts';
+
+export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | typeof OVERLAY_MODE_TRAFFIC;
+export const OVERLAY_MODES: readonly OverlayMode[] = ['none', 'power', 'water', 'landValue', 'pollution', 'traffic'];
+export const OVERLAY_LABELS: Record<OverlayMode, string> = { none: 'None', power: 'Power', water: 'Water', landValue: 'Land value', pollution: 'Pollution', traffic: 'Traffic' };
 
 export const isOverlayMode = (v: unknown): v is OverlayMode => typeof v === 'string' && (OVERLAY_MODES as readonly string[]).includes(v);
 

@@ -5,6 +5,7 @@ import {
   LV_BASE_BY_TERRAIN, LV_CYCLE, LV_HILL_MAX, LV_POLLUTION_SHIFT, LV_ROAD_BONUS, LV_ROWS, LV_SERVICE_SHIFT, LV_WATER_MAX,
   POLL_EMIT_I, POLL_KEEP,
 } from './tables.ts';
+import { LV_COMMUTE_SHIFT, TRAFFIC_POLL_FREE, TRAFFIC_POLL_MAX } from '../traffic/constants.ts';
 import { GRID_WATER, LV_NO_POWER, LV_NO_WATER } from '../utilities/tables.ts';
 import { isOperating, zoneOfArch } from './totals.ts';
 
@@ -26,6 +27,13 @@ const wet = (w: World, j: number): boolean => isWaterTerrain(w.terrain[j]!) || w
  */
 export const serviceBonus = (w: World, i: number): number =>
   (w.covFire[i]! + w.covPolice[i]! + w.covHealth[i]! + w.covEdu[i]!) >> LV_SERVICE_SHIFT;
+
+/**
+ * Subtractive land value term for failed commutes (U10 hook). The traffic system adds to `cFail` around a home each time one of its
+ * commutes cannot route or runs out of time; the memory decays on its own. Land value feeds R lot scores (growth), level-ups and
+ * abandonment, so a neighbourhood whose commutes keep failing becomes less desirable to build and live in. Max 255 >> LV_COMMUTE_SHIFT = 63.
+ */
+export const commutePenalty = (w: World, i: number): number => w.cFail[i]! >> LV_COMMUTE_SHIFT;
 
 /**
  * Land value of one tile, 0..255, from the current layers: terrain base, a mild hill bonus, a water-view bonus (water
@@ -61,6 +69,7 @@ export function landValueAt(w: World, x: number, y: number): number {
 
   v -= w.pollution[i]! >> LV_POLLUTION_SHIFT;
   v += serviceBonus(w, i);
+  v -= commutePenalty(w, i);
   // Utilities, once the city models them: no water reach costs the tile land value, and so does standing under a dark building.
   if ((w.scalars[S.grid]! & GRID_WATER) !== 0 && w.waterOn[i] !== 1 && w.waterOn[i] !== 2) v -= LV_NO_WATER;
   if (w.bId[i] !== 0 && (w.bFlags[w.bId[i]! - 1]! & BFLAG.UNPOWERED) !== 0) v -= LV_NO_POWER;
@@ -97,13 +106,15 @@ export function emissionOf(w: World, slot: number): number {
 /**
  * One pollution step: blur each tile with its four neighbours (centre weighted 2 of 6), keep POLL_KEEP/256 of it, add the
  * emission of the buildings on the tile. Mass decays by about 6%/pass, so a steady source reaches a steady field. Skipped
- * entirely while nothing emits and nothing is left. U10 hook: add traffic emission from road load into `emit` here.
+ * entirely while nothing emits and nothing is left. Traffic (U10 hook): a road tile whose four tile-direction loads (`tLoad`) sum
+ * to more than TRAFFIC_POLL_FREE vehicles emits the excess, at most TRAFFIC_POLL_MAX, so only busy roads add to the field.
  */
 export function pollutionPass(sim: Sim): void {
   const w = sim.world, sc = w.scalars;
   let sources = 0;
   for (let s = 0; s < BMAX; s++) if (emissionOf(w, s) > 0) sources++;
-  if (sources === 0 && sc[S.pollTotal] === 0) return;
+  const traffic = sc[S.vehicles]! > 0;
+  if (sources === 0 && !traffic && sc[S.pollTotal] === 0) return;
 
   emit.fill(0);
   for (let s = 0; s < BMAX; s++) {
@@ -111,6 +122,12 @@ export function pollutionPass(sim: Sim): void {
     if (e === 0) continue;
     const bw = w.bW[s]!, bh = w.bH[s]!, share = Math.max(1, Math.floor(e / (bw * bh)));
     for (let yy = w.bY[s]!; yy < w.bY[s]! + bh; yy++) for (let xx = w.bX[s]!; xx < w.bX[s]! + bw; xx++) emit[yy * MAP + xx]! += share;
+  }
+  if (traffic) {
+    for (let i = 0; i < TILES; i++) {
+      const b = i << 2, load = w.tLoad[b]! + w.tLoad[b + 1]! + w.tLoad[b + 2]! + w.tLoad[b + 3]!;
+      if (load > TRAFFIC_POLL_FREE) emit[i]! += Math.min(TRAFFIC_POLL_MAX, load - TRAFFIC_POLL_FREE);
+    }
   }
 
   prev.set(w.pollution);

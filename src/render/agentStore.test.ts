@@ -71,6 +71,50 @@ describe('AgentStore', () => {
     expect(new Set([out.pos[0], out.pos[3]])).toEqual(new Set([130, 120]));
   });
 
+  it('keeps robots and vehicles apart: a group sample, the robot counts and the active keys never mix them', () => {
+    const s = new AgentStore();
+    s.ingest(msg(1, [
+      { slot: 1, gen: 0, x: 1, z: 1, kind: 1 }, { slot: 2, gen: 0, x: 2, z: 1, kind: 2 },
+      { slot: 4100, gen: 0, x: 3, z: 1, kind: 3, state: 10 }, { slot: 4101, gen: 0, x: 4, z: 1, kind: 5, state: 11 }, { slot: 4102, gen: 0, x: 5, z: 1, kind: 4, state: 10 },
+    ]), 0);
+    const out = makeSample(8);
+    expect(s.sample(0, out, 8, 0, 0, 'vehicles').count).toBe(3);
+    expect(Array.from(out.kind.slice(0, 3))).toEqual([3, 5, 4]);
+    expect(Array.from(out.state.slice(0, 3))).toEqual([10, 11, 10]);
+    expect(s.sample(0, out, 8, 0, 0, 'robots').count).toBe(2);
+    expect(Array.from(out.kind.slice(0, 2))).toEqual([1, 2]);
+    expect(s.counts()).toEqual({ builders: 1, haulers: 1 });
+    expect(s.vehicleCount()).toBe(3);
+    expect(s.activeKeys()).toHaveLength(2);
+    expect(s.activeKeys(5)).toEqual([4101]);
+  });
+
+  it('caps each group on its own and keeps the nearest, breaking ties by arrival order', () => {
+    const s = new AgentStore();
+    const robots = [0, 1, 2].map((i) => ({ slot: i, gen: 0, x: 10 + i, z: 0, kind: 1 }));
+    const cars = [0, 1, 2, 3, 4, 5].map((i) => ({ slot: 4096 + i, gen: 0, x: i < 3 ? 20 : 50 + i, z: 0, kind: 3, state: 10 }));
+    s.ingest(msg(1, [...robots, ...cars]), 0);
+    const out = makeSample(4);
+    expect(s.sample(0, out, 2, 20, 0, 'vehicles').count).toBe(2);
+    // Three cars tie at the focus; the first two in message order win.
+    expect(Array.from(out.key.slice(0, 2))).toEqual([4096, 4097]);
+    expect(s.sample(0, out, 2, 0, 0, 'robots').count).toBe(2);
+    expect(s.sample(0, out, 0, 0, 0, 'vehicles').count).toBe(0);
+  });
+
+  it('does not blend two snapshots more than a few ticks apart, so a fast-forwarded vehicle never cuts a corner', () => {
+    const s = new AgentStore();
+    s.ingest(msg(100, [{ slot: 4100, gen: 0, x: 10, z: 10, kind: 3, state: 10 }]), 0);
+    s.ingest(msg(160, [{ slot: 4100, gen: 0, x: 13, z: 12, kind: 3, state: 10 }]), 16);
+    const out = makeSample(2);
+    s.sample(24, out, 2);
+    expect([out.pos[0], out.pos[1]]).toEqual([13, 12]);
+    s.ingest(msg(161, [{ slot: 4100, gen: 0, x: 13.2, z: 12, kind: 3, state: 10 }]), 116);
+    s.sample(166, out, 2);
+    expect(out.pos[0]).toBeGreaterThan(13);
+    expect(out.pos[0]).toBeLessThan(13.2);
+  });
+
   it('poseOf follows one agent and returns null once it is gone', () => {
     const s = new AgentStore();
     const key = (4 | (2 << 16)) >>> 0;

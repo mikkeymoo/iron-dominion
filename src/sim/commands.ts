@@ -5,7 +5,7 @@ import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
 import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
-import { AMAX, MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
+import { MAP, RMAX, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { markDirty, type Sim } from './world.ts';
 
@@ -322,7 +322,7 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
     if (w.bArch[b] === ARCH.DEPOT && w.bAux[b] === 1) {
       if (w.bStock[b] !== DEPOT_START_STOCK) reject('consumed');
       const ref = ((b + 1) | (w.bGen[b]! << 16)) >>> 0;
-      for (let a = 0; a < AMAX; a++) if (w.aKind[a] !== 0 && w.aHome[a] === ref) reject('consumed');
+      for (let a = 0; a < RMAX; a++) if (w.aKind[a] !== 0 && w.aHome[a] === ref) reject('consumed');
     }
     clearBuilding(sim, b);
   }

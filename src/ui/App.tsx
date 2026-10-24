@@ -97,6 +97,7 @@ export function App() {
         if (dbg) {
           dbg.sim.tick = st.tick;
           dbg.sim.workforce = st.workforce;
+          dbg.sim.traffic = st.traffic;
           dbg.sim.population = st.population;
           dbg.sim.jobs = st.jobsC + st.jobsI;
           if (st.hash !== undefined) { dbg.sim.hash = st.hash; dbg.sim.hashTick = st.tick; }
@@ -104,7 +105,7 @@ export function App() {
         samplesRef.current?.push(st);
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
-          rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths, workforce: st.workforce,
+          rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths, workforce: st.workforce, traffic: st.traffic,
           power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled,
         });
       },
