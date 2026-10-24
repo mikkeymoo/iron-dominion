@@ -172,10 +172,10 @@ function chainFacts(w: World, slot: number): { stocks: StockBar[]; needs: NeedIt
     needs.push({ text: `${RES_NAMES[inRes]}: ${buf} of ${inNeed} for a batch`, ok: buf >= inNeed });
   }
   stocks.push({ res: outRes, role: 'out', have, cap: OUTPUT_CAP });
-  needs.push({ text: have >= OUTPUT_CAP ? `${RES_NAMES[outRes]} output full, the extra is sold` : `Room for ${RES_NAMES[outRes]}`, ok: have < OUTPUT_CAP });
+  needs.push({ text: have >= OUTPUT_CAP ? `${RES_NAMES[outRes]} output full, production paused` : `Room for ${RES_NAMES[outRes]}`, ok: have < OUTPUT_CAP });
   if (chainRunning(w, slot)) {
     if (inRes >= 0 && w.bIn[slot * 3 + inRes]! < inNeed) out.push(thought(30, 'warn', `Starved: waiting for ${RES_NAMES[inRes]!.toLowerCase()} from haulers.`));
-    else if (have >= OUTPUT_CAP) out.push(thought(25, 'warn', `Output is full: the extra ${RES_NAMES[outRes]!.toLowerCase()} is sold.`));
+    else if (have >= OUTPUT_CAP) out.push(thought(25, 'warn', `Output is full: production is paused until haulers take ${RES_NAMES[outRes]!.toLowerCase()}.`));
     else out.push(thought(8, 'good', made));
   }
   return { stocks, needs, thoughts: out };
@@ -257,7 +257,7 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
       if ((flags & BFLAG.UNPOWERED) !== 0) out.push(thought(8, 'warn', 'No power: the dome is down and meteors get through.', 'power'));
       else out.push(thought(8, 'good', `Stops meteors from landing within ${DOME_RADIUS} tiles.`));
     } else if (arch === ARCH.BATTERY_BANK) {
-      const pct = Math.round((w.bStock[slot]! * 100) / BATTERY_CAP);
+      const pct = Math.round((w.bCharge[slot]! * 100) / BATTERY_CAP);
       out.push(thought(8, pct >= 50 ? 'good' : 'warn', `Charged ${pct}%. It fills from spare power and covers brown-outs.`));
     }
     if (a.pollution && a.pollution > 0 && works(flags)) {

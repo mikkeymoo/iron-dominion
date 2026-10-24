@@ -47,6 +47,11 @@ export function rebuildQuote(w: World): RebuildQuote {
   return { ruins, queued, cost };
 }
 
+/** Pay back what an order charged for a ruin that the order will not rebuild (the ruin was cleared another way, or the lot would not take the building). */
+export function refundRebuild(w: World, arch: number): void {
+  w.scalars[S.treasury]! += discounted(rebuildPrice(arch));
+}
+
 /** The rebuildAll command. Returns a rejection reason, or undefined when the ruins were queued and paid for. */
 export function rebuildAll(sim: Sim): string | undefined {
   const w = sim.world, q = rebuildQuote(w);

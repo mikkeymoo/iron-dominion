@@ -148,10 +148,11 @@ export function setupScenario(sim: Sim, spec: ScenarioSpec): void {
   w.disaster[D.MODE] = withFloor(w.disaster[D.MODE]!, m.disasterFloor);
   spec.loans.slice(0, MAX_LOANS).forEach((tier, slot) => { w.loanAmt[slot] = LOAN_TIERS[tier]!; w.loanBp[slot] = LOAN_BP[tier]!; });
   if (spec.start === 'starter') {
-    placeStarter(sim, {
+    const slot = placeStarter(sim, {
       builders: Math.ceil((STARTER_BUILDERS * m.buildersPerDepot) / BUILDERS_PER_DEPOT),
       haulers: Math.ceil((STARTER_HAULERS * m.haulersPerDepot) / HAULERS_PER_DEPOT),
     });
+    if (slot < 0) console.warn(`scenario ${spec.id} (key ${spec.key}, seed ${spec.seed}): no flat dry site for the starter kit`);
   }
-  if (spec.town) placeTown(sim, spec.town);
+  if (spec.town && !placeTown(sim, spec.town)) console.warn(`scenario ${spec.id} (key ${spec.key}, seed ${spec.seed}): no flat dry site for the ${spec.town} town`);
 }

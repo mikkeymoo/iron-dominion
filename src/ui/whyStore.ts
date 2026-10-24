@@ -35,6 +35,8 @@ export class WhyStore {
   info: BuildingInfo | AgentInfo | null = null;
   /** The tapped robot has gone inside its depot (or the vehicle has arrived): the card shows its last words. */
   gone = false;
+  /** The info request itself failed (the worker answered with an error or never answered): the card says it could not load. */
+  failed = false;
   version = 0;
   private sig = '';
   private readonly listeners = new Set<() => void>();
@@ -71,6 +73,7 @@ export class WhyStore {
     this.selection = t.kind === 'building' ? { kind: 'building', ref: t.slot, x: t.x, y: t.y } : { kind: 'agent', ref: t.key, akind: t.akind, x: t.x, y: t.y };
     this.info = null;
     this.gone = false;
+    this.failed = false;
     this.restartPoll();
     this.notify();
     void this.fetch();
@@ -78,7 +81,7 @@ export class WhyStore {
 
   clear(): void {
     if (!this.selection && !this.info) return;
-    this.selection = null; this.info = null; this.gone = false;
+    this.selection = null; this.info = null; this.gone = false; this.failed = false;
     this.stopPoll();
     this.notify();
   }
@@ -87,8 +90,14 @@ export class WhyStore {
     const sel = this.selection;
     if (!sel) return;
     let m: InfoMsg;
-    try { m = await this.deps.requestInfo(sel.kind, sel.ref); } catch { return; }
+    try { m = await this.deps.requestInfo(sel.kind, sel.ref); } catch {
+      if (this.selection !== sel) return;
+      this.failed = true;
+      this.notify();
+      return;
+    }
     if (this.selection !== sel) return;
+    this.failed = false;
     if (m.ok && m.info) { this.info = m.info; this.gone = false; } else if (sel.kind === 'building') { this.clear(); return; } else this.gone = true;
     this.notify();
   }

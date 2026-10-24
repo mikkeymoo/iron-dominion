@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, archetype, rciId } from './catalog.ts';
 import { execute, type Command, type CommandBody } from './commands.ts';
-import { approvalTarget } from './council/index.ts';
+import { approvalOf, approvalTarget } from './council/index.ts';
 import { destroyBuilding } from './disasters/index.ts';
-import { closeMonth, computeBudget, countTotals, demandTargets, emissionOf, landValueAt } from './economy/index.ts';
+import { closeMonth, computeBudget, countTotals, demandTargets, emissionOf, landValueAt, lastMonth } from './economy/index.ts';
 import { createSim, restore, snapshot, stateHash, step } from './engine.ts';
 import {
   BAY_BUILDERS, BRANCH, DEPOT_SLOTS, EDICT, EDICTS, EDICT_COUNT, EDICT_NUMBERS, LAB_MAX, LAB_RP, MAX_EDICTS, MODULE, MODULES, NODE, NODE_COUNT, PAD_HAULERS,
-  RESEARCH_NODES, WORKSHOP_RADIUS, buildSpeed, computeMods, depotCaps, edictUpkeep, firmwareStats, isNight, mods, moduleAt, poweredLabs, populationRp,
+  RESEARCH_NODES, WORKSHOP_RADIUS, buildSpeed, computeMods, depotCaps, edictIncomeC, edictIncomeR, edictUpkeep, firmwareStats, isNight, mods, moduleAt, poweredLabs, populationRp,
   rpPerMonth, workshopBonus, type Mods,
 } from './firmware.ts';
 import { BMAX, F, MAP, REGISTRY, S, type World } from './layers.ts';
@@ -913,5 +913,79 @@ describe('determinism with firmware', () => {
     expect(mods(w)).toBe(mods(createSim(2).world));
     expect(mods(w)).toEqual(BASE);
     expect(w.firmware.every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe('edicts bill and pay by the time they ran in the month', () => {
+  const FEE = EDICTS[EDICT.OVERCLOCK]!.cost;
+  let closeTick = 0;
+
+  /** Steps a fresh empty city takes before its first budget month closes. */
+  function firstClose(): number {
+    if (closeTick === 0) {
+      const probe = flatSim(11, true);
+      while (probe.world.scalars[S.month] === 0) { step(probe); closeTick++; }
+    }
+    return closeTick;
+  }
+
+  /** A city whose first month just closed, with edict `id` enacted at step `on` and (when given) repealed at step `off`. */
+  function month(id: number | null, on: number, off = Infinity): Sim {
+    const sim = flatSim(11, true);
+    tryCmd(sim, { type: 'debugTier', tier: MAX_TIER });
+    for (let t = 0; t < firstClose(); t++) {
+      if (id !== null && t === on) expect(tryCmd(sim, { type: 'toggleEdict', edict: id })).toBe('ok');
+      if (id !== null && t === off) expect(tryCmd(sim, { type: 'toggleEdict', edict: id })).toBe('ok');
+      step(sim);
+    }
+    expect(sim.world.scalars[S.month]).toBe(1);
+    return sim;
+  }
+
+  it('an edict enacted a few ticks before the close pays for those ticks, not for a month', () => {
+    const full = lastMonth(month(EDICT.OVERCLOCK, 0).world).services;
+    const late = lastMonth(month(EDICT.OVERCLOCK, firstClose() - 10).world).services;
+    expect(full, 'the first month is part of a day, so its standing charges are prorated').toBeGreaterThan(FEE / 2);
+    expect(late).toBeLessThan(full / 10);
+  });
+
+  it('an edict repealed a few ticks before the close still pays for the month it ran', () => {
+    const full = lastMonth(month(EDICT.OVERCLOCK, 0).world).services;
+    const early = lastMonth(month(EDICT.OVERCLOCK, 0, firstClose() - 10).world).services;
+    expect(early).toBeGreaterThanOrEqual(full * 0.99);
+    expect(lastMonth(month(null, 0).world).services).toBe(0);
+  });
+
+  it('an approval edict enacted just before the close banks almost none of its approval, and one that ran all month banks it', () => {
+    const base = approvalOf(month(null, 0).world);
+    const full = approvalOf(month(EDICT.ROBO_TAXIS, 0).world);
+    const late = approvalOf(month(EDICT.ROBO_TAXIS, firstClose() - 10).world);
+    expect(full).toBeGreaterThan(base + 0.5);
+    expect(late - base).toBeLessThan((full - base) / 20);
+    const repealed = approvalOf(month(EDICT.ROBO_TAXIS, 0, firstClose() - 10).world);
+    expect(repealed).toBeGreaterThan(base + (full - base) * 0.95);
+  });
+
+  it('Tax Holiday and Curfew scale tax income by the share of the month they ran', () => {
+    const sim = flatSim(11, true);
+    const w = sim.world;
+    w.spend[3] = 1000;
+    w.edictTicks[EDICT.TAX_HOLIDAY] = 500; w.edictTicks[EDICT.CURFEW] = 1000;
+    expect(edictIncomeR(w)).toBeCloseTo(1 + (EDICT_NUMBERS.residentialIncomePct / 100) * 0.5, 10);
+    expect(edictIncomeC(w)).toBeCloseTo(1 + EDICT_NUMBERS.commercialIncomePct / 100, 10);
+    w.edictTicks[EDICT.TAX_HOLIDAY] = 0;
+    expect(edictIncomeR(w)).toBe(1);
+  });
+
+  it('the share survives a snapshot: a restored city closes the month with the same hash', () => {
+    const a = flatSim(11, true);
+    tryCmd(a, { type: 'debugTier', tier: MAX_TIER });
+    tryCmd(a, { type: 'toggleEdict', edict: EDICT.OVERCLOCK });
+    runTicks(a, 300);
+    const b = restore(snapshot(a));
+    expect(b.world.edictTicks[EDICT.OVERCLOCK]).toBe(300);
+    runTicks(a, firstClose() - 300); runTicks(b, firstClose() - 300);
+    expect(stateHash(b)).toBe(stateHash(a));
+    expect(a.world.edictTicks[8 + EDICT.OVERCLOCK]).toBeGreaterThan(0.99);
   });
 });

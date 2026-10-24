@@ -1,10 +1,11 @@
 import { BFLAG, CATALOG, isRci } from '../catalog.ts';
 import { approvalIncome } from '../council/effects.ts';
 import { districtUpkeep, slotDistrictMods } from '../districts.ts';
-import { accrueResearch, edictUpkeep, mods } from '../firmware.ts';
+import { accrueResearch, edictIncomeC, edictIncomeR, edictUpkeep, rollEdictShares } from '../firmware.ts';
 import { BMAX, BUDGET_FIELDS, BUDGET_MONTHS, MAX_LOANS, ROAD, S, TILES, ZONE, type World } from '../layers.ts';
 import { isMega, megaSums } from '../megaprojects.ts';
 import type { BudgetRecord, LoanInfo } from '../protocol.ts';
+import { sellExports } from '../robots/chain.ts';
 import { CH } from '../robots/constants.ts';
 import type { Sim } from '../world.ts';
 import { taxRate } from './demand.ts';
@@ -51,17 +52,16 @@ export function computeBudget(world: World, month: number): BudgetRecord {
     const wealth = HEAD_BASE[z - 1]! + ((footprintMean(world, world.landValue, s) * HEAD_LV[z - 1]!) >> 8);
     inc[z - 1]! += Math.floor(Math.floor((payers * wealth * taxRate(world, z)) / 100) * slotDistrictMods(world, s).income[z - 1]!);
   }
-  // Edicts: Tax Holiday and Curfew scale what the zone pays; their costs are booked with the services.
-  const m = mods(world);
-  inc[0] = Math.floor(inc[0]! * m.incomeR);
-  inc[1] = Math.floor(inc[1]! * m.incomeC);
+  // Edicts: Tax Holiday and Curfew scale what the zone pays for the share of the month they ran; their costs are booked with the services.
+  inc[0] = Math.floor(inc[0]! * edictIncomeR(world));
+  inc[1] = Math.floor(inc[1]! * edictIncomeC(world));
   // Low approval: citizens resist the tax, every zone pays a share less.
   const resist = approvalIncome(world);
   if (resist !== 1) for (let z = 0; z < 3; z++) inc[z] = Math.floor(inc[z]! * resist);
   services += edictUpkeep(world) + districtUpkeep(world);
   // Megaprojects pay a flat monthly sum (tourism, cargo, residents' rates) booked with the commercial income.
   inc[1]! += megaSums(world).income;
-  // Overflow the production chain sold this month (robots/chain.ts) is industrial income.
+  // What the producers exported at this month close (robots/chain.ts sellExports) is industrial income.
   inc[2]! += world.chain[CH.EXPORT]!;
   let roads = 0;
   for (let i = 0; i < TILES; i++) {
@@ -109,9 +109,11 @@ function writeRecord(world: World, r: BudgetRecord): void {
 /** Close the month in progress: pay it into the treasury, store the record, count consecutive negative months. */
 export function closeMonth(sim: Sim): BudgetRecord {
   const w = sim.world, sc = w.scalars, month = sc[S.month]!;
+  sellExports(sim);
   const r = prorate(computeBudget(w, month), w.spend[3]!, sc[S.treasury]!, w.chain[CH.EXPORT]!);
   sc[S.treasury] = r.treasury;
   writeRecord(w, r);
+  rollEdictShares(w);
   w.spend.fill(0);
   w.chain[CH.EXPORT] = 0;
   sc[S.month] = month + 1;

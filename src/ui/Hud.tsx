@@ -236,23 +236,32 @@ export function Hud({
     >{phone ? <IconMenu /> : 'Menu'}</button>
   );
 
+  const playPauseEl = (
+    <button
+      type="button" className="tb icon" data-testid="playpause" aria-pressed={paused} aria-label={paused ? 'Play' : 'Pause'}
+      title={paused ? 'Play' : 'Pause (0)'}
+      onClick={() => lifecycle.setSpeed(paused ? lastRunning.current : 0)}
+    >{paused ? <IconPlay /> : <IconPause />}</button>
+  );
+  const speedCycleEl = (
+    <button
+      type="button" className="tb speed-cycle" data-testid="speed-cycle" aria-label={`Speed ${speedLabel(paused ? lastRunning.current : lc.speed)}. Tap to change.`}
+      title="Change speed" onClick={() => lifecycle.setSpeed(nextSpeed(paused ? lastRunning.current : lc.speed))}
+    >{speedLabel(paused ? lastRunning.current : lc.speed)}</button>
+  );
+
   return (
     <>
+      {focus && (
+        <div className="focus-controls" data-layout={layout} data-testid="focus-controls" role="toolbar" aria-label="Game speed">
+          {playPauseEl}
+          {speedCycleEl}
+        </div>
+      )}
       {!focus && (
       <div className="topbar" data-layout={layout} data-open={topOpen} {...{ [PANEL_ATTR]: 'top' }} data-testid="topbar" role="toolbar" aria-label="Game controls">
-        {has('playPause') && (
-          <button
-            type="button" className="tb icon" data-testid="playpause" aria-pressed={paused} aria-label={paused ? 'Play' : 'Pause'}
-            title={paused ? 'Play' : 'Pause (0)'}
-            onClick={() => lifecycle.setSpeed(paused ? lastRunning.current : 0)}
-          >{paused ? <IconPlay /> : <IconPause />}</button>
-        )}
-        {has('speedCycle') && (
-          <button
-            type="button" className="tb speed-cycle" data-testid="speed-cycle" aria-label={`Speed ${speedLabel(paused ? lastRunning.current : lc.speed)}. Tap to change.`}
-            title="Change speed" onClick={() => lifecycle.setSpeed(nextSpeed(paused ? lastRunning.current : lc.speed))}
-          >{speedLabel(paused ? lastRunning.current : lc.speed)}</button>
-        )}
+        {has('playPause') && playPauseEl}
+        {has('speedCycle') && speedCycleEl}
         {has('speeds') && (
           <div className="speeds" role="group" aria-label="Game speed">
             {SPEEDS.map((s) => (

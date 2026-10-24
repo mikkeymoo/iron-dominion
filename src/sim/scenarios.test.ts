@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, rciId } from './catalog.ts';
 import { execute, type CommandBody } from './commands.ts';
 import { D, F, MAP, S, SC, TERRAIN, WEATHER, ZONE, type World } from './layers.ts';
 import { estimate } from './estimate.ts';
-import { createSim, restore, snapshot, stateHash } from './engine.ts';
+import { createSim, restore, simFromWorld, snapshot, stateHash } from './engine.ts';
+import { setupScenario } from './scenarioTown.ts';
 import { NODE, computeMods, mods } from './firmware.ts';
 import { hashWorld } from './hash.ts';
 import { LOAN_TIERS } from './economy/tables.ts';
@@ -137,6 +138,36 @@ describe('opening state', () => {
     const jam = open('gridlock').world;
     expect(jam.bArch.filter((a) => a === rciId(ZONE.R, 2, 3)).length).toBeGreaterThan(0);
   }, 60000);
+
+  it('places the starter kit or town for every scenario and for a spread of daily and weekly challenges, without logging a placement failure', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const specs: ScenarioSpec[] = [...SCENARIOS];
+      for (let d = 1; d <= 16; d++) specs.push(challengeSpec('daily', dailyKey(new Date(Date.UTC(2026, 9, d, 12)))));
+      for (let k = 1; k <= 6; k++) specs.push(challengeSpec('weekly', 202640 + k));
+      for (const spec of specs) {
+        const w = createSim(1, { scenario: spec }).world;
+        const label = `${spec.id}:${spec.key}:${spec.seed}`;
+        expect(w.bArch.filter((a) => a === ARCH.DEPOT).length, `${label} depot`).toBeGreaterThanOrEqual(1);
+        expect(w.aKind.some((k) => k !== 0), `${label} crew`).toBe(true);
+        if (spec.town) expect(w.bArch.filter((a) => a !== 0).length, `${label} town`).toBeGreaterThan(5);
+      }
+      expect(warn.mock.calls, 'a placement failure is logged').toEqual([]);
+    } finally { warn.mockRestore(); }
+  }, 180000);
+
+  it('logs, rather than silently skipping, a scenario whose map has no flat dry site', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const sea = simFromWorld(allocWorld());
+      setupScenario(sea, slug('first-light'));
+      expect(sea.world.bArch.filter((a) => a === ARCH.DEPOT)).toHaveLength(0);
+      setupScenario(simFromWorld(allocWorld()), slug('gridlock'));
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(String(warn.mock.calls[0]![0])).toMatch(/no flat dry site for the starter kit/);
+      expect(String(warn.mock.calls[1]![0])).toMatch(/no flat dry site for the jam town/);
+    } finally { warn.mockRestore(); }
+  });
 
   it('hands Bankrupt Burg its loan and an empty treasury, and Dry Spell a map with no river', () => {
     const burg = open('bankrupt-burg').world;
@@ -348,6 +379,16 @@ describe('stars, winning and the clock', () => {
     sim.events.push({ type: 'disaster', tick: 77, kind: 'meteor', phase: 'start', x: 1, y: 1, radius: 5, arch: 0, impactTick: 77 });
     sim.events.push({ type: 'disaster', tick: 70, kind: 'meteor', phase: 'impact', x: 1, y: 1, radius: 5, arch: 0, impactTick: 70 });
     sim.events.push({ type: 'disaster', tick: 77, kind: 'quake', phase: 'impact', x: 1, y: 1, radius: 5, arch: 0, impactTick: 77 });
+    scenarioSystem(sim);
+    expect(sim.world.scenario[SC.STRIKES]).toBe(1);
+  });
+
+  it('counts a meteor a Shield Dome stopped as a strike survived, but not a rod catching lightning', () => {
+    const sim = open('meteor-season');
+    sim.world.scalars[S.tick] = 90;
+    sim.events.push({ type: 'hazardBlocked', tick: 90, by: 'dome', x: 4, y: 4 });
+    sim.events.push({ type: 'hazardBlocked', tick: 90, by: 'rod', x: 4, y: 4 });
+    sim.events.push({ type: 'hazardBlocked', tick: 80, by: 'dome', x: 4, y: 4 });
     scenarioSystem(sim);
     expect(sim.world.scenario[SC.STRIKES]).toBe(1);
   });

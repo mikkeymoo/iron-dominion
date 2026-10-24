@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { ARCH, rciId } from './catalog.ts';
 import { execute, type Command, type CommandBody } from './commands.ts';
 import {
-  DIRECTIVES, DIRECTIVE_COUNT, DIRECTIVE_PERIOD, MEGA_SAVINGS_GOAL, ROAD_GOAL, directiveHave, directiveIndex, directiveMet, directiveStats, scanFacts,
+  DIRECTIVES, DIRECTIVE_COUNT, DIRECTIVE_PERIOD, MEGA_SAVINGS_GOAL, ROAD_GOAL, directiveHave, directiveIndex, directiveMet, directiveStats, directivesSystem, scanFacts,
 } from './directives.ts';
+import { closeMonth } from './economy/index.ts';
 import { apply, createSim, packAgents, restore, snapshot, stateHash, step } from './engine.ts';
-import { AMAX, MAP, S, SPEC } from './layers.ts';
+import { AMAX, MAP, S, SC, SPEC } from './layers.ts';
 import { AKIND } from './robots/constants.ts';
 import { flatSim, road, run, zone, depot } from './robots/testkit.ts';
 import { starterSite, STARTER_BUILDERS, STARTER_HAULERS } from './starter.ts';
@@ -141,17 +142,25 @@ describe('conditions from synthetic worlds', () => {
     expect(met(b, 'upgrade')).toBe(true);
   });
 
-  it('megaproject: the treasury reaching the cheapest project, or a project standing', () => {
+  it('megaproject: net worth held at a month close reaching the cheapest project, or a project standing', () => {
     const sim = flatSim(42, true);
     sim.world.scalars[S.treasury] = MEGA_SAVINGS_GOAL - 1;
     expect(haveOf(sim, 'megaproject')).toBe(MEGA_SAVINGS_GOAL - 1);
     expect(met(sim, 'megaproject')).toBe(false);
     sim.world.scalars[S.treasury] = MEGA_SAVINGS_GOAL;
-    expect(met(sim, 'megaproject')).toBe(true);
+    expect(haveOf(sim, 'megaproject')).toBe(MEGA_SAVINGS_GOAL);
+    expect(met(sim, 'megaproject'), 'cash alone does not claim it between month closes').toBe(false);
     sim.world.scalars[S.treasury] = 10;
-    expect(met(sim, 'megaproject')).toBe(false);
     run(sim, { type: 'debugGrow', x: 100, y: 100, archetype: ARCH.FUSION_SPIRE, progress: 0.5 });
     expect(met(sim, 'megaproject')).toBe(true);
+  });
+
+  it('megaproject: an open loan does not count toward the savings goal', () => {
+    const sim = flatSim();
+    sim.world.scalars[S.treasury] = MEGA_SAVINGS_GOAL + 5000;
+    sim.world.loanAmt[0] = 10000;
+    expect(scanFacts(sim.world).netWorth).toBe(MEGA_SAVINGS_GOAL - 5000);
+    expect(haveOf(sim, 'megaproject')).toBe(MEGA_SAVINGS_GOAL - 5000);
   });
 });
 
@@ -355,4 +364,77 @@ describe('the chain under a scripted command sequence', () => {
     expect(stateHash(resumed)).toBe(stateHash(first));
     expect(stateHash(straight)).not.toBe(stateHash(first));
   }, 60000);
+});
+
+describe('month-end savings, scenarios and loaded worlds', () => {
+  const tickTo = (sim: Sim, tick: number): void => { while (sim.world.scalars[S.tick]! < tick) step(sim); };
+  const monthCloseScan = (sim: Sim): void => { closeMonth(sim); directivesSystem(sim); };
+  const doneOf = (sim: Sim, id: string): boolean => (sim.world.scalars[S.directiveDone]! & (1 << idOf(id))) !== 0;
+
+  it('a loan cannot buy the megaproject directive: only net worth held at a month close latches it', () => {
+    const sim = flatSim();
+    tickTo(sim, DIRECTIVE_PERIOD);
+    sim.world.scalars[S.treasury] = MEGA_SAVINGS_GOAL + 5000;
+    sim.world.loanAmt[0] = 10000;
+    tickTo(sim, DIRECTIVE_PERIOD * 2);
+    expect(doneOf(sim, 'megaproject'), 'the mid-month scan never latches it').toBe(false);
+    sim.world.scalars[S.treasury] = MEGA_SAVINGS_GOAL + 5000;
+    monthCloseScan(sim);
+    expect(doneOf(sim, 'megaproject'), 'the loan is still owed at the close').toBe(false);
+    expect(claim(sim, idOf('megaproject'))).toBe('not-ready');
+    sim.world.loanAmt[0] = 0;
+    sim.world.scalars[S.treasury] = MEGA_SAVINGS_GOAL + 5000;
+    tickTo(sim, DIRECTIVE_PERIOD * 3);
+    expect(doneOf(sim, 'megaproject'), 'a spike between closes does not latch it either').toBe(false);
+    monthCloseScan(sim);
+    expect(doneOf(sim, 'megaproject')).toBe(true);
+    expect(sim.events.filter((e) => e.type === 'directiveReady' && e.index === idOf('megaproject'))).toHaveLength(1);
+    expect(claim(sim, idOf('megaproject'))).toBe('ok');
+  });
+
+  it('does not run the chain, or pay a claim, while a scenario or challenge is active', () => {
+    const sim = flatSim();
+    zone(sim, 10, 10, 13, 12, 1);
+    sim.world.scenario[SC.ID] = 1;
+    sim.events = [];
+    tickTo(sim, DIRECTIVE_PERIOD * 2);
+    expect(sim.events.filter((e) => e.type === 'directiveReady')).toEqual([]);
+    expect(directiveStats(sim.world).done).toBe(0);
+    const before = sim.world.scalars[S.treasury]!;
+    expect(claim(sim, idOf('residential'))).toBe('scenario');
+    expect(sim.world.scalars[S.treasury]).toBe(before);
+    expect(directiveStats(sim.world).claimed).toBe(0);
+    sim.world.scenario[SC.ID] = 0;
+    expect(claim(sim, idOf('residential'))).toBe('ok');
+  });
+
+  it('a world that already has finished buildings and no latched directive is pre-latched on its first scan, unpaid and with no swoop', () => {
+    const sim = flatSim(42, true);
+    zone(sim, 10, 10, 13, 12, 1);
+    run(sim, { type: 'debugGrow', x: 30, y: 10, archetype: rciId(1, 0, 1), progress: 1 });
+    const before = sim.world.scalars[S.treasury]!;
+    sim.events = [];
+    tickTo(sim, DIRECTIVE_PERIOD);
+    const stats = directiveStats(sim.world);
+    expect(stats.done).toBe(stats.claimed);
+    expect(stats.claimed & (1 << idOf('residential'))).not.toBe(0);
+    expect(stats.claimed & (1 << idOf('megaproject'))).toBe(0);
+    expect(sim.events.filter((e) => e.type === 'directiveReady' || e.type === 'firstBuilding')).toEqual([]);
+    expect(sim.world.scalars[S.treasury]).toBe(before);
+    expect(claim(sim, idOf('residential'))).toBe('claimed');
+    sim.events = [];
+    run(sim, { type: 'debugGrow', x: 40, y: 10, archetype: rciId(1, 0, 1), progress: 1 });
+    tickTo(sim, DIRECTIVE_PERIOD * 3);
+    expect(sim.events.filter((e) => e.type === 'firstBuilding')).toEqual([]);
+  });
+
+  it('a pre-built scenario town gets no first-building swoop', () => {
+    const sim = flatSim(42, true);
+    run(sim, { type: 'debugGrow', x: 30, y: 10, archetype: rciId(1, 0, 1), progress: 1 });
+    sim.world.scenario[SC.ID] = 1;
+    sim.events = [];
+    tickTo(sim, DIRECTIVE_PERIOD * 2);
+    expect(sim.events.filter((e) => e.type === 'firstBuilding' || e.type === 'directiveReady')).toEqual([]);
+    expect(sim.world.scalars[S.firsts]).toBe(0);
+  });
 });

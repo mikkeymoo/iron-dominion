@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { pixelToNdc, rayFromPose, type Pose } from './camera.ts';
-import { TAP_MS, TAP_SLOP_PX, TapDetector, nearestPoint, nearestSegment, projectToPixel } from './tap.ts';
+import { TAP_MS, TAP_SLOP_PX, TapDetector, nearestPoint, nearestSegment, projectToPixel, tapEligible } from './tap.ts';
 
 const pose: Pose = { px: 100, py: 40, pz: 130, tx: 100, ty: 0, tz: 100 };
 const FOV = 45, W = 800, H = 600;
@@ -59,6 +59,28 @@ describe('TapDetector', () => {
     d.down(1, 5, 5, 0, true);
     d.cancel();
     expect(d.up(1, 5, 5, 10, true)).toBeNull();
+  });
+});
+
+describe('tapEligible', () => {
+  const free = { handler: true, toolActive: false, primary: true, mouse: true, button: 0, radialOpen: false };
+
+  it('lets a plain primary press become a tap', () => {
+    expect(tapEligible(free)).toBe(true);
+    expect(tapEligible({ ...free, mouse: false, button: -1 })).toBe(true);
+  });
+
+  it('refuses a press with no handler, an active tool, a second finger or a non-primary mouse button', () => {
+    for (const o of [{ handler: false }, { toolActive: true }, { primary: false }, { button: 2 }]) expect(tapEligible({ ...free, ...o })).toBe(false);
+  });
+
+  it('a press that dismisses the open radial menu is not a tap, so it does not also open an info card', () => {
+    expect(tapEligible({ ...free, radialOpen: true })).toBe(false);
+    const d = new TapDetector();
+    d.down(1, 50, 60, 1000, tapEligible({ ...free, radialOpen: true }));
+    expect(d.up(1, 50, 60, 1100, true)).toBeNull();
+    d.down(2, 50, 60, 2000, tapEligible(free));
+    expect(d.up(2, 50, 60, 2100, true)).toEqual({ x: 50, y: 60 });
   });
 });
 

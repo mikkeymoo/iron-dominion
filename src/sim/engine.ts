@@ -51,7 +51,7 @@ export function createSim(seed: number, opt: { debug?: boolean; disasters?: numb
   generateTerrain(world, seed, spec?.terrain);
   const sim: Sim = { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true };
   if (spec) setupScenario(sim, spec);
-  else if (opt.starter) placeStarter(sim);
+  else if (opt.starter && placeStarter(sim) < 0) console.warn(`seed ${seed}: no flat dry site for the starter kit`);
   sim.roads = RoadNet.build(world);
   return sim;
 }

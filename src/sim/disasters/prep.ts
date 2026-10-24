@@ -97,7 +97,7 @@ export function batteries(w: World): { count: number; charge: number } {
   for (let s = 0; s < BMAX; s++) {
     if (w.bArch[s] !== ARCH.BATTERY_BANK || (w.bFlags[s]! & DOWN) !== 0) continue;
     count++;
-    held += w.bStock[s]!;
+    held += w.bCharge[s]!;
   }
   return { count, charge: count === 0 ? 0 : held / (count * BATTERY_CAP) };
 }
@@ -108,7 +108,7 @@ export function batteryHold(w: World, ticks: number): number {
   let mw = 0;
   for (let s = 0; s < BMAX; s++) {
     if (w.bArch[s] !== ARCH.BATTERY_BANK || (w.bFlags[s]! & DOWN) !== 0) continue;
-    mw += Math.min(BATTERY_MW, w.bStock[s]! / solves);
+    mw += Math.min(BATTERY_MW, w.bCharge[s]! / solves);
   }
   return mw;
 }

@@ -65,7 +65,7 @@ describe('CouncilPanel', () => {
 
   it('lists a pending request with its reward and sends accept or decline for its slot', () => {
     const c = client();
-    render(<CouncilPanel stats={stats({ requests: [request({ slot: 1 })] })} client={c} onShow={() => {}} onClose={() => {}} />);
+    render(<CouncilPanel stats={stats({ requests: [request({ slot: 1, id: 7 })] })} client={c} onShow={() => {}} onClose={() => {}} />);
     const card = screen.getByTestId('request-1');
     expect(card.textContent).toContain('Merchants');
     expect(card.textContent).toContain('Add 20 commercial jobs.');
@@ -73,7 +73,9 @@ describe('CouncilPanel', () => {
     expect(screen.getByTestId('request-left-1').textContent).toBe('2.0 days left');
     fireEvent.click(screen.getByTestId('request-accept-1'));
     fireEvent.click(screen.getByTestId('request-decline-1'));
-    expect(c.sent).toEqual([{ type: 'councilRespond', slot: 1, accept: true }, { type: 'councilRespond', slot: 1, accept: false }]);
+    expect(c.sent, 'the answer names the request the player saw').toEqual([
+      { type: 'councilRespond', slot: 1, accept: true, request: 7 }, { type: 'councilRespond', slot: 1, accept: false, request: 7 },
+    ]);
   });
 
   it('shows progress and no accept or decline once a request is accepted, and flags a deadline under a day', () => {

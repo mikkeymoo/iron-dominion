@@ -442,13 +442,58 @@ export function buildSpeed(w: World, j: number): number {
   return m.buildRate * (isNight(w) ? m.nightBuild : 1) * (1 + workshopBonus(w, j)) * approvalBuild(w);
 }
 
-/** Credits per month the edicts cost: their flat prices plus Green Roofs' upkeep on every finished RCI building. */
+/** Approval points each edict adds to the monthly target, indexed by edict id. */
+const EDICT_APPROVAL: readonly number[] = [
+  N.approvalNightShift, 0, N.approvalRoboTaxis, N.approvalSmog, N.approvalCurfew, N.approvalGreenRoofs, N.approvalTaxHoliday, 0,
+];
+/** Offset in the `edictTicks` layer of the share of the last closed month each edict was active. */
+const LAST_SHARE = 8;
+
+/** Count one tick of activity for every enacted edict (the economy system calls this beside the month's tick counter). */
+export function accrueEdictTicks(w: World): void {
+  const mask = w.firmware[F.EDICTS]! | 0;
+  if (mask === 0) return;
+  for (let e = 0; e < EDICT_COUNT; e++) if (((mask >> e) & 1) === 1) w.edictTicks[e]!++;
+}
+
+/**
+ * Share (0..1) of the running budget month that edict `id` has been enacted. Costs and income effects scale by it, so enacting just
+ * before a month closes (or repealing just after it opens) pays and gains for the time it ran. Before the first tick of a month
+ * (a record closed by hand) it is the mask as it stands.
+ */
+export function edictShare(w: World, id: number): number {
+  const elapsed = w.spend[3]!;
+  if (elapsed <= 0) return edictActive(w, id) ? 1 : 0;
+  return Math.min(1, w.edictTicks[id]! / elapsed);
+}
+
+/** At month close: keep each edict's share of the closed month for the approval pass, and start the next month's count. */
+export function rollEdictShares(w: World): void {
+  for (let e = 0; e < EDICT_COUNT; e++) { w.edictTicks[LAST_SHARE + e] = edictShare(w, e); w.edictTicks[e] = 0; }
+}
+
+/** Approval points the edicts add to the monthly target, weighted by how much of the month just closed each one ran. */
+export function edictApprovalLastMonth(w: World): number {
+  let a = 0;
+  for (let e = 0; e < EDICT_COUNT; e++) a += EDICT_APPROVAL[e]! * w.edictTicks[LAST_SHARE + e]!;
+  return a;
+}
+
+/** Multiplier on residential (Tax Holiday) and commercial (Curfew) tax income for the running month, from the share of it each ran. */
+export const edictIncomeR = (w: World): number => 1 + pct(N.residentialIncomePct) * edictShare(w, EDICT.TAX_HOLIDAY);
+export const edictIncomeC = (w: World): number => 1 + pct(N.commercialIncomePct) * edictShare(w, EDICT.CURFEW);
+
+/** Credits the edicts cost for the running month: their flat prices plus Green Roofs' upkeep on every finished RCI building, each for the share of the month enacted. */
 export function edictUpkeep(w: World): number {
-  const m = mods(w);
-  if (m.greenUpkeep === 0) return m.edictCost;
-  let n = 0;
-  for (let s = 0; s < BMAX; s++) if (isRci(w.bArch[s]!) && (w.bFlags[s]! & (BFLAG.CONSTRUCTING | BFLAG.RUBBLE)) === 0) n++;
-  return m.edictCost + m.greenUpkeep * n;
+  let cost = 0;
+  for (const e of EDICTS) if (e.cost > 0) cost += e.cost * edictShare(w, e.id);
+  const green = edictShare(w, EDICT.GREEN_ROOFS);
+  if (green > 0) {
+    let n = 0;
+    for (let s = 0; s < BMAX; s++) if (isRci(w.bArch[s]!) && (w.bFlags[s]! & (BFLAG.CONSTRUCTING | BFLAG.RUBBLE)) === 0) n++;
+    cost += N.greenUpkeepPerBuilding * n * green;
+  }
+  return Math.round(cost);
 }
 
 // ---- Commands (each returns a rejection reason, or undefined when it ran) ----
@@ -489,6 +534,11 @@ export function setModule(w: World, slot: number, index: number, module: number)
   w.bMod[slot] = (w.bMod[slot]! & ~(15 << (index * 4))) | (module << (index * 4));
   invalidateModuleCache(w);
   return undefined;
+}
+
+/** A depot lost to a disaster pays back MODULE_REFUND of every module it carried, as clearing the slots by hand would. */
+export function refundModules(w: World, slot: number): void {
+  for (let i = 0; i < DEPOT_SLOTS; i++) w.scalars[S.treasury]! += Math.floor(MODULES[moduleAt(w, slot, i)]!.cost * MODULE_REFUND);
 }
 
 export function grantRp(w: World, amount: number): string | undefined {

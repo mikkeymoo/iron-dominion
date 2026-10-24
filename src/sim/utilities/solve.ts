@@ -128,13 +128,15 @@ function runBatteries(w: World, networks: number, count: number): number {
     if (w.bArch[s] !== ARCH.BATTERY_BANK || !finished(w, s) || (w.bFlags[s]! & (BFLAG.RUBBLE | BFLAG.BURNING)) !== 0) continue;
     const n = comp[w.bY[s]! * MAP + w.bX[s]!]!;
     if (n === 0) continue;
-    const stock = w.bStock[s]!, slack = supply[n]! - used[n]!;
+    // A save from before the charge had its own layer kept it in bStock (the Ore ledger): move it over once.
+    if (w.bStock[s] !== 0) { w.bCharge[s] = Math.min(BATTERY_CAP, w.bCharge[s]! + w.bStock[s]!); w.bStock[s] = 0; }
+    const stock = w.bCharge[s]!, slack = supply[n]! - used[n]!;
     if (slack > 0) {
       const add = Math.min(BATTERY_CHARGE_MW, slack, BATTERY_CAP - stock);
-      if (add > 0) { w.bStock[s] = stock + add; used[n]! += add; }
+      if (add > 0) { w.bCharge[s] = stock + add; used[n]! += add; }
     } else if (slack < 0) {
       const give = Math.min(BATTERY_MW, stock, -slack);
-      if (give > 0) { w.bStock[s] = stock - give; supply[n]! += give; given += give; }
+      if (give > 0) { w.bCharge[s] = stock - give; supply[n]! += give; given += give; }
     }
   }
   return given;

@@ -73,8 +73,10 @@ export const OUTPUT_CAP = 40;
 /** Input buffer capacity by resource, for the Smelter (Ore) and the Factory (Alloy). */
 export const SMELTER_BUFFER = 16;
 export const FACTORY_BUFFER = 8;
-/** Per-resource money for a unit that overflows a full output (sold), and for a unit a depot imports when robots lack it. */
+/** Per-resource money for an exported unit, and for a unit a depot imports when robots lack it. */
 export const SELL_PRICE = [2, 6, 14] as const;
+/** Most units of its own product one producer exports per month close (Ore, Alloy, Components). Output beyond it waits in stock. */
+export const EXPORT_CAP = [20, 10, 6] as const;
 export const IMPORT_PRICE = [IMPORT_COST, 10, 28] as const;
 /** Restocking: a Smelter asks for Ore up to SMELTER_TARGET, a Factory for Alloy up to FACTORY_TARGET, a depot for each resource up to DEPOT_TARGET. */
 export const SMELTER_TARGET = 12;
@@ -92,8 +94,8 @@ export const LOCAL_GOODS_REACH = 30;
 export const CHAIN_JOBS_FREE = 2;
 
 /**
- * Road tiles a depot works from. Advisory only (the robots path anywhere connected): jobs beyond it are called slow, and the
- * depot tool tints the reach. Changing it never changes the sim.
+ * Road tiles a depot works from. Jobs beyond it are called slow and the depot tool tints the reach. A hauler farther from a site than
+ * this skips it only while a finished depot that has haulers of its own covers the site (robots/agents.ts dispatch).
  */
 export const DEPOT_WORK_RADIUS = 40;
 

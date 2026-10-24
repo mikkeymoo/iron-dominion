@@ -86,16 +86,52 @@ describe('the forecast', () => {
     expect(sim.world.hazard[H.PLAN_AT]).toBe(0);
   });
 
-  it('clears a plan when disasters are switched off, and plans again when they come back', () => {
+  it('keeps a plan when disasters are switched off: no cancel, no reroll, and the same hazard starts on time when they come back', () => {
     const sim = city(DMODE.NORMAL);
+    const h = sim.world.hazard;
     expect(run(sim, { type: 'debugHazard', kind: HAZ.QUAKE_SWARM, lead: 500 })).toBe(true);
-    expect(sim.world.hazard[H.PHASE]).toBe(1);
+    const plan = [h[H.PHASE], h[H.KIND], h[H.START], h[H.END], h[H.LEVEL], h[H.LEAD], h[H.PLANNED_AT]];
+    const stream = Array.from(sim.world.hrng);
+    expect(run(sim, { type: 'setDisasters', mode: DMODE.OFF })).toBe(true);
+    sim.events = [];
+    expect(collect(sim, 200, 'forecast', 'hazardStart')).toEqual([]);
+    expect([h[H.PHASE], h[H.KIND], h[H.START], h[H.END], h[H.LEVEL], h[H.LEAD], h[H.PLANNED_AT]]).toEqual(plan);
+    expect(Array.from(sim.world.hrng), 'no dice were drawn while Off').toEqual(stream);
+    expect(hazardStats(sim.world).forecast, 'the HUD shows no forecast while Off').toBeNull();
+    expect(run(sim, { type: 'setDisasters', mode: DMODE.NORMAL })).toBe(true);
+    sim.events = [];
+    const seen = collect(sim, 400, 'forecast', 'hazardStart');
+    expect(seen.filter((e) => e.type === 'forecast')).toEqual([]);
+    const start = seen.find((e) => e.type === 'hazardStart');
+    expect(start?.tick).toBe(plan[2]);
+    expect(start?.type === 'hazardStart' && start.kind).toBe(HAZ.QUAKE_SWARM);
+  });
+
+  it('suppresses the window when the start arrives while Off, then waits a full quiet spell before planning again', () => {
+    const sim = city(DMODE.NORMAL);
+    const h = sim.world.hazard;
+    expect(run(sim, { type: 'debugHazard', kind: HAZ.QUAKE_SWARM, lead: 300 })).toBe(true);
+    expect(run(sim, { type: 'setDisasters', mode: DMODE.OFF })).toBe(true);
+    sim.events = [];
+    expect(collect(sim, 400, 'hazardStart', 'forecast', 'hazardEnd')).toEqual([]);
+    expect(h[H.PHASE]).toBe(0);
+    expect(h[H.PLAN_AT]! - sim.world.scalars[S.tick]!).toBeGreaterThanOrEqual(14000);
+    expect(run(sim, { type: 'setDisasters', mode: DMODE.NORMAL })).toBe(true);
+    expect(collect(sim, 13000, 'forecast')).toEqual([]);
+  });
+
+  it('cannot farm the readiness bonus by switching Off after collecting it', () => {
+    const sim = city(DMODE.NORMAL);
+    expect(run(sim, { type: 'placeBuilding', arch: ARCH.LIGHTNING_ROD, x: 108, y: 108, rot: 0 })).toBe(true);
+    expect(run(sim, { type: 'debugHazard', kind: HAZ.STORM, lead: 300 })).toBe(true);
+    const started = collect(sim, 320, 'hazardStart');
+    expect(started).toHaveLength(1);
+    expect(started[0]!.type === 'hazardStart' && started[0]!.bonus).toBeGreaterThan(0);
     expect(run(sim, { type: 'setDisasters', mode: DMODE.OFF })).toBe(true);
     step(sim);
     expect(sim.world.hazard[H.PHASE]).toBe(0);
     expect(run(sim, { type: 'setDisasters', mode: DMODE.NORMAL })).toBe(true);
-    sim.events = [];
-    expect(collect(sim, 5000, 'forecast').length).toBe(1);
+    expect(collect(sim, 13000, 'forecast', 'hazardStart')).toEqual([]);
   });
 
   it('chooses by the season it will land in and never repeats a kind back to back', () => {

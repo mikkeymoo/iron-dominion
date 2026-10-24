@@ -22,7 +22,7 @@ import { planShowcase } from './kit/showcase.ts';
 import { tileReadOf } from '../sim/estimate.ts';
 import { startCameraFor } from './startCamera.ts';
 import {
-  AGENT_PICK_PX, BUILDING_PICK_PX, TapDetector, nearestPoint, nearestSegment, projectToPixel, type PickPoint, type PickSegment, type TapTarget,
+  AGENT_PICK_PX, BUILDING_PICK_PX, TapDetector, nearestPoint, nearestSegment, projectToPixel, tapEligible, type PickPoint, type PickSegment, type TapTarget,
 } from './tap.ts';
 import { AUTO_STORAGE_KEY, TIER_TABLE, createGovernor, readStoredTier, resolveTier, tierCap, type Governor, type Tier } from './tier.ts';
 import type { ToolController } from './tools/controller.ts';
@@ -305,7 +305,11 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     downIds.add(e.pointerId);
     if (downIds.size === 1) radialOpened = false;
     busyAtDown = cinematic.active || rig.following || photo.active;
-    taps.down(e.pointerId, e.clientX, e.clientY, performance.now(), !!deps.onTap && !(deps.tools?.active) && e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0));
+    const ok = tapEligible({
+      handler: !!deps.onTap, toolActive: !!deps.tools?.active, primary: e.isPrimary, mouse: e.pointerType === 'mouse', button: e.button,
+      radialOpen: !!deps.radial?.isOpen(),
+    });
+    taps.down(e.pointerId, e.clientX, e.clientY, performance.now(), ok);
   };
   const onTapMove = (e: PointerEvent): void => taps.move(e.pointerId, e.clientX, e.clientY);
   const onTapUp = (e: PointerEvent): void => {

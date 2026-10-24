@@ -1,5 +1,5 @@
 import { ARCH, BFLAG, CATALOG, archetype, isRci } from './catalog.ts';
-import { BMAX, MAP, ROAD, S, ZONE, type World } from './layers.ts';
+import { BMAX, MAP, ROAD, S, SC, ZONE, type World } from './layers.ts';
 import { MEGA_ARCHS } from './megaprojects.ts';
 import type { DirectiveStats } from './protocol.ts';
 import { zoneOfArch } from './economy/totals.ts';
@@ -15,6 +15,8 @@ export const DIRECTIVE_PERIOD = 20;
 /** Road tiles reachable from a depot that count as "a road from the depot" (the starter stub is shorter than this). */
 export const ROAD_GOAL = 10;
 export const FIRST_BUILDING = 1;
+/** `firsts` bit 1: the directives were scanned at least once, so "buildings stand but nothing is latched" on a later first scan means a loaded world, not a new one. */
+export const FIRST_SCANNED = 2;
 
 export interface DirectiveFacts {
   depots: number;
@@ -39,6 +41,8 @@ export interface DirectiveFacts {
   population: number;
   tier: number;
   treasury: number;
+  /** Treasury minus the principal of every open loan: what a loan cannot inflate. */
+  netWorth: number;
 }
 
 const ROAD_CAP = 64;
@@ -75,8 +79,9 @@ export function scanFacts(w: World): DirectiveFacts {
   const f: DirectiveFacts = {
     depots: 0, depotRoad: 0, zoned: [0, 0, 0, 0], medium: 0, avenues: 0, finishedR: 0, finishedRci: 0, firstFinished: -1,
     powerPlants: 0, powerLines: 0, pumps: 0, pipes: 0, safety: 0, mega: 0,
-    population: w.scalars[S.population]!, tier: w.scalars[S.tier]!, treasury: w.scalars[S.treasury]!,
+    population: w.scalars[S.population]!, tier: w.scalars[S.tier]!, treasury: w.scalars[S.treasury]!, netWorth: w.scalars[S.treasury]!,
   };
+  for (let l = 0; l < w.loanAmt.length; l++) f.netWorth -= w.loanAmt[l]!;
   for (let s = 0; s < BMAX; s++) {
     const id = w.bArch[s]!;
     if (id === 0) continue;
@@ -115,9 +120,11 @@ export interface DirectiveDef {
   need: number;
   /** Progress toward `need` from the facts; the directive is met when it reaches `need`. */
   measure(f: DirectiveFacts): number;
+  /** Latches only on a month-close scan (or once a project stands), so a mid-month treasury spike does not count. */
+  monthEnd?: boolean;
 }
 
-/** Cost of the cheapest megaproject: "start saving" is met when the treasury reaches it (or a project already stands). */
+/** Cost of the cheapest megaproject: "start saving" is met when net worth (treasury minus loans) held at a month close reaches it, or a project already stands. */
 export const MEGA_SAVINGS_GOAL = Math.min(...MEGA_ARCHS.map((a) => CATALOG.find((c) => c.id === a)!.cost));
 
 const both = (a: number, b: number): number => (a > 0 ? 1 : 0) + (b > 0 ? 1 : 0);
@@ -134,7 +141,7 @@ export const DIRECTIVES: readonly DirectiveDef[] = [
   { id: 'safety', reward: 800, need: 1, measure: (f) => f.safety },
   { id: 'settlement', reward: 1000, need: 1, measure: (f) => f.tier },
   { id: 'upgrade', reward: 1000, need: 1, measure: (f) => (f.avenues > 0 || f.medium >= 4 ? 1 : 0) },
-  { id: 'megaproject', reward: 2500, need: MEGA_SAVINGS_GOAL, measure: (f) => (f.mega > 0 ? MEGA_SAVINGS_GOAL : f.treasury) },
+  { id: 'megaproject', reward: 2500, need: MEGA_SAVINGS_GOAL, monthEnd: true, measure: (f) => (f.mega > 0 ? MEGA_SAVINGS_GOAL : f.netWorth) },
 ];
 
 export const DIRECTIVE_COUNT = DIRECTIVES.length;
@@ -145,9 +152,13 @@ export function directiveHave(f: DirectiveFacts): number[] {
   return DIRECTIVES.map((d) => Math.min(d.need, Math.max(0, Math.floor(d.measure(f)))));
 }
 
+/** Whether the facts satisfy `d`. A month-end directive holds only on a month-close scan, unless a project already stands. */
+const holds = (d: DirectiveDef, f: DirectiveFacts, monthClose: boolean): boolean =>
+  d.measure(f) >= d.need && (d.monthEnd !== true || monthClose || f.mega > 0);
+
 export const directiveMet = (w: World, index: number): boolean => {
   const d = DIRECTIVES[index];
-  return d !== undefined && d.measure(scanFacts(w)) >= d.need;
+  return d !== undefined && holds(d, scanFacts(w), false);
 };
 
 /** The directive fields of a Stats message. */
@@ -157,17 +168,32 @@ export function directiveStats(w: World): DirectiveStats {
 
 /**
  * Directives system (after milestones in the tick order): latches each directive's done bit and fires one `directiveReady` event
- * when it first holds, and fires `firstBuilding` the first time a grown building is finished.
+ * when it first holds, and fires `firstBuilding` the first time a grown building is finished. It scans once a second and on the tick a
+ * budget month closed (spend[3] is 0 only then): the only scan a month-end directive can latch on. It does nothing in a scenario or
+ * challenge, which are not the tutorial city. The first scan of a world that already has finished buildings but nothing latched (a save
+ * from before the chain, a pre-built town) marks what holds as done and claimed, without paying and without the first-building swoop.
  */
 export function directivesSystem(sim: Sim): void {
   const w = sim.world, sc = w.scalars, tick = sc[S.tick]!;
-  if (tick % DIRECTIVE_PERIOD !== 0) return;
+  const monthClose = w.spend[3] === 0;
+  if (tick % DIRECTIVE_PERIOD !== 0 && !monthClose) return;
+  if (w.scenario[SC.ID] !== 0) return;
   let done = sc[S.directiveDone]!;
   if (done === ALL_DONE && (sc[S.firsts]! & FIRST_BUILDING) !== 0) return;
   const f = scanFacts(w);
+  if ((sc[S.firsts]! & FIRST_SCANNED) === 0) {
+    sc[S.firsts] = sc[S.firsts]! | FIRST_SCANNED;
+    if (tick > 0 && done === 0 && sc[S.directiveClaimed] === 0 && f.finishedRci > 0) {
+      DIRECTIVES.forEach((d, index) => { if (holds(d, f, false)) done |= 1 << index; });
+      sc[S.directiveDone] = done;
+      sc[S.directiveClaimed] = done;
+      sc[S.firsts] = sc[S.firsts]! | FIRST_BUILDING;
+      return;
+    }
+  }
   DIRECTIVES.forEach((d, index) => {
     const bit = 1 << index;
-    if ((done & bit) !== 0 || d.measure(f) < d.need) return;
+    if ((done & bit) !== 0 || !holds(d, f, monthClose)) return;
     done |= bit;
     sim.events.push({ type: 'directiveReady', tick, index });
   });

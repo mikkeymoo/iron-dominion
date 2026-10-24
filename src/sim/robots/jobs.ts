@@ -1,5 +1,6 @@
 import { ARCH, BFLAG, archetype, rciId, type Archetype } from '../catalog.ts';
 import { clearBuilding, reserveBuilding } from '../commands.ts';
+import { refundRebuild } from '../disasters/rebuild.ts';
 import {
   abandonedBuildings, growthCandidates, levelUpCandidates, reachAnchors, reachableAccess, zoneDemand, type Lot,
 } from '../economy/index.ts';
@@ -193,14 +194,18 @@ function finishDemolition(sim: Sim, s: number): void {
       made(w, RES.ORE, w.bStock[depot]! - before);
     }
   }
+  // The order's flag goes with the ruin; clearBuilding would refund a ruin still carrying it.
+  if (ordered) w.bFlags[s] = w.bFlags[s]! & ~BFLAG.REBUILD;
   releaseLot(sim, s);
+  let rebuilt = false;
   if ((m.autoRebuild || ordered) && ruin && rci) {
     const next = archetype(rciId(arch.zone!, arch.density!, 1));
-    if (next) startBuild(sim, next, x, y, access);
+    rebuilt = next !== undefined && startBuild(sim, next, x, y, access);
   } else if (ordered && arch !== undefined && !isMega(arch.id)) {
     // Rebuild all also puts a destroyed service or utility building back, from the same kind of foundation and hauled material.
-    startBuild(sim, arch, x, y, access);
+    rebuilt = startBuild(sim, arch, x, y, access);
   }
+  if (ordered && !rebuilt && arch !== undefined) refundRebuild(w, arch.id);
 }
 
 /** Every builder working on the job at `slot` gets one finished job on its count (named bots, robots/names.ts). */
