@@ -1,4 +1,4 @@
-phase: build
+phase: done
 accept: npm test && npm run build && npm run smoke:quick
 
 # Task: Iron Dominion city-builder rewrite
@@ -31,4 +31,5 @@ Run: `/lfg` through U0..U14, one commit per unit, pushed to `origin/main` (Micha
 | U11-U15 | c7ca619 (merge train) | 880 tests, full smoke 301 ok | services, disasters, megaprojects, audio, photo, PWA, rivers, phone HUD; architect review 12 findings fixed (cdc8724) |
 | Phase 2 A-E | f9ef12a | 1251 tests, full smoke 354 ok | onboarding, advisor, firmware/edicts, touch panels/radial, graphics; panel tap race fixed d57b0c2 |
 | Phase 2b | cc06542 | 1520 tests, full smoke 394 ok | scenarios, council/approval, production chains, seasons/hazards |
-| Next | | | districts, session pacing, named bots, blueprint queue, production overlay, mega Components, phase-2 review |
+| Phase 2c | 169930e | 1696 tests, smoke:quick pass | districts, session pacing + named bots, blueprint queue + production overlay + mega Components, phase-2 review (13 findings) fixed |
+| Publish | 38c3baf | full smoke 439 ok, 1696 tests | city-builder replaces the old game at /iron-dominion/; /next/ preview kept |
