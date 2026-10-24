@@ -1,7 +1,7 @@
 // Construction-site geometry: foundation slab with fence and material piles, an optional scaffold, and the tower crane.
 // Scaffold vertices carry wid = 1 so the site material can clip them with the rising floor; everything else has wid = 0.
 import { SCAFFOLD_LIFT } from './construction.ts';
-import { Geo, hex, shade, SLOT, type PartData, type RGB } from './geo.ts';
+import { Geo, hex, Rng, shade, SLOT, type PartData, type RGB } from './geo.ts';
 
 const STEEL = hex(0xb8c0c4), PLANK = hex(0xb7a47e), SLAB = hex(0xa8a69e), YELLOW = hex(0xe8b820), DARK = hex(0x30353a);
 
@@ -97,6 +97,35 @@ export function generateSite(footprint: number, lifts: number): SiteModel {
   }
   const part = flatten(g);
   return { part, scaffoldHeight, triangles: part.indices.length / 3 };
+}
+
+/**
+ * What is left of a destroyed building: a low heap of charred slabs and blocks with a few bent steel beams and rebar sticking out.
+ * Footprint-sized, deterministic per (footprint, seed), no scaffold (wid 0), so the site material draws all of it.
+ */
+export function generateRubble(footprint: number, seed: number): { part: PartData; triangles: number } {
+  const g = new Geo();
+  const r = new Rng(seed * 2654435761 + footprint);
+  const h = footprint / 2 - 0.06;
+  const char = [hex(0x2a2826), hex(0x3a3633), hex(0x4a4540), hex(0x58514a)], brick = hex(0x6a3f33), rust = hex(0x7a4b30), steel = hex(0x4d5256);
+  g.box(SLOT.CONCRETE, -h, 0, -h, h, 0.03, h, hex(0x1f1e1d), { aoRange: 0.03, aoMin: 0.7 });
+  const lumps = 5 + footprint * 5;
+  for (let i = 0; i < lumps; i++) {
+    const cx = r.range(-h * 0.85, h * 0.85), cz = r.range(-h * 0.85, h * 0.85);
+    const sx = r.range(0.04, 0.13), sz = r.range(0.04, 0.13);
+    // Piles are tallest in the middle, like a collapsed floor stack.
+    const mid = 1 - Math.min(1, Math.hypot(cx, cz) / (h * 1.1));
+    const top = 0.03 + (0.03 + 0.1 * mid) * r.range(0.5, 1.4);
+    const col = r.chance(0.22) ? brick : r.pick(char);
+    g.box(SLOT.CONCRETE, cx - sx, 0.02, cz - sz, cx + sx, top, cz + sz, col, { aoRange: 0.14, aoMin: 0.6 });
+  }
+  for (let i = 0; i < 3 + footprint * 2; i++) {
+    const x = r.range(-h * 0.7, h * 0.7), z = r.range(-h * 0.7, h * 0.7);
+    const a = r.range(0, Math.PI * 2), len = r.range(0.08, 0.2), lift = r.range(0.04, 0.14);
+    g.tube(SLOT.METAL, [x, 0.04, z], [x + Math.cos(a) * len, 0.04 + lift, z + Math.sin(a) * len], 0.007, 3, r.chance(0.5) ? rust : steel);
+  }
+  const part = flatten(g);
+  return { part, triangles: part.indices.length / 3 };
 }
 
 /** Tower crane, 3.2 tiles tall at scale 1, mast on the origin. Yellow lattice with a red beacon. */

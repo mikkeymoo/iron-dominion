@@ -4,7 +4,7 @@ import {
   BufferGeometry, DataTexture, Float32BufferAttribute, LinearFilter, LinearMipmapLinearFilter, MeshStandardNodeMaterial, RGBAFormat,
   UnsignedByteType, type Node, type Texture,
 } from 'three/webgpu';
-import { attribute, clamp, float, hash, max, min, mix, normalGeometry, normalView, normalWorld, positionGeometry, positionWorld, smoothstep, step, texture, vec3, vertexColor } from 'three/tsl';
+import { attribute, clamp, float, hash, max, min, mix, normalGeometry, normalView, normalWorld, positionGeometry, positionWorld, sin, smoothstep, step, texture, vec3, vertexColor } from 'three/tsl';
 import { fxU } from './fx/uniforms.ts';
 import { ATLAS_H, ATLAS_W, buildWindowAtlas } from './kit/atlas.ts';
 import { FINISH, FOUNDATION_END, NO_CLIP, SCAFFOLD_LEAD } from './kit/construction.ts';
@@ -46,7 +46,11 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
   const seed = wid.add(0.5).floor().add(iState.y.mul(1000).floor().mul(131));
   const litRand = hash(seed);
   // iState.w = 1 marks a finished building without power (utilities solve): its windows and signs go dark, day and night.
-  const powered = float(1).sub(iState.w);
+  // iState.w = 2 marks a building on fire: a flickering orange glow over the walls, on top of whatever its windows do.
+  const dark = step(0.5, iState.w).mul(step(iState.w, 1.5));
+  const burning = step(1.5, iState.w);
+  const powered = float(1).sub(dark);
+  const flicker = sin(fxU.time.mul(9).add(seed.mul(0.37))).mul(0.25).add(0.75);
   const lit = step(float(1).sub(LIT_FRACTION), litRand).mul(isGlass).mul(powered);
   const warmth = hash(seed.add(7919));
   const litColor = mix(vec3(1.0, 0.78, 0.45), vec3(0.75, 0.88, 1.0), step(0.8, warmth));
@@ -64,7 +68,8 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
   material.colorNode = mix(albedo.mul(ao.mul(0.55).add(0.45)), vec3(0.93, 0.95, 0.99), snowOnTop().mul(0.9));
   material.aoNode = ao;
   material.emissiveNode = litColor.mul(pane).mul(glow).mul(lit).mul(buildingLight.night).mul(1.7)
-    .add(base.mul(isAccent).mul(buildingLight.night.mul(1.3).add(0.12)).mul(powered.mul(0.92).add(0.08)));
+    .add(base.mul(isAccent).mul(buildingLight.night.mul(1.3).add(0.12)).mul(powered.mul(0.92).add(0.08)))
+    .add(vec3(1.0, 0.34, 0.07).mul(burning).mul(flicker).mul(float(0.6).sub(isGlass.mul(0.25))));
   material.roughnessNode = mix(mix(float(0.86), float(0.42), isMetal), mix(float(0.55), float(0.12), pane), isGlass);
   material.metalnessNode = mix(mix(float(0), float(0.7), isMetal), pane.mul(0.25), isGlass);
 

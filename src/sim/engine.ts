@@ -1,6 +1,7 @@
 import type { Command } from './commands.ts';
 import { hashWorld } from './hash.ts';
-import { AMAX, CHUNK, DAY_TICKS, REGISTRY, S, isTileLayer, type World } from './layers.ts';
+import { AMAX, CHUNK, D, DAY_TICKS, REGISTRY, S, isTileLayer, type World } from './layers.ts';
+import { DMODE } from './disasters/tables.ts';
 import type { ChunkPatch, EventsMsg, FromWorker, OverlayPatch, ResyncMsg, Typed } from './protocol.ts';
 import { DEFAULT_TAX } from './economy/tables.ts';
 import { RoadNet } from './roads/graph.ts';
@@ -15,7 +16,11 @@ import { allocWorld, newDirty, type Sim } from './world.ts';
 export const START_TREASURY = 50000;
 export const START_DAYFRAC = 0.3;
 
-export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
+/**
+ * `disasters` is the starting mode (0 off, 1 rare, 2 normal). A bare createSim opens with disasters off, so tests of the other
+ * systems never see a random fire; a session opens with the player's setting through Hello.disasters.
+ */
+export function createSim(seed: number, opt: { debug?: boolean; disasters?: number } = {}): Sim {
   const world = allocWorld();
   const s = world.scalars;
   s[S.seed] = seed >>> 0;
@@ -26,6 +31,9 @@ export function createSim(seed: number, opt: { debug?: boolean } = {}): Sim {
   s[S.dayFrac] = START_DAYFRAC;
   s[S.tickOfDay] = Math.round(START_DAYFRAC * DAY_TICKS);
   seedRng(world.rng, seed);
+  // Disasters draw from their own stream, so switching them on or off never shifts the weather.
+  seedRng(world.drng, seed ^ 0xd15a57e2);
+  world.disaster[D.MODE] = opt.disasters !== undefined && opt.disasters >= 0 && opt.disasters <= DMODE.NORMAL ? Math.floor(opt.disasters) : DMODE.OFF;
   generateTerrain(world, seed);
   return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true, roads: RoadNet.build(world) };
 }

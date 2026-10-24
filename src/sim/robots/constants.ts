@@ -1,9 +1,13 @@
 // Every balancing constant of the robot workforce. Integer ticks (10 per second) and whole currency units.
 import { rciFootprint } from '../catalog.ts';
 
-export const AKIND = { NONE: 0, BUILDER: 1, HAULER: 2 } as const;
-/** Agent states (aState). IDLE robots wait inside their depot and are not drawn. */
-export const AST = { IDLE: 0, TO_SITE: 1, WORK: 2, RETURN: 3, TO_PICKUP: 4, HAUL: 5 } as const;
+export const AKIND = { NONE: 0, BUILDER: 1, HAULER: 2, FIREFIGHTER: 3 } as const;
+/**
+ * Agent states (aState). IDLE robots wait inside their depot (firefighters: their fire station) and are not drawn.
+ * Firefighters, and builders sent to repair a cracked road (REPAIR_GO onward, sim/disasters/agents.ts), are moved by the
+ * disasters system, not by updateAgent; `disasterOwned` is the test.
+ */
+export const AST = { IDLE: 0, TO_SITE: 1, WORK: 2, RETURN: 3, TO_PICKUP: 4, HAUL: 5, FF_GO: 6, FF_SPRAY: 7, REPAIR_GO: 8, REPAIR_WORK: 9 } as const;
 export const JOB = { NONE: 0, BUILD: 1, LEVEL: 2, DEMOLISH: 3 } as const;
 
 // ---- Depots and spawning ----
@@ -24,6 +28,9 @@ export const REASSIGN_PERIOD = 20;
 // ---- Movement: tiles per tick by road class (index = class), builders walk, haulers fly ----
 export const BUILDER_SPEED = [0, 0.14, 0.18, 0.22, 0.14, 0.14, 0.14, 0.14] as const;
 export const HAULER_SPEED = [0, 0.24, 0.32, 0.42, 0.24, 0.24, 0.24, 0.24] as const;
+export const FIREFIGHTER_SPEED = [0, 0.34, 0.44, 0.56, 0.34, 0.34, 0.34, 0.34] as const;
+/** Fraction of its speed an agent keeps on a cracked road tile (ROAD.DAMAGED). */
+export const DAMAGED_ROAD_SPEED = 0.4;
 /** Retry delay after a failed path search: BACKOFF_BASE << tries, capped at BACKOFF_MAX. */
 export const BACKOFF_BASE = 10;
 export const BACKOFF_MAX = 160;

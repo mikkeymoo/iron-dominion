@@ -179,7 +179,9 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     input.flush(dt);
     rig.step(dt);
     const pose = rig.pose();
-    world.applyPose(pose);
+    // A quake or an impact shakes only what is drawn: picking and the view rect keep using the steady pose.
+    const [sx, sy, sz] = world.fx.shakeOffset(now / 1000, pose, rig.state.dist);
+    world.applyPose(sx === 0 && sy === 0 && sz === 0 ? pose : { px: pose.px + sx, py: pose.py + sy, pz: pose.pz + sz, tx: pose.tx + sx, ty: pose.ty + sy, tz: pose.tz + sz });
     world.update(dt, now / 1000, pose, rig.state.dist, rig.state.pitch);
     world.updateRobots(dt, now, pose);
 
@@ -301,6 +303,10 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     get robots() { return world.robots.snapshot; },
     get following() { return rig.following; },
     follow,
+    jumpTo(x, y) {
+      stopFollowing();
+      rig.reset(x + 0.5, y + 0.5, rig.state.yaw, 0.95, 42);
+    },
     pickTile: pickAt,
     resetCamera(pose) { rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
     loseDevice() {

@@ -32,7 +32,7 @@ const LINE_COST: Record<LineKind, number> = { power: POWER_LINE_COST, water: PIP
 
 const money = (n: number): string => `$${Math.round(n).toLocaleString('en-US')}`;
 
-export function Tools({ runtime, view }: { runtime: ToolsRuntime; view: ViewState }) {
+export function Tools({ runtime, view, onJump }: { runtime: ToolsRuntime; view: ViewState; onJump?: (x: number, y: number) => void }) {
   const [, bump] = useReducer((n: number) => n + 1, 0);
   useEffect(() => runtime.subscribe(bump), [runtime]);
   useEffect(() => view.subscribe(bump), [view]);
@@ -74,7 +74,12 @@ export function Tools({ runtime, view }: { runtime: ToolsRuntime; view: ViewStat
         ))}
       </div>
       <div className="tool-toasts" role="status" aria-live="polite">
-        {runtime.toasts.map((t) => <div key={t.id} className="tool-toast" data-testid="toast">{t.text}</div>)}
+        {runtime.toasts.map((t) => (
+          <div key={t.id} className={`tool-toast${t.alert ? ' alert' : ''}`} data-testid="toast">
+            <span>{t.text}</span>
+            {t.jump && onJump && <button type="button" className="toast-jump" data-testid="toast-jump" onClick={() => onJump(t.jump!.x, t.jump!.y)}>Jump to</button>}
+          </div>
+        ))}
       </div>
 
       <div className="toolsheet" role="toolbar" aria-label="Build tools">

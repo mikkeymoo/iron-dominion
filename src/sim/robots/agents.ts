@@ -43,7 +43,7 @@ function adoptiveDepot(net: RoadNet, w: World, from: number): number {
 }
 
 /** Drop the current task and head for a depot: the home depot, or the nearest connected one when home is gone. */
-function goHome(net: RoadNet, w: World, a: number): void {
+export function goHome(net: RoadNet, w: World, a: number): void {
   // Material still on board was reserved for its job: release the reservation and put the units back where they came from.
   const carried = w.aCarry[a]!;
   if (carried > 0) {
@@ -167,7 +167,7 @@ export function spawnPass(sim: Sim, net: RoadNet): void {
   const builders = new Map<number, number>(), haulers = new Map<number, number>();
   for (let a = 0; a < AMAX; a++) {
     const k = w.aKind[a]!;
-    if (k === 0) continue;
+    if (k !== AKIND.BUILDER && k !== AKIND.HAULER) continue;
     const h = homeSlot(w, a);
     if (h < 0) continue;
     const m = k === AKIND.BUILDER ? builders : haulers;
@@ -194,7 +194,7 @@ export function dispatch(sim: Sim, net: RoadNet): void {
   const assigned = new Map<number, number>();
   for (let a = 0; a < AMAX; a++) {
     const k = w.aKind[a]!, st = w.aState[a]!;
-    if (k === 0) continue;
+    if (k !== AKIND.BUILDER && k !== AKIND.HAULER) continue;
     if (st === AST.IDLE) {
       if (homeSlot(w, a) < 0) continue;
       (k === AKIND.BUILDER ? idleB : idleH).push(a);

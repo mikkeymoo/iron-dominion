@@ -29,12 +29,15 @@ export const ENTRANCE_SPACING = 4;
 export const CLASS_COST = [0, 30, 20, 12, 30, 30, 30, 30] as const;
 export const SLOPE_COST = 15;
 export const BRIDGE_COST = 6;
+/** A cracked road is passable but about as bad as three extra street tiles, so routes go around it when they can. Stays under the Uint8 cost cell of a cluster. */
+export const DAMAGED_COST = 90;
 export const MIN_TILE_COST = 12;
 /** Admissible and consistent: every step costs at least two tiles of the cheapest road. */
 export const STEP_LOWER_BOUND = 2 * MIN_TILE_COST;
 
 export const tileCost = (r: number): number =>
-  CLASS_COST[r & ROAD.CLASS_MASK]! + ((r & ROAD.SLOPE) !== 0 ? SLOPE_COST : 0) + ((r & ROAD.BRIDGE) !== 0 ? BRIDGE_COST : 0);
+  CLASS_COST[r & ROAD.CLASS_MASK]! + ((r & ROAD.SLOPE) !== 0 ? SLOPE_COST : 0) + ((r & ROAD.BRIDGE) !== 0 ? BRIDGE_COST : 0)
+  + ((r & ROAD.DAMAGED) !== 0 ? DAMAGED_COST : 0);
 
 export const clusterOf = (t: number): number => ((t >> SHIFT) >> CSHIFT) * CHUNKS + ((t & XM) >> CSHIFT);
 export const heuristic = (t: number, goal: number): number =>

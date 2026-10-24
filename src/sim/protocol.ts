@@ -9,6 +9,8 @@ export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float3
 
 export interface BuildingRec {
   slot: number; arch: number; x: number; y: number; w: number; h: number; rot: number; level: number; prog: number; flags: number;
+  /** Damage 0..255 (fire char, quake, impact); 255 with BFLAG.RUBBLE is a ruin. */
+  dmg: number;
 }
 
 export interface Hello {
@@ -22,6 +24,8 @@ export interface Hello {
   haltAt?: number;
   /** Include the world hash in Stats every N ticks (0 = only when halted or requested). */
   hashEvery?: number;
+  /** The Disasters setting the city opens with: 0 off, 1 rare, 2 normal. Absent means off. */
+  disasters?: number;
 }
 export interface Ready { type: 'ready'; protocolVersion: number; hash: number }
 export interface ErrorMsg { type: 'error'; message: string }

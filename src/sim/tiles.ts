@@ -30,17 +30,17 @@ export function copyChunkIn(dst: NumArray, chunk: number, src: NumArray, srcOffs
 
 export interface BuildingTable {
   bArch: Uint8Array; bX: Uint16Array; bY: Uint16Array; bW: Uint8Array; bH: Uint8Array;
-  bRot: Uint8Array; bLevel: Uint8Array; bProg: Uint8Array; bFlags: Uint8Array;
+  bRot: Uint8Array; bLevel: Uint8Array; bProg: Uint8Array; bFlags: Uint8Array; bDmg: Uint8Array;
 }
 
 export function readBuilding(t: BuildingTable, slot: number): BuildingRec {
   return {
     slot, arch: t.bArch[slot]!, x: t.bX[slot]!, y: t.bY[slot]!, w: t.bW[slot]!, h: t.bH[slot]!,
-    rot: t.bRot[slot]!, level: t.bLevel[slot]!, prog: t.bProg[slot]!, flags: t.bFlags[slot]!,
+    rot: t.bRot[slot]!, level: t.bLevel[slot]!, prog: t.bProg[slot]!, flags: t.bFlags[slot]!, dmg: t.bDmg[slot]!,
   };
 }
 
 export function writeBuilding(t: BuildingTable, b: BuildingRec): void {
   t.bArch[b.slot] = b.arch; t.bX[b.slot] = b.x; t.bY[b.slot] = b.y; t.bW[b.slot] = b.w; t.bH[b.slot] = b.h;
-  t.bRot[b.slot] = b.rot; t.bLevel[b.slot] = b.level; t.bProg[b.slot] = b.prog; t.bFlags[b.slot] = b.flags;
+  t.bRot[b.slot] = b.rot; t.bLevel[b.slot] = b.level; t.bProg[b.slot] = b.prog; t.bFlags[b.slot] = b.flags; t.bDmg[b.slot] = b.dmg;
 }

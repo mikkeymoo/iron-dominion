@@ -3,7 +3,8 @@ import type { LoanInfo, Speed, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
-import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
+import { DISASTER_MODES, TIER_OVERRIDES, type DisastersSetting, type Settings, type TierOverride } from '../platform/settings.ts';
+import type { SandboxDisaster } from './toolsStore.ts';
 import type { FailReason } from '../platform/db.ts';
 import { isEditableTarget } from '../render/editable.ts';
 
@@ -60,6 +61,8 @@ interface Props {
   onSaveAs(name: string): void;
   onExport(): void;
   onSetting<K extends keyof Settings>(key: K, value: Settings[K]): void;
+  /** Sandbox menu: start a fire, quake or meteor at the middle of the view. Absent while the 3D view is not running. */
+  onTrigger?(kind: SandboxDisaster): void;
   onQuit(): void;
   /** Set when leaving could not save: the player picks what happens to the city. */
   quitPrompt: string | null;
@@ -74,10 +77,10 @@ const clock = (f: number): string => {
 };
 
 
-export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
+export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onTrigger, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
   const [menu, setMenu] = useState(false);
-  const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings'>('main');
+  const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings' | 'sandbox'>('main');
   const [name, setName] = useState('');
   const [quitName, setQuitName] = useState('');
   const lastRunning = useRef<Speed>(1);
@@ -147,6 +150,7 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
               <button type="button" className="tb row" onClick={() => { setName(''); setPanel('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
               <button type="button" className="tb row" onClick={() => setPanel('settings')}>Settings</button>
+              {onTrigger && <button type="button" className="tb row" onClick={() => setPanel('sandbox')}>Trigger disaster...</button>}
               <button type="button" className="tb row" onClick={() => { closeMenu(); onQuit(); }}>Quit to title (saves)</button>
               <button type="button" className="tb row" onClick={closeMenu}>Close</button>
             </>
@@ -166,6 +170,21 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
                 </select>
               </label>
               <p className="hint">Takes effect the next time a city starts.</p>
+              <label>Disasters
+                <select value={settings.disasters} data-testid="disasters-setting" onChange={(e) => onSetting('disasters', e.target.value as DisastersSetting)}>
+                  {DISASTER_MODES.map((m) => <option key={m} value={m}>{m === 'off' ? 'Off' : m === 'rare' ? 'Rare' : 'Normal'}</option>)}
+                </select>
+              </label>
+              <p className="hint">Fires, storms, quakes and meteors. Off stops new ones; the sandbox menu still works.</p>
+              <button type="button" className="tb row" onClick={() => setPanel('main')}>Back</button>
+            </div>
+          )}
+          {panel === 'sandbox' && onTrigger && (
+            <div className="settings">
+              <p className="hint">Strikes the middle of the view. Works in every disaster setting.</p>
+              <button type="button" className="tb row" data-testid="trigger-fire" onClick={() => { onTrigger('fire'); closeMenu(); }}>Start a fire</button>
+              <button type="button" className="tb row" data-testid="trigger-quake" onClick={() => { onTrigger('quake'); closeMenu(); }}>Earthquake</button>
+              <button type="button" className="tb row" data-testid="trigger-meteor" onClick={() => { onTrigger('meteor'); closeMenu(); }}>Meteor strike</button>
               <button type="button" className="tb row" onClick={() => setPanel('main')}>Back</button>
             </div>
           )}

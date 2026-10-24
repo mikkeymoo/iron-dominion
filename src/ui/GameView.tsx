@@ -10,7 +10,7 @@ import type { Settings } from '../platform/settings.ts';
 import { Budget } from './Budget';
 import { Hud, type HudStats } from './Hud';
 import { Tools } from './Tools';
-import type { ToolsRuntime } from './toolsStore.ts';
+import type { SandboxDisaster, ToolsRuntime } from './toolsStore.ts';
 
 interface Props {
   client: SimClient;
@@ -82,6 +82,12 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const trigger = (kind: SandboxDisaster): void => {
+    const cam = game.current?.debug.camera;
+    if (cam) tools.triggerDisaster(kind, Math.floor(cam.x), Math.floor(cam.z));
+  };
+  const jump = (x: number, y: number): void => { game.current?.debug.jumpTo(x, y); };
+
   return (
     <div className="game" data-render={phase} data-worker={worker}>
       <div className="game-host" ref={host} />
@@ -95,8 +101,8 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
-        {phase === 'running' && <Tools runtime={tools} view={view} />}
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onTrigger={phase === 'running' ? trigger : undefined} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
+        {phase === 'running' && <Tools runtime={tools} view={view} onJump={jump} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setBudgetOpen(false)} />}
         <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
         {panel && perf && (

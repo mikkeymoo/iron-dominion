@@ -12,6 +12,8 @@ export interface ClientOptions {
   debug?: boolean;
   haltAt?: number;
   hashEvery?: number;
+  /** The Disasters setting the city opens with (0 off, 1 rare, 2 normal). */
+  disasters?: number;
   buildHash?: string;
   onState?: (state: ClientState, error?: string) => void;
   onStats?: (s: Stats) => void;
@@ -90,7 +92,7 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
   worker.onerror = (e) => setState('failed', `worker error: ${e.message || 'unknown'}`);
   worker.onmessageerror = () => setState('failed', 'worker message could not be deserialised');
 
-  send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, buildHash: opt.buildHash, seed: opt.seed, debug: opt.debug, haltAt: opt.haltAt, hashEvery: opt.hashEvery });
+  send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, buildHash: opt.buildHash, seed: opt.seed, debug: opt.debug, haltAt: opt.haltAt, hashEvery: opt.hashEvery, disasters: opt.disasters });
 
   return {
     get state() { return state; },

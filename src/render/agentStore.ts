@@ -4,9 +4,9 @@ import type { AgentsMsg } from '../sim/protocol.ts';
 // sim ticks, so the store keeps the last two tick snapshots and interpolates between them. Agents are matched by key
 // (slot | generation << 16), so a slot reused by another robot is a new agent that snaps, never one that slides across the map.
 
-export const AGENT_KIND = { BUILDER: 1, HAULER: 2 } as const;
+export const AGENT_KIND = { BUILDER: 1, HAULER: 2, FIREFIGHTER: 3 } as const;
 /** Mirrors AST in sim/robots/constants.ts (the renderer does not import sim internals beyond the protocol). */
-export const AGENT_STATE = { IDLE: 0, TO_SITE: 1, WORK: 2, RETURN: 3, TO_PICKUP: 4, HAUL: 5 } as const;
+export const AGENT_STATE = { IDLE: 0, TO_SITE: 1, WORK: 2, RETURN: 3, TO_PICKUP: 4, HAUL: 5, FF_GO: 6, FF_SPRAY: 7, REPAIR_GO: 8, REPAIR_WORK: 9 } as const;
 
 interface Frame { tick: number; t: number; count: number; pos: Float32Array; ids: Uint32Array; index: Map<number, number> }
 
@@ -125,10 +125,13 @@ export class AgentStore {
   }
 
   /** Counts of the agents in the latest message by kind. */
-  counts(): { builders: number; haulers: number } {
-    let builders = 0, haulers = 0;
-    for (let i = 0; i < this.cur.count; i++) { if ((this.cur.ids[i * 2 + 1]! & 0xff) === AGENT_KIND.BUILDER) builders++; else haulers++; }
-    return { builders, haulers };
+  counts(): { builders: number; haulers: number; fighters: number } {
+    let builders = 0, haulers = 0, fighters = 0;
+    for (let i = 0; i < this.cur.count; i++) {
+      const k = this.cur.ids[i * 2 + 1]! & 0xff;
+      if (k === AGENT_KIND.BUILDER) builders++; else if (k === AGENT_KIND.FIREFIGHTER) fighters++; else haulers++;
+    }
+    return { builders, haulers, fighters };
   }
 }
 

@@ -1,6 +1,6 @@
 import { AMAX, MAP, ROAD, S, type World } from '../layers.ts';
 import { findPath, pathTiles, type RoadNet } from '../roads/index.ts';
-import { AKIND, BACKOFF_BASE, BACKOFF_MAX, BUILDER_SPEED, HAULER_SPEED } from './constants.ts';
+import { AKIND, BACKOFF_BASE, BACKOFF_MAX, BUILDER_SPEED, DAMAGED_ROAD_SPEED, FIREFIGHTER_SPEED, HAULER_SPEED } from './constants.ts';
 import { nearestTileOf } from './pool.ts';
 
 // Path following. The registry holds only (aPlan, aGoal, aStep, aFrac, aEpoch); the tile path itself is a cache that is rebuilt
@@ -78,7 +78,8 @@ export function stepAgent(net: RoadNet, w: World, a: number): MoveResult {
   if (step >= last) { place(w, a, tiles, last, 0, false); return 'arrived'; }
   const first = step === 0 && frac === 0, from = step;
   const cls = w.road[tiles[step]!]! & ROAD.CLASS_MASK;
-  frac += (w.aKind[a] === AKIND.BUILDER ? BUILDER_SPEED : HAULER_SPEED)[cls]!;
+  const speeds = w.aKind[a] === AKIND.BUILDER ? BUILDER_SPEED : w.aKind[a] === AKIND.FIREFIGHTER ? FIREFIGHTER_SPEED : HAULER_SPEED;
+  frac += speeds[cls]! * ((w.road[tiles[step]!]! & ROAD.DAMAGED) !== 0 ? DAMAGED_ROAD_SPEED : 1);
   while (frac >= 1 && step < last) { frac -= 1; step++; }
   if (step >= last) {
     w.aStep[a] = last; w.aFrac[a] = 0;

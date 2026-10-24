@@ -146,7 +146,7 @@ export function updateAbandonment(sim: Sim): void {
   for (let z = 1; z <= 3; z++) weak[z] = Math.round(zoneDemand(w, z) * ONE) < -ABANDON_DEMAND ? 1 : 0;
   for (let s = 0; s < BMAX; s++) {
     const z = zoneOfArch(w.bArch[s]!);
-    if (z === 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) !== 0) continue;
+    if (z === 0 || (w.bFlags[s]! & (BFLAG.CONSTRUCTING | BFLAG.RUBBLE)) !== 0) continue;
     const desirability = footprintMean(w, w.landValue, s) + (z === ZONE.I ? 64 : 0);
     const bad = weak[z] === 1 && desirability < ABANDON_DESIRABILITY;
     const c = w.bAband[s]!;

@@ -51,6 +51,10 @@ export const BFLAG = {
    */
   UNPOWERED: 16,
   UNWATERED: 32,
+  /** On fire (sim/disasters): bHeat is the fire's heat and bDmg grows each fire step until it burns out or the building is destroyed. */
+  BURNING: 64,
+  /** Destroyed by a disaster (bDmg 255), always set together with ABANDONED so the economy ignores it and the robots tear the ruin down. */
+  RUBBLE: 128,
 } as const;
 
 const rciArchetypes = (): Archetype[] => {

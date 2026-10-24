@@ -10,7 +10,13 @@ export type SimEvent =
   | { type: 'lightning'; tick: number; x: number; y: number }
   | { type: 'weather'; tick: number; weather: number }
   /** The treasury has ended `months` consecutive budget months below zero (3 or more); services will degrade later. */
-  | { type: 'bankruptcy'; tick: number; months: number };
+  | { type: 'bankruptcy'; tick: number; months: number }
+  /**
+   * A disaster began or landed at tile (x, y). Fires report only the ignition of a new blaze (spread is silent), with the burning
+   * building's archetype. A meteor reports twice: 'start' when it is seen coming (it lands at impactTick) and 'impact'. A quake
+   * reports once, 'impact', with its radius.
+   */
+  | { type: 'disaster'; tick: number; kind: 'fire' | 'quake' | 'meteor'; phase: 'start' | 'impact'; x: number; y: number; radius: number; arch: number; impactTick: number };
 
 export interface DirtySets {
   geometry: Set<number>;

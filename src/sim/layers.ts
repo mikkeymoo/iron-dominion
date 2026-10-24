@@ -65,6 +65,10 @@ export const SPEC = {
   bGen: L(Uint16Array, BMAX, false, 'none'),
   // Abandonment counter per slot (economy/lots.ts): checks spent in low desirability with negative demand.
   bAband: L(Uint8Array, BMAX, false, 'none'),
+  // Damage 0..255 from fire, quake or meteor (255 = destroyed, see BFLAG.RUBBLE); the renderer chars the building by it. It rides
+  // the building record, so it is a render layer even though it is not a tile layer. bHeat is the fire's heat while BFLAG.BURNING.
+  bDmg: L(Uint8Array, BMAX, true, 'geometry'),
+  bHeat: L(Uint8Array, BMAX, false, 'none'),
 
   // Loans: principal and monthly interest in basis points, fixed when taken. Principal 0 = free slot.
   loanAmt: L(Uint32Array, MAX_LOANS, false, 'none'),
@@ -135,6 +139,10 @@ export const SPEC = {
 
   scalars: L(Float64Array, 32, false, 'none'),
   rng: L(Uint32Array, 4, false, 'none'),
+  // Disasters (sim/disasters): the mode and the pending meteor live in `disaster` (see D), randomness in its own stream so that
+  // switching disasters on or off never shifts the weather.
+  disaster: L(Int32Array, 8, false, 'none'),
+  drng: L(Uint32Array, 4, false, 'none'),
 } as const;
 
 export type LayerName = keyof typeof SPEC;
@@ -168,9 +176,10 @@ export const ZONE = { NONE: 0, R: 1, C: 2, I: 3 } as const;
 //   bit  6     connects West  (x - 1)
 //   bit  7     bridge / elevated (road over water)
 //   bit  8     slope (a 4-neighbour is more than SLOPE_LIMIT higher or lower)
-//   bits 9-15  reserved
+//   bit  9     damaged (cracked by a quake; slow and costly to path through until a robot repairs it)
+//   bits 10-15 reserved
 export const ROAD = {
-  CLASS_MASK: 0x7, N: 1 << 3, E: 1 << 4, S: 1 << 5, W: 1 << 6, CONN_MASK: 0x78, BRIDGE: 1 << 7, SLOPE: 1 << 8,
+  CLASS_MASK: 0x7, N: 1 << 3, E: 1 << 4, S: 1 << 5, W: 1 << 6, CONN_MASK: 0x78, BRIDGE: 1 << 7, SLOPE: 1 << 8, DAMAGED: 1 << 9,
 } as const;
 export const SLOPE_LIMIT = HEIGHT_SCALE * 0.75;
 
@@ -190,5 +199,8 @@ export const S = {
   grid: 31,
 } as const;
 
-export const WEATHER = { CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;
+/** Indices into the `disaster` layer. MODE is 0 off, 1 rare, 2 normal; METEOR_AT is the impact tick of an incoming meteor (0 = none). */
+export const D = { MODE: 0, METEOR_AT: 1, METEOR_X: 2, METEOR_Y: 3 } as const;
+
+export const WEATHER ={ CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;
 export const DAY_TICKS = 4800;

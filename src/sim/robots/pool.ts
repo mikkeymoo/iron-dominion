@@ -1,6 +1,6 @@
 import { ARCH } from '../catalog.ts';
 import { AMAX, MAP, S, type World } from '../layers.ts';
-import { AST } from './constants.ts';
+import { AKIND, AST } from './constants.ts';
 
 /** Robot spending accrued this month (paid with the month's budget): `spend` indices. */
 export const SPEND = { UPKEEP: 0, IMPORTS: 1, PURCHASES: 2 } as const;
@@ -66,7 +66,10 @@ export function countAgents(w: World): { builders: number; haulers: number; acti
     const k = w.aKind[a]!;
     if (k === 0) continue;
     const active = w.aState[a] !== AST.IDLE;
-    if (k === 1) { builders++; if (active) activeBuilders++; } else { haulers++; if (active) activeHaulers++; }
+    if (k === AKIND.BUILDER) { builders++; if (active) activeBuilders++; } else if (k === AKIND.HAULER) { haulers++; if (active) activeHaulers++; }
   }
   return { builders, haulers, activeBuilders, activeHaulers };
 }
+
+/** Agents the disasters system moves (firefighters, and builders repairing a road): the robot state machine must leave them alone. */
+export const disasterOwned = (w: World, a: number): boolean => w.aKind[a] === AKIND.FIREFIGHTER || w.aState[a]! >= AST.FF_GO;

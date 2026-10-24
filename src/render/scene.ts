@@ -40,7 +40,10 @@ export class WorldScene {
     this.icons = new OutageIcons();
     this.scene.add(this.icons.mesh);
     this.overlay = new OverlayView(mirror, this.terrain.slots);
-    this.robots = new RobotsView(agents, mirror, (kind, x, y, z, n) => this.fx.particles.emit(kind, x, y, z, n), tier);
+    this.robots = new RobotsView(agents, mirror, {
+      spark: (x, y, z, n) => this.fx.particles.emit('spark', x, y, z, n),
+      water: (x, y, z, dx, dz, n) => this.fx.particles.emitJet('water', x, y, z, dx, 0.5, dz, 2.6, 0.7, n),
+    }, tier);
     this.scene.add(this.robots.group);
     this.fx.attach(this.terrain, this.buildings);
     renderer.setClearColor(0xb4d4f0, 1);

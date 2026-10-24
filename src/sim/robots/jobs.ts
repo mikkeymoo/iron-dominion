@@ -91,6 +91,7 @@ export function startLevelUp(sim: Sim, slot: number, nextArch: number, access: n
   if (!expandFootprint(sim, slot, next, true)) return false;
   w.bArch[slot] = next.id; w.bLevel[slot] = next.level ?? 1; w.bProg[slot] = 0;
   w.bFlags[slot] = BFLAG.CONSTRUCTING;
+  w.bDmg[slot] = 0; w.bHeat[slot] = 0;
   openJob(sim, slot, JOB.LEVEL, materialFor(next.w * next.h, next.level ?? 1), 0, access);
   w.jPrev[slot] = prevArch; w.jPrevSz[slot] = prevSize;
   return true;
@@ -98,7 +99,9 @@ export function startLevelUp(sim: Sim, slot: number, nextArch: number, access: n
 
 export function startDemolish(sim: Sim, slot: number, access: number): void {
   const w = sim.world;
-  w.bFlags[slot] = BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING;
+  // A ruin stays a ruin while it is torn down, so the renderer keeps the rubble and shrinks it with the progress.
+  w.bFlags[slot] = BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING | (w.bFlags[slot]! & BFLAG.RUBBLE);
+  w.bHeat[slot] = 0;
   w.bProg[slot] = 255;
   openJob(sim, slot, JOB.DEMOLISH, 0, JOB_MAX, access);
 }
@@ -256,7 +259,9 @@ export function growthDirector(sim: Sim, builders: number): void {
     }
   }
   if (jobs < MAX_JOBS && demolitions < MAX_DEMOLITIONS) {
-    for (const s of abandonedBuildings(w)) {
+    // Ruins from a disaster go first: they block their lot and the renderer shows rubble until the robots clear it.
+    const ruin = (s: number): number => ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0 ? 1 : 0);
+    for (const s of abandonedBuildings(w).sort((a, b) => ruin(b) - ruin(a) || a - b)) {
       if (w.jKind[s] !== 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) !== 0) continue;
       const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
       if (access >= 0) { startDemolish(sim, s, access); return; }

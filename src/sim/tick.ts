@@ -1,5 +1,6 @@
 import { execute } from './commands.ts';
 import { DAY_TICKS, MAP, S, WEATHER } from './layers.ts';
+import { disastersSystem } from './disasters/index.ts';
 import { economySystem } from './economy/index.ts';
 import { roadsSystem } from './roads/index.ts';
 import { robotsSystem } from './robots/index.ts';
@@ -56,7 +57,7 @@ function clockWeather(sim: Sim): void {
 const utilities: System = utilitiesSystem;
 const traffic: System = () => {};
 const services: System = () => {};
-const disasters: System = () => {};
+const disasters: System = disastersSystem;
 
 /** Fixed system order: later units fill the hooks, they never reorder. */
 export const SYSTEMS: readonly { name: string; run: System }[] = [

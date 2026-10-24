@@ -4,18 +4,24 @@ import type { PlatformDb } from './db.ts';
 export type TierOverride = 'auto' | Tier;
 export const TIER_OVERRIDES: readonly TierOverride[] = ['auto', ...TIERS];
 
+/** How often random disasters strike. The index is the sim's mode (see DMODE in sim/disasters/tables.ts), sent as the setDisasters command. */
+export type DisastersSetting = 'off' | 'rare' | 'normal';
+export const DISASTER_MODES: readonly DisastersSetting[] = ['off', 'rare', 'normal'];
+export const isDisastersSetting = (v: unknown): v is DisastersSetting => DISASTER_MODES.includes(v as DisastersSetting);
+export const disasterModeOf = (s: DisastersSetting): number => DISASTER_MODES.indexOf(s);
+
 export interface Settings {
   tier: TierOverride;
   graphics: { shadows: boolean; bloom: boolean; resolutionScale: number };
   audio: { muted: boolean; volume: number };
-  disasters: boolean;
+  disasters: DisastersSetting;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   tier: 'auto',
   graphics: { shadows: true, bloom: true, resolutionScale: 1 },
   audio: { muted: false, volume: 0.7 },
-  disasters: true,
+  disasters: 'rare',
 };
 
 export const isTierOverride = (v: unknown): v is TierOverride => v === 'auto' || isTier(v);
@@ -34,7 +40,8 @@ function sanitize(raw: Record<string, unknown>): Settings {
     tier: isTierOverride(raw.tier) ? raw.tier : d.tier,
     graphics: { shadows: bool(g.shadows, d.graphics.shadows), bloom: bool(g.bloom, d.graphics.bloom), resolutionScale: num(g.resolutionScale, d.graphics.resolutionScale, 0.25, 2) },
     audio: { muted: bool(a.muted, d.audio.muted), volume: num(a.volume, d.audio.volume, 0, 1) },
-    disasters: bool(raw.disasters, d.disasters),
+    // Before the Off / Rare / Normal choice the setting was a boolean: on becomes Normal, off stays Off.
+    disasters: isDisastersSetting(raw.disasters) ? raw.disasters : raw.disasters === true ? 'normal' : raw.disasters === false ? 'off' : d.disasters,
   };
 }
 

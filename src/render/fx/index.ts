@@ -9,6 +9,7 @@ import type { EmitterRec } from '../instances.ts';
 import type { RenderMirror } from '../mirror.ts';
 import { TIER_TABLE, type Tier } from '../tier.ts';
 import type { TerrainView } from '../terrain.ts';
+import { DisasterFx, type DisasterStats } from './disasters.ts';
 import { Lamps } from './lamps.ts';
 import { Lighting } from './lighting.ts';
 import { skyLook, smoothstep } from './palette.ts';
@@ -41,6 +42,8 @@ export interface FxDebug {
   readonly lightning: number;
   readonly exposure: number;
   readonly overrides: { time: boolean; weather: boolean };
+  /** Meteors in flight, rings and flashes on screen, active shakes, and how many impacts and quakes the effects have handled. */
+  readonly disasters: DisasterStats;
   emit(kind: ParticleKind, x: number, y: number, z: number, count: number): number;
 }
 
@@ -51,6 +54,7 @@ export class Fx {
   readonly weather: WeatherFx;
   readonly particles: ParticleSystem;
   readonly lamps: Lamps;
+  readonly disasters: DisasterFx;
   private post!: Post;
   private readonly fog = new FogExp2(0xb4d4f0, BASE_FOG);
   private readonly clock = new DayClock(0.4);
@@ -92,7 +96,8 @@ export class Fx {
     this.weather = new WeatherFx(spec);
     this.particles = new ParticleSystem(spec);
     this.lamps = new Lamps(mirror, spec);
-    scene.add(this.sky.mesh, this.water.group, this.weather.group, this.particles.group, this.lamps.group);
+    this.disasters = new DisasterFx(this.particles, (x, z) => this.groundAt(x, z));
+    scene.add(this.sky.mesh, this.water.group, this.weather.group, this.particles.group, this.lamps.group, this.disasters.group);
     // The sky, weather, particles and lamps were just built for this tier; the rig, the water graph and the post chain are built once here.
     this.lighting.applyTier(spec);
     this.water.applyTier(spec);
@@ -165,6 +170,7 @@ export class Fx {
 
   update(dt: number, nowSec: number, pose: Pose, camDist: number, pitch: number): void {
     this.nowSec = nowSec;
+    fxU.time.value = nowSec % 3600;
     const spec = TIER_TABLE[this.tier];
 
     const target = this.targetDayFrac();
@@ -221,6 +227,8 @@ export class Fx {
     this.water.update();
     this.lamps.update(pose.tx, pose.tz);
     this.emitContinuous(dt, pose, camDist, spec.fx.emitters);
+    for (const e of this.mirror.takeDisasters()) if (this.mirror.hasResync) this.disasters.handle(e, nowSec);
+    this.disasters.update(dt, nowSec);
     this.particles.update(dt);
 
     // Sun for the shaft pass: projected into screen uv, visible only when it is in front of the camera and above the horizon.
@@ -275,7 +283,7 @@ export class Fx {
       const since = s ? Math.min(MAX_CATCHUP_S, Math.max(dt, nowSec - s.t)) : dt;
       const a = accumulate(s ? s.carry : Math.random(), rec.rate, since);
       this.carry.set(rec, { carry: a.carry, t: nowSec });
-      const spread = rec.kind === 'dust' ? 0.45 : 0;
+      const spread = rec.kind === 'dust' ? 0.45 : rec.kind === 'fire' ? 0.22 : 0;
       for (let i = 0; i < a.emit && emitted < MAX_EMIT_PER_FRAME; i++, emitted++) {
         this.particles.emit(rec.kind, rec.x + (Math.random() - 0.5) * spread, rec.y, rec.z + (Math.random() - 0.5) * spread, 1);
       }
@@ -283,6 +291,11 @@ export class Fx {
   }
 
   render(): void { this.post.render(); }
+
+  /** Camera translation for a quake or an impact (zero when nothing shakes); the game adds it to the camera pose. */
+  shakeOffset(nowSec: number, pose: Pose, camDist: number): [number, number, number] {
+    return this.disasters.shake(nowSec, pose.tx, pose.tz, camDist);
+  }
 
   get debug(): FxDebug {
     const self = this;
@@ -301,12 +314,14 @@ export class Fx {
       get lightning() { return self.weather.lightningStrikes; },
       get exposure() { return self.exposure; },
       get overrides() { return { time: self.timeOverride !== null, weather: self.weatherOverride !== null }; },
+      get disasters() { return self.disasters.stats; },
       emit: (kind, x, y, z, count) => self.particles.emit(kind, x, y, z, count),
     };
   }
 
   dispose(): void {
     this.post.dispose();
+    this.disasters.dispose();
     this.lamps.dispose();
     this.particles.dispose();
     this.weather.dispose();

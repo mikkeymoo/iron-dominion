@@ -6,18 +6,24 @@ import { REGISTRY, S } from './layers.ts';
 import { fnv1a } from './hash.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
 import { runScripted, runTicks, scriptedCity } from './testkit.ts';
+import { disasterModeOf, DEFAULT_SETTINGS } from '../platform/settings.ts';
+
+const DEFAULT_DISASTERS = disasterModeOf(DEFAULT_SETTINGS.disasters);
 
 interface Golden {
   seed: number;
   scripted: { ticks: number; hash: number };
-  /** Seed 42, no commands, 200 ticks: what `?seed=42&haltAt=200` must report in the browser worker. */
+  /**
+   * Seed 42, no commands, 200 ticks, opened on the default Disasters setting (Rare, which the app's Hello carries): what
+   * `?seed=42&haltAt=200` must report in the browser worker.
+   */
   idle: { ticks: number; hash: number };
 }
 
 function compute(): Golden {
   const sim = createSim(42);
   runScripted(sim, scriptedCity(sim.world), 2000);
-  const idle = createSim(42);
+  const idle = createSim(42, { disasters: DEFAULT_DISASTERS });
   runTicks(idle, 200);
   return { seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) } };
 }

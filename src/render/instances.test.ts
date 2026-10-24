@@ -68,7 +68,7 @@ describe('InstancePacker', () => {
 });
 
 const rec = (slot: number, arch: number, x: number, y: number, w: number, extra: Partial<BuildingRec> = {}): BuildingRec =>
-  ({ slot, arch, x, y, w, h: w, rot: 0, level: 1, prog: 0, flags: 0, ...extra });
+  ({ slot, arch, x, y, w, h: w, rot: 0, level: 1, prog: 0, flags: 0, dmg: 0, ...extra });
 
 function patch(m: RenderMirror, buildings: BuildingRec[]): void {
   const p: ChunkPatch = { type: 'chunkPatch', tick: 1, chunks: [], layers: {}, buildings };
@@ -134,6 +134,48 @@ describe('BuildingInstances over a synthetic mirror', () => {
     patch(mirror, [rec(3, 0, 0, 0, 0)]);
     d.sync();
     expect(d.outages.has(3)).toBe(false);
+  });
+
+  it('chars a damaged building, flags a burning one for the glow and gives it flames, smoke and embers', () => {
+    const { mirror, d } = setup(ALL);
+    const at = (slot: number) => {
+      const b = d.near.batches.get(d.near.keyOf(slot)!)!, i = d.near.indexOf(slot);
+      return { tint: b.tint[i * 3]!, state: Array.from(b.state.subarray(i * STATE_STRIDE, (i + 1) * STATE_STRIDE)) };
+    };
+    patch(mirror, [rec(0, A, 10, 10, 1), rec(1, A, 10, 10, 1, { dmg: 128 }), rec(2, A, 10, 10, 1, { dmg: 255, flags: BFLAG.BURNING })]);
+    d.sync();
+    expect(at(1).tint).toBeLessThan(at(0).tint);
+    expect(at(2).tint).toBeLessThan(at(1).tint);
+    expect(at(0).state[3]).toBe(0);
+    expect(at(2).state[3]).toBe(2);
+    expect(d.emitters.has(0) || d.emitters.has(1)).toBe(false);
+    expect(d.emitters.get(2)!.map((r) => r.kind).sort()).toEqual(['fire', 'fire', 'fire', 'smoke', 'spark']);
+    patch(mirror, [rec(2, A, 10, 10, 1, { dmg: 90 })]);
+    d.sync();
+    expect(d.emitters.has(2)).toBe(false);
+    expect(at(2).state[3]).toBe(0);
+  });
+
+  it('draws a ruin as rubble instead of the building, and shrinks it while robots clear it', () => {
+    const { mirror, d } = setup(ALL);
+    patch(mirror, [rec(0, A, 10, 10, 1), rec(1, B, 20, 20, 2, { dmg: 255, flags: BFLAG.RUBBLE | BFLAG.ABANDONED })]);
+    d.sync();
+    expect(d.near.has(0)).toBe(true);
+    expect(d.near.has(1)).toBe(false);
+    expect(d.far.has(1)).toBe(false);
+    expect(d.rubble.has(1)).toBe(true);
+    expect(d.rubble.has(0)).toBe(false);
+    expect(d.emitters.get(1)!.map((r) => r.kind)).toEqual(['smoke']);
+    const sy = (): number => d.rubble.batches.get(d.rubble.keyOf(1)!)!.matrix[d.rubble.indexOf(1) * MATRIX_STRIDE + 5]!;
+    expect(sy()).toBe(1);
+    patch(mirror, [rec(1, B, 20, 20, 2, { dmg: 255, flags: BFLAG.RUBBLE | BFLAG.ABANDONED | BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING, prog: 100 })]);
+    d.sync();
+    expect(sy()).toBeCloseTo(100 / 255, 3);
+    expect(d.emitters.get(1)!.map((r) => r.kind)).toEqual(['dust']);
+    patch(mirror, [rec(1, 0, 0, 0, 0)]);
+    d.sync();
+    expect(d.rubble.has(1)).toBe(false);
+    expect(d.emitters.has(1)).toBe(false);
   });
 
   it('removes a freed slot and compacts without disturbing the others', () => {

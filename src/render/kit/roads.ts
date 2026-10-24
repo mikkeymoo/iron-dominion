@@ -21,6 +21,8 @@ export interface RoadTile {
   cls: number;
   bridge: boolean;
   slope: boolean;
+  /** Cracked by a quake: the mesh gets dark cracks across the asphalt until a robot repairs the tile. */
+  damaged: boolean;
   crosswalks: boolean;
 }
 
@@ -29,7 +31,7 @@ const bits = (n: number): number => (n & 1) + ((n >> 1) & 1) + ((n >> 2) & 1) + 
 /** Decode a road-layer value into the tile shape and rotation the kit draws. */
 export function selectRoadTile(road: number): RoadTile {
   const conn = (road & ROAD.CONN_MASK) >> 3;
-  const base = { conn, cls: road & ROAD.CLASS_MASK, bridge: (road & ROAD.BRIDGE) !== 0, slope: (road & ROAD.SLOPE) !== 0 };
+  const base = { conn, cls: road & ROAD.CLASS_MASK, bridge: (road & ROAD.BRIDGE) !== 0, slope: (road & ROAD.SLOPE) !== 0, damaged: (road & ROAD.DAMAGED) !== 0 };
   const n = bits(conn);
   const side = (m: number): number => (m === 1 ? 0 : m === 2 ? 1 : m === 4 ? 2 : 3);
   if (n === 0) return { ...base, shape: 'isolated', rot: 0, crosswalks: false };
@@ -295,6 +297,31 @@ function emitFull(k: TileCtx, deckY: number | null): void {
 
 const SIMPLE_LIFT = 0.035;
 
+const CRACK = hex(0x0b0b0c);
+
+/**
+ * Cracks across a damaged tile: two or three jagged dark strips from one edge to the opposite one, placed by the tile's hash so a
+ * tile always cracks the same way. They sit just above the asphalt and reach the tile edge, where the next tile's cracks continue.
+ */
+function emitCracks(k: TileCtx, deckY: number | null): void {
+  const { b, tx, ty } = k;
+  const h = hash32(tx, ty, 77), lvl = (deckY === null ? ASPH : 0) + 0.012;
+  const flat = deckY ?? undefined;
+  const n = 2 + (h & 1);
+  for (let c = 0; c < n; c++) {
+    const along = ((h >>> (4 + c * 5)) & 31) / 31;
+    const horizontal = ((h >>> (1 + c)) & 1) === 0;
+    let u = 0.18 + 0.64 * along, prev: [number, number] = horizontal ? [tx, ty + u] : [tx + u, ty];
+    for (let s = 1; s <= 5; s++) {
+      u = Math.min(0.9, Math.max(0.1, u + (((h >>> (s * 3 + c)) & 7) / 7 - 0.5) * 0.28));
+      const next: [number, number] = horizontal ? [tx + s / 5, ty + u] : [tx + u, ty + s / 5];
+      const dx = next[0] - prev[0], dz = next[1] - prev[1], len = Math.hypot(dx, dz) || 1, nx = (-dz / len) * 0.012, nz = (dx / len) * 0.012;
+      b.poly([[prev[0] + nx, prev[1] + nz], [next[0] + nx, next[1] + nz], [next[0] - nx, next[1] - nz], [prev[0] - nx, prev[1] - nz]], lvl, CRACK, flat);
+      prev = next;
+    }
+  }
+}
+
 function emitSimple(k: TileCtx, deckY: number | null): void {
   const { b, tx, ty, t } = k;
   const cls = Math.min(3, Math.max(1, t.cls));
@@ -331,6 +358,7 @@ export function buildRoadMesh(l: TerrainLayers, x0: number, y0: number, size: nu
           b.box(tx + 0.42, bed - 0.05, ty + 0.42, tx + 0.58, deckY - DECK_THICK, ty + 0.58, C.pillar);
         }
       } else emitSimple(k, deckY);
+      if (t.damaged) emitCracks(k, deckY);
     }
   }
   return b.mesh();

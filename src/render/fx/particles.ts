@@ -15,7 +15,7 @@ import type { TierSpec } from '../tier.ts';
 import { ParticleRing } from './ring.ts';
 import { fxU } from './uniforms.ts';
 
-export const PARTICLE_KIND = { smoke: 0, dust: 1, fire: 2, spark: 3, debris: 4 } as const;
+export const PARTICLE_KIND = { smoke: 0, dust: 1, fire: 2, spark: 3, debris: 4, water: 5 } as const;
 export type ParticleKind = keyof typeof PARTICLE_KIND;
 const ADDITIVE = new Set<ParticleKind>(['fire', 'spark']);
 
@@ -26,16 +26,19 @@ const EMIT: Record<ParticleKind, [number, number, number, number, number, number
   fire: [0.5, 1.0, 0.1, 0.45, 1, 0.35],
   spark: [0.6, 1.3, 1.5, 4.2, 0.8, 1],
   debris: [2.2, 3.4, 1.2, 3.4, 0.9, 1],
+  water: [0.6, 1.0, 2.2, 3.4, 0.6, 0.4],
 };
 
 // Per kind shader constants. A: [accel y, drag, size start, size end]; B: [r, g, b, alpha]; C: [wind factor, 0, 0, 0].
 const KIND_A: [number, number, number, number][] = [
   [0.05, 0.55, 0.14, 0.78], [0.02, 1.4, 0.1, 0.34], [0.5, 1.8, 0.2, 0.04], [-4.5, 0.6, 0.045, 0.02], [-7, 0.2, 0.07, 0.06],
+  [-8, 0.5, 0.05, 0.1],
 ];
 const KIND_B: [number, number, number, number][] = [
   [0.34, 0.34, 0.36, 0.5], [0.62, 0.54, 0.42, 0.42], [1.0, 0.5, 0.12, 0.9], [1.0, 0.82, 0.45, 1.0], [0.3, 0.26, 0.22, 1.0],
+  [0.62, 0.8, 0.96, 0.55],
 ];
-const KIND_C: [number, number, number, number][] = [[1.4, 0, 0, 0], [0.9, 0, 0, 0], [0.2, 0, 0, 0], [0.1, 0, 0, 0], [0, 0, 0, 0]];
+const KIND_C: [number, number, number, number][] = [[1.4, 0, 0, 0], [0.9, 0, 0, 0], [0.2, 0, 0, 0], [0.1, 0, 0, 0], [0, 0, 0, 0], [0.3, 0, 0, 0]];
 
 const DEAD = -1e9;
 /** The ring starts this wide and doubles only when a write would clobber a live particle, so the draw tracks the live count. */
@@ -157,7 +160,7 @@ export class ParticleSystem {
       .add(vec3(fxU.cameraUp).mul(positionGeometry.y.mul(size)));
     const fadeIn = smoothstep(0, 0.12, u);
     const radial = smoothstep(1.0, 0.25, positionGeometry.xy.mul(2).length());
-    const shape = mix(radial, float(1), step(3.5, iB.x));
+    const shape = mix(radial, float(1), step(3.5, iB.x).mul(step(iB.x, 4.5)));
     const lit = additive ? float(1) : fxU.ambient.mul(0.85).add(0.15);
     const col = mix(kb.xyz, kb.xyz.mul(0.35), u.mul(additive ? 1 : 0.5));
     m.colorNode = vec4(col.mul(lit).mul(additive ? mix(float(3.2), float(1), u) : float(1)), 1);
@@ -207,6 +210,24 @@ export class ParticleSystem {
       layer.write(
         x + Math.cos(a) * 0.04 * h, y, z + Math.sin(a) * 0.04 * h, this.time, PARTICLE_KIND[kind], life,
         0.75 + 0.5 * this.rand(), this.rand(), Math.cos(a) * rad * sp, dirY * sp, Math.sin(a) * rad * sp,
+      );
+    }
+    return n;
+  }
+
+  /**
+   * Emit `count` particles of a kind along a jet: initial velocity (dx, up, dz) * speed plus `spread` of random scatter. A fire hose
+   * and a meteor's tail use it, where `emit` would scatter the particles over a hemisphere.
+   */
+  emitJet(kind: ParticleKind, x: number, y: number, z: number, dx: number, up: number, dz: number, speed: number, spread: number, count: number): number {
+    const n = Math.max(0, Math.floor(count));
+    const layer = ADDITIVE.has(kind) ? this.add : this.soft;
+    const [l0, l1] = EMIT[kind];
+    for (let i = 0; i < n; i++) {
+      const life = l0 + (l1 - l0) * this.rand();
+      layer.write(
+        x, y, z, this.time, PARTICLE_KIND[kind], life, 0.75 + 0.5 * this.rand(), this.rand(),
+        dx * speed + (this.rand() - 0.5) * spread, up * speed + (this.rand() - 0.5) * spread, dz * speed + (this.rand() - 0.5) * spread,
       );
     }
     return n;
