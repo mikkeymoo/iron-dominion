@@ -73,11 +73,14 @@ describe('commands from drags', () => {
     expect(selectionFrom('teleport')).toBeNull();
     expect(SERVICES.map((s) => s.name)).toEqual([
       'depot', 'fireStation', 'policeStation', 'clinic', 'hospital', 'school', 'university', 'parkSmall', 'parkLarge', 'repairBay', 'roboticsLab',
+      'lightningRod', 'seismicDamper', 'shieldDome',
     ]);
-    expect(UTILITY_BUILDINGS.map((s) => s.name)).toEqual(['powerPlant', 'waterPump', 'solarFarm', 'waterTower', 'fusionReactor']);
+    // The Battery Bank sits with the utilities but is not a producer, so it has no `utility` flag (the directives count plants by it).
+    expect(UTILITY_BUILDINGS.map((s) => s.name)).toEqual(['powerPlant', 'waterPump', 'solarFarm', 'waterTower', 'fusionReactor', 'batteryBank']);
     expect(PLACEABLE.map((s) => s.name)).toEqual([
       'depot', 'powerPlant', 'waterPump', 'fireStation', 'solarFarm', 'waterTower', 'fusionReactor', 'policeStation', 'clinic', 'hospital', 'school',
       'university', 'parkSmall', 'parkLarge', 'repairBay', 'fusionSpire', 'arcology', 'mechArena', 'spaceElevator', 'roboticsLab',
+      'lightningRod', 'batteryBank', 'seismicDamper', 'shieldDome',
     ]);
     expect(PROJECTS.map((s) => s.name)).toEqual(['fusionSpire', 'arcology', 'mechArena', 'spaceElevator']);
     expect(selectionFrom('service', { name: 'arcology' })).toEqual({ tool: 'service', arch: ARCH.ARCOLOGY });

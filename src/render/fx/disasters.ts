@@ -2,7 +2,7 @@
 // bursts, and camera shake for quakes and impacts. The crater itself is terrain the sim lowered; fires, char and rubble are building
 // state drawn by the building views. Everything here is driven by sim events the mirror queues.
 import { AdditiveBlending, DoubleSide, Group, IcosahedronGeometry, Mesh, MeshBasicNodeMaterial, RingGeometry } from 'three/webgpu';
-import type { DisasterEvent } from '../mirror.ts';
+import type { BlockedEvent, DisasterEvent } from '../mirror.ts';
 import { flashAt, flightProgress, meteorAt, ringAt, shakeOffset, type Shake } from './disasterMath.ts';
 import type { ParticleSystem } from './particles.ts';
 
@@ -15,7 +15,7 @@ const MAX_SHAKES = 6;
 interface Flight { from: [number, number, number]; to: [number, number, number]; t0: number; startTick: number; impactTick: number; u: number; landed: boolean }
 interface Pulse { x: number; y: number; z: number; radius: number; t0: number }
 
-export interface DisasterStats { meteors: number; rings: number; flashes: number; shakes: number; impacts: number; quakes: number }
+export interface DisasterStats { meteors: number; rings: number; flashes: number; shakes: number; impacts: number; quakes: number; blocks: number }
 
 export class DisasterFx {
   readonly group = new Group();
@@ -29,6 +29,7 @@ export class DisasterFx {
   private carry = 0;
   private impacts = 0;
   private quakes = 0;
+  private blocks = 0;
 
   constructor(private readonly particles: ParticleSystem, private readonly ground: (x: number, z: number) => number) {
     this.group.name = 'disasters';
@@ -50,7 +51,7 @@ export class DisasterFx {
   }
 
   get stats(): DisasterStats {
-    return { meteors: this.flights.length, rings: this.rings.length, flashes: this.flashes.length, shakes: this.shakes.length, impacts: this.impacts, quakes: this.quakes };
+    return { meteors: this.flights.length, rings: this.rings.length, flashes: this.flashes.length, shakes: this.shakes.length, impacts: this.impacts, quakes: this.quakes, blocks: this.blocks };
   }
 
   /** React to a sim disaster event. `nowSec` is the render clock. Fires need nothing here: they are building state. */
@@ -81,7 +82,22 @@ export class DisasterFx {
     }
   }
 
-  private pulse(list: Pulse[], e: DisasterEvent, y: number, radius: number, nowSec: number): void {
+  /** A Lightning Rod took a bolt (sparks and a small flash on the mast) or a Shield Dome stopped a meteor (a wide ring and sparks high over the field). */
+  handleBlocked(e: BlockedEvent, nowSec: number): void {
+    const y = this.ground(e.x + 0.5, e.y + 0.5);
+    const cx = e.x + 0.5, cz = e.y + 0.5;
+    if (e.by === 'rod') {
+      this.pulse(this.flashes, e, y + 1.1, 0.9, nowSec);
+      this.particles.emit('spark', cx, y + 1.2, cz, 28);
+    } else {
+      this.pulse(this.rings, e, y + 6, 11, nowSec);
+      this.pulse(this.flashes, e, y + 6, 3.2, nowSec);
+      this.particles.emit('spark', cx, y + 6, cz, 48);
+    }
+    this.blocks++;
+  }
+
+  private pulse(list: Pulse[], e: { x: number; y: number }, y: number, radius: number, nowSec: number): void {
     list.push({ x: e.x + 0.5, y, z: e.y + 0.5, radius, t0: nowSec });
     if (list.length > POOL) list.shift();
   }

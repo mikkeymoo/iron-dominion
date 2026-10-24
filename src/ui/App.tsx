@@ -125,13 +125,14 @@ export function App() {
           dbg.sim.population = st.population;
           dbg.sim.jobs = st.jobsC + st.jobsI;
           dbg.sim.firmware = st.firmware;
+          dbg.sim.hazards = st.hazards;
           if (st.hash !== undefined) { dbg.sim.hash = st.hash; dbg.sim.hashTick = st.tick; }
         }
         samplesRef.current?.push(st);
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
           rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths, workforce: st.workforce, traffic: st.traffic,
-          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled, services: st.services, milestone: st.milestone, directives: st.directives, firmware: st.firmware, council: st.council, scenario: st.scenario,
+          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled, services: st.services, milestone: st.milestone, directives: st.directives, firmware: st.firmware, hazards: st.hazards, council: st.council, scenario: st.scenario,
         });
       },
     });

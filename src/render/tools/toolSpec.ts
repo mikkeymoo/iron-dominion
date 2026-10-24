@@ -26,10 +26,15 @@ export const DENSITY_LABELS = ['Low', 'Medium', 'High'] as const;
 export const TERRAFORM_MODES: readonly TerraformMode[] = ['raise', 'lower', 'level'];
 /** Every building the player can place, in catalog order (the `service` tool selects from this list). */
 export const PLACEABLE = CATALOG.filter((a) => a.placeable);
+/**
+ * In the Utilities group of the tool sheet: power plants, solar farms, pumps and towers (and the fusion reactor, once its tier is
+ * reached), and the Battery Bank, which sits on the grid but is not a producer (so it has no `utility` flag: the directives that
+ * count power plants must not count it).
+ */
+export const isUtilityArch = (arch: number): boolean => archetype(arch)?.utility !== undefined || arch === ARCH.BATTERY_BANK;
 /** Placeable buildings that are neither utilities nor megaprojects: the Services group in the tool sheet. */
-export const SERVICES = PLACEABLE.filter((a) => !a.utility && !isMega(a.id));
-/** Power plants, solar farms, pumps and towers (and the fusion reactor, once its tier is reached): the Utilities group. */
-export const UTILITY_BUILDINGS = PLACEABLE.filter((a) => a.utility);
+export const SERVICES = PLACEABLE.filter((a) => !isUtilityArch(a.id) && !isMega(a.id));
+export const UTILITY_BUILDINGS = PLACEABLE.filter((a) => isUtilityArch(a.id));
 /** Megaprojects: started from the Projects panel, which selects the `service` tool with the project's archetype. */
 export const PROJECTS = PLACEABLE.filter((a) => isMega(a.id));
 export const LINE_NAMES: Record<LineKind, string> = { power: 'Power line', water: 'Water pipe' };

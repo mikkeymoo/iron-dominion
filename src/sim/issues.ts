@@ -2,6 +2,8 @@ import { ARCH, BFLAG } from './catalog.ts';
 import {
   BANKRUPT_MONTHS, CRIME_TOLERANCE, computeBudget, footprintMean, growthCandidates, isOperating, reachAnchors, zoneDemand, zoneOfArch,
 } from './economy/index.ts';
+import { hazardForecast } from './disasters/hazards.ts';
+import { HAZARD_HELP, HAZARD_NAMES, leadText } from './disasters/hazardNames.ts';
 import { approvalFactors, approvalOf, GROUP_NAMES, LOW, MONTH_TICKS, openRequests, overlayOf, progressOf, REQ_STATE, requestText, VERY_LOW } from './council/index.ts';
 import { mods } from './firmware.ts';
 import { archLabel, capitalise } from './labels.ts';
@@ -36,7 +38,7 @@ const GAP_REACH = 12;
 /** Months of cash left (at the running month's net) under which the advisor warns before the treasury goes negative. */
 const RUNWAY_MONTHS = 4;
 
-const KIND_ORDER: readonly IssueKind[] = ['fire', 'budget', 'depot', 'power', 'water', 'stuck', 'jobs', 'commute', 'crime', 'noFire', 'noLand', 'abandoned', 'request', 'approval'];
+const KIND_ORDER: readonly IssueKind[] = ['fire', 'budget', 'depot', 'power', 'water', 'stuck', 'jobs', 'commute', 'crime', 'hazard', 'noFire', 'noLand', 'abandoned', 'request', 'approval'];
 const ZONE_WORD = ['', 'homes', 'shops', 'industry'] as const;
 const ZONE_BUILDING = ['', 'residential', 'commercial', 'industrial'] as const;
 
@@ -313,6 +315,20 @@ function abandonedIssue(w: World): Issue | null {
   return make('abandoned', 'growth', 35 + Math.min(30, n * 3), n, centreOf(w, first), `${capitalise(plural(n, 'building is', 'buildings are'))} abandoned: ${why}.`, overlay);
 }
 
+/** A forecast hazard this close (ticks) with the city not ready for it earns an advisor line; one that is already running does too. */
+const HAZARD_NEAR = 7200;
+
+function hazardIssue(w: World): Issue | null {
+  const f = hazardForecast(w);
+  if (!f || !f.prep.applicable || f.prep.ready || (!f.active && f.startsIn > HAZARD_NEAR)) return null;
+  const help = HAZARD_HELP[f.kind];
+  const pct = Math.round(f.prep.coverage * 100);
+  const when = f.active ? 'is here' : leadText(f.startsIn);
+  const fix = help ? ` Build ${help.name.toLowerCase()}s.` : '';
+  const urgency = f.active ? 25 : Math.round(((HAZARD_NEAR - f.startsIn) / HAZARD_NEAR) * 25);
+  return make('hazard', 'safety', 45 + urgency + f.level, 1, cityCentre(w), `${HAZARD_NAMES[f.kind]} ${when}: only ${pct}% of the city is protected.${fix}`, 'none');
+}
+
 const FACTOR_OVERLAY: Record<string, IssueOverlay> = { pollution: 'pollution', crime: 'crime', outages: 'power', commutes: 'traffic', services: 'none' };
 
 /** Council requests near their deadline or waiting for an answer, and approval low enough to cost money and build speed. */
@@ -346,7 +362,7 @@ export function deriveIssues(sim: Sim): Issue[] {
   const found: (Issue | null)[] = [
     fireIssue(w), budgetIssue(w), depotIssue(sim, c, anchors),
     outageIssue(w, BFLAG.UNPOWERED, w.powerOn, 'power'), outageIssue(w, BFLAG.UNWATERED, w.waterOn, 'water'),
-    stuckIssue(sim, net), jobsIssue(sim, net, c, anchors), commuteIssue(w), crimeIssue(w), fireCoverIssue(w), abandonedIssue(w),
+    stuckIssue(sim, net), jobsIssue(sim, net, c, anchors), commuteIssue(w), crimeIssue(w), fireCoverIssue(w), abandonedIssue(w), hazardIssue(w),
     ...landIssues(sim, c), ...councilIssues(w),
   ];
   const list = found.filter((i): i is Issue => i !== null);

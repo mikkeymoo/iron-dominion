@@ -896,9 +896,141 @@ const roboticsLab: Recipe = (c) => {
   stripeLines(g, -f / 2 + 0.2, 0.6, f / 2 - 0.2, 0.95, 4, hex(0xe8e8e0));
 };
 
+// ---------- preparation buildings: lightning rod, battery bank, seismic damper, shield dome ----------
+
+const COPPER = hex(0xc8793a);
+
+/** A slender steel mast on a concrete plinth, braced by three stays, with a copper air terminal and a glowing tip. One tile. */
+const lightningRod: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x969a9a));
+  const steel = rng.pick([hex(0xb4bcc2), hex(0xc4cacd), hex(0xa4adb2), hex(0xbfc5c0)]), ground = hex(0x5a646a);
+  const lift = rng.range(-0.06, 0.14);
+  g.cyl(SLOT.CONCRETE, 0, 0.012, 0, 0.17, 0.06, 10, hex(0xb9b6ae), { capTop: hex(0xc8c5bd), aoRange: 0.15, aoMin: 0.65, band: [0.02, 0.035, shade(hex(0xb9b6ae), 0.7)] });
+  g.cyl(SLOT.METAL, 0, 0.07, 0, 0.032, 0.05, 8, ground, { capTop: false });
+  g.tube(SLOT.METAL, [0, 0.07, 0], [0, 0.78, 0], 0.02, 6, steel, 0.9);
+  g.tube(SLOT.METAL, [0, 0.78, 0], [0, 1.08 + lift, 0], 0.012, 6, steel, 0.95);
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + 0.5, x = Math.cos(a) * 0.4, z = Math.sin(a) * 0.4;
+    g.tube(SLOT.METAL, [x, 0.012, z], [0, 0.56, 0], 0.006, 3, STEEL_MID, 0.9);
+    g.cyl(SLOT.METAL, x, 0.012, z, 0.025, 0.04, 6, ground, { capTop: shade(ground, 1.2) });
+  }
+  g.cyl(SLOT.ACCENT, 0, 0.5, 0, 0.026, 0.035, 8, AMBER, { capTop: false });
+  g.cyl(SLOT.ACCENT, 0, 0.66, 0, 0.026, 0.035, 8, AMBER, { capTop: false });
+  g.cyl(SLOT.METAL, 0, 1.08 + lift, 0, 0.017, 0.2, 8, COPPER, { rTop: 0.003, capTop: false, aoBase: 1.08, aoRange: 0.2, aoMin: 0.8 });
+  g.cyl(SLOT.ACCENT, 0, 1.28 + lift, 0, 0.02, 0.03, 8, CYAN, { rTop: 0.008, capTop: CYAN });
+  g.tube(SLOT.METAL, [0.02, 0.1, 0.02], [0.3, 0.016, 0.34], 0.007, 4, COPPER, 0.9);
+  g.box(SLOT.METAL, 0.28, 0.012, 0.3, 0.4, 0.08, 0.38, ground, { aoMin: 0.7, top: shade(ground, 1.3) });
+  g.box(SLOT.ACCENT, 0.3, 0.05, 0.38, 0.38, 0.065, 0.392, hex(0x7aff9a), { noBottom: true, noTop: true, sides: 1 });
+};
+
+/** Two rows of three battery containers with status lights and roof fans, an inverter hut and a fenced yard. 3x3 tiles. */
+const batteryBank: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x7c8286));
+  const half = f / 2, body = rng.pick([hex(0xdfe5e8), hex(0xc9d6dc), hex(0xe6e2d6), hex(0xd4dcd2)]), leds = [hex(0x7aff9a), CYAN, hex(0x7aff9a)];
+  for (let row = 0; row < 2; row++) for (let k = 0; k < 3; k++) {
+    const x0 = -half + 0.2 + k * 0.92, z0 = -half + 0.22 + row * 0.7, x1 = x0 + 0.8, z1 = z0 + 0.5;
+    g.box(SLOT.CONCRETE, x0 - 0.02, 0.012, z0 - 0.02, x1 + 0.02, 0.04, z1 + 0.02, hex(0xb9b6ae), { aoMin: 0.7 });
+    g.box(SLOT.CONCRETE, x0, 0.04, z0, x1, 0.38, z1, body, { aoBase: 0.04, aoRange: 0.4, aoMin: 0.62, top: shade(body, 1.05) });
+    for (let s = 1; s < 4; s++) g.box(SLOT.METAL, x0 + (s * (x1 - x0)) / 4 - 0.004, 0.05, z1, x0 + (s * (x1 - x0)) / 4 + 0.004, 0.37, z1 + 0.006, hex(0x9aa4aa), { noBottom: true, noTop: true, sides: 1 });
+    g.box(SLOT.ACCENT, x0 + 0.06, 0.3, z1, x1 - 0.06, 0.34, z1 + 0.012, leds[(k + row) % 3]!, { noBottom: true, noTop: true, sides: 1 });
+    g.cyl(SLOT.METAL, (x0 + x1) / 2, 0.38, (z0 + z1) / 2, 0.085, 0.03, 10, hex(0x4a5258), { capTop: hex(0x1e2428) });
+    g.box(SLOT.METAL, x1 - 0.08, 0.1, z0 + 0.05, x1 - 0.01, 0.3, z0 + 0.12, hex(0x6a747a), { sides: 2 | 4, noTop: true });
+  }
+  g.tube(SLOT.METAL, [-half + 0.6, 0.06, -half + 0.2], [-half + 0.6, 0.06, -half + 0.92], 0.012, 4, hex(0x4a5258), 0.9);
+  g.tube(SLOT.METAL, [0.3, 0.06, -half + 0.2], [0.3, 0.06, -half + 0.92], 0.012, 4, hex(0x4a5258), 0.9);
+  const hut = rc(0.45, half - 0.5, 1.15, 0.6);
+  plinth(g, hut, shade(CONCRETE, 0.6));
+  const top = facade(g, hut, 0.02, 1, 0.24, { wall: hex(0xcfd6da), glass: I_GLASS, cell: CELL.SLIT, density: 3, winH: 0.3, ledge: hex(0x96a09c) });
+  flatRoof(g, hut, top, hex(0x52606a), hex(0xcfd6da), 0.04, 0.025);
+  acUnit(g, hut.x0 + 0.25, top, hut.z0 + 0.2, 1);
+  g.box(SLOT.ACCENT, hut.x0 + 0.05, 0.18, hut.z1, hut.x1 - 0.05, 0.21, hut.z1 + 0.012, CYAN, { noBottom: true, noTop: true, sides: 1 });
+  for (let i = 0; i < 2; i++) {
+    const x = -half + 0.25 + i * 0.3;
+    g.box(SLOT.METAL, x, 0.012, half - 0.62, x + 0.2, 0.24, half - 0.4, STEEL_MID, { aoRange: 0.2, aoMin: 0.65, top: hex(0x5a646a) });
+    g.box(SLOT.ACCENT, x + 0.04, 0.24, half - 0.58, x + 0.16, 0.255, half - 0.44, hex(0xffd24a), { noBottom: true });
+  }
+  antenna(g, half - 0.2, top, half - 0.25, 0.4);
+  groundPatch(g, -half + 0.1, half - 0.2, half - 0.1, half - 0.06, ASPHALT, 0.013);
+  const fenceCol = hex(0xb7bec2);
+  fence(g, -half + 0.06, -half + 0.06, half - 0.06, -half + 0.06, fenceCol);
+  fence(g, -half + 0.06, -half + 0.06, -half + 0.06, half - 0.06, fenceCol);
+  fence(g, half - 0.06, -half + 0.06, half - 0.06, half - 0.06, fenceCol);
+  if (rng.chance(0.5)) bush(g, -half + 0.3, half - 0.12, 0.9, rng);
+};
+
+/** A concrete raft that floats on four base isolators and hydraulic dampers, with a sensor mast: the mass that rides out a quake. 2x2 tiles. */
+const seismicDamper: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x80858a));
+  const half = f / 2, slab = rng.pick([hex(0xb4b1a9), hex(0xc2beb4), hex(0xa8a9a6), hex(0xbab5a6)]), rubber = hex(0x30353a);
+  g.box(SLOT.CONCRETE, -half + 0.16, 0.012, -half + 0.16, half - 0.16, 0.1, half - 0.16, slab, { aoRange: 0.15, aoMin: 0.65, top: shade(slab, 1.12) });
+  for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+    const x = sx * (half - 0.38), z = sz * (half - 0.38);
+    g.cyl(SLOT.METAL, x, 0.1, z, 0.1, 0.05, 10, STEEL_MID, { capTop: shade(STEEL_MID, 1.1) });
+    g.cyl(SLOT.METAL, x, 0.15, z, 0.075, 0.1, 10, rubber, { capTop: false, band: [0.03, 0.045, hex(0x4a5258)] });
+    g.cyl(SLOT.METAL, x, 0.25, z, 0.1, 0.04, 10, STEEL_MID, { capTop: shade(STEEL_MID, 1.1) });
+    g.tube(SLOT.METAL, [x, 0.12, z + sz * 0.13], [x - sx * 0.2, 0.2, z + sz * 0.13 - sz * 0.02], 0.026, 6, SAFETY, 0.9);
+    g.cyl(SLOT.ACCENT, x, 0.29, z, 0.03, 0.012, 6, SAFETY, { capTop: SAFETY });
+  }
+  g.box(SLOT.CONCRETE, -half + 0.22, 0.29, -half + 0.22, half - 0.22, 0.38, half - 0.22, shade(slab, 1.04), { aoBase: 0.29, aoRange: 0.15, aoMin: 0.7, top: shade(slab, 1.16) });
+  g.cyl(SLOT.METAL, 0, 0.38, 0, 0.3, 0.22, 14, hex(0xd8dcd8), { capTop: hex(0xe8ecee), aoBase: 0.38, aoRange: 0.3, aoMin: 0.62, band: [0.08, 0.12, SAFETY] });
+  g.cyl(SLOT.ACCENT, 0, 0.6, 0, 0.12, 0.02, 10, AMBER, { capTop: AMBER });
+  g.tube(SLOT.METAL, [half - 0.5, 0.38, -half + 0.45], [half - 0.5, 0.95, -half + 0.45], 0.012, 5, hex(0xb4bcc2), 0.9);
+  g.cyl(SLOT.METAL, half - 0.5, 0.95, -half + 0.45, 0.07, 0.015, 10, hex(0xe8ecee), { capTop: hex(0xf6f8f9) });
+  g.box(SLOT.ACCENT, half - 0.52, 0.96, -half + 0.43, half - 0.48, 0.98, -half + 0.47, hex(0xff3a2a), { noBottom: true });
+  stripeLines(g, -half + 0.06, -half + 0.06, half - 0.06, -half + 0.12, 8, SAFETY);
+  stripeLines(g, -half + 0.06, half - 0.12, half - 0.06, half - 0.06, 8, SAFETY);
+};
+
+/** A fenced generator yard under a wireframe force-field dome: a core tower, a ring of eight emitter pylons and ribs of light. 5x5 tiles. */
+const shieldDome: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x6e7478));
+  const glow = rng.pick([hex(0x66e0ff), hex(0x66f0d8), hex(0x7ab8ff), hex(0x8ae8ff)]), steel = hex(0xb6bec3), shell = rng.pick([hex(0xdfe5e8), hex(0xd2dde4), hex(0xe6e8e0)]), R = 2.1;
+  g.cyl(SLOT.CONCRETE, 0, 0.012, 0, 0.62, 0.1, 20, hex(0xb9b6ae), { capTop: hex(0xc8c5bd), band: [0.03, 0.05, shade(hex(0xb9b6ae), 0.7)] });
+  g.cyl(SLOT.CONCRETE, 0, 0.11, 0, 0.46, 0.4, 20, shell, { capTop: false, aoBase: 0.11, aoRange: 0.5, aoMin: 0.6, band: [0.1, 0.14, hex(0x9aa4aa)] });
+  g.dome(SLOT.METAL, 0, 0.51, 0, 0.46, 20, 4, shade(shell, 1.03), 0.5);
+  g.cyl(SLOT.ACCENT, 0, 0.45, 0, 0.472, 0.03, 20, glow, { capTop: false });
+  g.cyl(SLOT.ACCENT, 0, 0.8, 0, 0.1, 1.35, 10, glow, { rTop: 0.05, capTop: glow });
+  g.cyl(SLOT.METAL, 0, 0.8, 0, 0.14, 0.05, 10, steel, { capTop: false });
+  g.cyl(SLOT.METAL, 0, 1.4, 0, 0.14, 0.04, 10, steel, { capTop: false });
+  const N = 8;
+  for (let k = 0; k < N; k++) {
+    const a = ((k + 0.5) / N) * Math.PI * 2, x = Math.cos(a) * 1.6, z = Math.sin(a) * 1.6;
+    g.cyl(SLOT.CONCRETE, x, 0.012, z, 0.15, 0.06, 8, hex(0xb9b6ae), { capTop: hex(0xc8c5bd) });
+    g.cyl(SLOT.METAL, x, 0.07, z, 0.08, 0.5, 8, steel, { rTop: 0.06, capTop: shade(steel, 0.9), aoRange: 0.5, aoMin: 0.6, band: [0.22, 0.26, hex(0x4a5560)] });
+    g.cyl(SLOT.ACCENT, x, 0.57, z, 0.05, 0.05, 8, glow, { capTop: glow });
+    g.tube(SLOT.METAL, [x, 0.12, z], [Math.cos(a) * 0.48, 0.12, Math.sin(a) * 0.48], 0.016, 4, hex(0x4a5560), 0.9);
+  }
+  // The field: ribs of light from the ground ring up to the apex, and three rings of latitude.
+  const RING = 32, RIBS = 12, STEPS = 7;
+  const at = (az: number, el: number): [number, number, number] => [Math.cos(az) * Math.cos(el) * R, 0.02 + Math.sin(el) * R, Math.sin(az) * Math.cos(el) * R];
+  for (let i = 0; i < RING; i++) g.tube(SLOT.ACCENT, at((i / RING) * Math.PI * 2, 0), at(((i + 1) / RING) * Math.PI * 2, 0), 0.03, 4, glow, 1);
+  for (let r = 0; r < RIBS; r++) {
+    const az = (r / RIBS) * Math.PI * 2;
+    for (let s = 0; s < STEPS; s++) g.tube(SLOT.ACCENT, at(az, (s / STEPS) * (Math.PI / 2)), at(az, ((s + 1) / STEPS) * (Math.PI / 2)), 0.014, 3, glow, 1);
+  }
+  for (const el of [0.4, 0.8, 1.2]) {
+    const seg = Math.max(12, Math.round(RING * Math.cos(el)));
+    for (let i = 0; i < seg; i++) g.tube(SLOT.ACCENT, at((i / seg) * Math.PI * 2, el), at(((i + 1) / seg) * Math.PI * 2, el), 0.012, 3, glow, 1);
+  }
+  const hall = rc(-1.7, 1.75, 1.1, 0.55);
+  plinth(g, hall, shade(CONCRETE, 0.6));
+  const top = facade(g, hall, 0.02, 1, 0.26, { wall: hex(0xcfd6da), glass: C_GLASS[0]!, cell: CELL.SLIT, density: 3, winH: 0.4, ledge: hex(0x96a09c) });
+  flatRoof(g, hall, top, hex(0x52606a), hex(0xcfd6da), 0.04, 0.025);
+  g.box(SLOT.ACCENT, hall.x0 + 0.08, 0.2, hall.z1, hall.x1 - 0.08, 0.23, hall.z1 + 0.012, glow, { noBottom: true, noTop: true, sides: 1 });
+  roofGear(g, hall, top, c.rng, { ac: 2, antenna: true });
+  tank(g, 1.7, 1.7, 0.4, 0.18, hex(0xd8dcd8));
+  tank(g, 1.25, 1.85, 0.34, 0.15, hex(0xc8d0d4));
+  groundPatch(g, -f / 2 + 0.1, 1.45, f / 2 - 0.1, f / 2 - 0.06, ASPHALT, 0.013);
+};
+
 export const RECIPES: Readonly<Record<number, Recipe>> = {
   ...MEGA_RECIPES,
   [ARCH.ROBOTICS_LAB]: roboticsLab,
+  [ARCH.LIGHTNING_ROD]: lightningRod, [ARCH.BATTERY_BANK]: batteryBank, [ARCH.SEISMIC_DAMPER]: seismicDamper, [ARCH.SHIELD_DOME]: shieldDome,
   [ARCH.DEPOT]: depot, [ARCH.POWER_PLANT]: powerPlant, [ARCH.WATER_PUMP]: waterPump, [ARCH.FIRE_STATION]: fireStation,
   [ARCH.SOLAR_FARM]: solarFarm, [ARCH.WATER_TOWER]: waterTower, [ARCH.FUSION_REACTOR]: fusionReactor,
   [ARCH.POLICE]: policeStation, [ARCH.CLINIC]: clinic, [ARCH.HOSPITAL]: hospital, [ARCH.SCHOOL]: school, [ARCH.UNIVERSITY]: university,

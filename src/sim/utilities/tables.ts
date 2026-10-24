@@ -1,6 +1,7 @@
 import { ARCH, CATALOG, isRci } from '../catalog.ts';
 import { S, type World } from '../layers.ts';
 import { MEGA, MEGA_ARCHS, isMega } from '../megaprojects.ts';
+import { daylightOf, hazardSolarQ, sunHeightQ } from '../seasons.ts';
 
 // Every balancing constant of the power and water networks. Units are abstract: power in MW, water in ML per day. All sim math
 // here is integer or fixed point (Q10: ONE = 1024), like the economy.
@@ -17,6 +18,14 @@ export const FUSION_MW = 500;
 export const SOLAR_PEAK_MW = 60;
 /** Fraction of the clear-sky output kept at full weather intensity, Q10, indexed by WEATHER (clear, rain, snow, storm). */
 export const SOLAR_WEATHER_Q = [ONE, 520, 340, 200] as const;
+
+/**
+ * A Battery Bank holds BATTERY_CAP in its `bStock` (one unit is one MW for one solve, so it carries a full day of its output),
+ * gives up to BATTERY_MW into a network that is short of power, and charges at BATTERY_CHARGE_MW from a surplus.
+ */
+export const BATTERY_MW = 30;
+export const BATTERY_CAP = 28800;
+export const BATTERY_CHARGE_MW = 15;
 
 /** Power drawn by a finished building of each density row and level column. */
 export const POWER_USE_R = [[1, 2, 4], [5, 8, 16], [12, 25, 40]] as const;
@@ -78,7 +87,7 @@ powerUse[ARCH.FIRE_STATION] = POWER_USE_FIRE; waterUse[ARCH.FIRE_STATION] = WATE
 /** Power and water drawn by the other services; a service that is dark or dry does not work (services/coverage.ts). */
 const SERVICE_USE: readonly (readonly [number, number, number])[] = [
   [ARCH.POLICE, 3, 2], [ARCH.CLINIC, 2, 3], [ARCH.HOSPITAL, 12, 14], [ARCH.SCHOOL, 4, 3], [ARCH.UNIVERSITY, 14, 12],
-  [ARCH.PARK_SMALL, 0, 1], [ARCH.PARK_LARGE, 0, 3], [ARCH.REPAIR_BAY, 3, 0], [ARCH.ROBOTICS_LAB, 6, 0],
+  [ARCH.PARK_SMALL, 0, 1], [ARCH.PARK_LARGE, 0, 3], [ARCH.REPAIR_BAY, 3, 0], [ARCH.ROBOTICS_LAB, 6, 0], [ARCH.SHIELD_DOME, 20, 0],
 ];
 for (const [arch, p, q] of SERVICE_USE) { powerUse[arch] = p; waterUse[arch] = q; }
 for (const a of CATALOG) {
@@ -98,10 +107,15 @@ export const isWaterSource = (arch: number): boolean => producerOf[arch] === PRO
 /** Services (non-RCI consumers) are served before houses and businesses when a network browns out; a megaproject queues with the businesses. */
 export const isService = (arch: number): boolean => !isRci(arch) && !isMega(arch);
 
-/** Sun elevation as Q10 from the day fraction: zero at night, a parabola peaking at noon (dayFrac 0.5). No trig, so no engine drift. */
-export function sunQ(dayFrac: number): number {
-  if (dayFrac <= 0.25 || dayFrac >= 0.75) return 0;
-  const t = (dayFrac - 0.25) * 2;
+/**
+ * Sun elevation as Q10 from the day fraction: zero at night, a parabola peaking at noon (dayFrac 0.5). `daylight` is the fraction of
+ * the day the sun is up (0.5 at an equinox; sim/seasons.ts daylightOf gives the season's), so a winter day starts later and ends
+ * sooner. No trig, so no engine drift.
+ */
+export function sunQ(dayFrac: number, daylight = 0.5): number {
+  const rise = 0.5 - daylight / 2;
+  if (dayFrac <= rise || dayFrac >= 0.5 + daylight / 2) return 0;
+  const t = (dayFrac - rise) / daylight;
   return Math.floor(4 * t * (1 - t) * ONE);
 }
 
@@ -111,8 +125,13 @@ export function weatherQ(weather: number, intensity: number): number {
   return ONE - Math.floor((ONE - target) * Math.min(1, Math.max(0, intensity)));
 }
 
-/** Solar farm output in whole MW at the world's current time of day and weather. */
+/**
+ * Solar farm output in whole MW at the world's current time of day, weather and season: the days are longer and the sun higher in
+ * summer, shorter and lower in winter (and a cold snap dims it further). At an equinox under a clear sky it is the plain value.
+ */
 export function solarOutput(w: World): number {
-  const s = w.scalars;
-  return (SOLAR_PEAK_MW * sunQ(s[S.dayFrac]!) * weatherQ(s[S.weather]!, s[S.weatherIntensity]!)) >> 20;
+  const s = w.scalars, day = s[S.day]!;
+  const season = Math.floor((sunHeightQ(day) * hazardSolarQ(w)) / ONE);
+  const raw = SOLAR_PEAK_MW * sunQ(s[S.dayFrac]!, daylightOf(day)) * weatherQ(s[S.weather]!, s[S.weatherIntensity]!);
+  return Math.floor((raw * season) / 1073741824);
 }

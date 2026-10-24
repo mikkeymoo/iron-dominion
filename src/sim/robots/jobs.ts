@@ -34,10 +34,10 @@ function openJob(sim: Sim, slot: number, kind: number, need: number, prog: numbe
 }
 
 /** Reserve the lot (foundation shows at once) and open a construction job for it. Returns false when the site is not valid. */
-export function startBuild(sim: Sim, a: Archetype, x: number, y: number, access: number): boolean {
-  const slot = reserveBuilding(sim, a, x, y, a.level ?? 1, 0, BFLAG.CONSTRUCTING);
+export function startBuild(sim: Sim, a: Archetype, x: number, y: number, access: number, level = a.level ?? 1): boolean {
+  const slot = reserveBuilding(sim, a, x, y, level, 0, BFLAG.CONSTRUCTING);
   if (slot < 0) return false;
-  openJob(sim, slot, JOB.BUILD, materialFor(a.w * a.h, a.level ?? 1), 0, access);
+  openJob(sim, slot, JOB.BUILD, materialFor(a.w * a.h, level), 0, access);
   return true;
 }
 
@@ -101,8 +101,9 @@ export function startLevelUp(sim: Sim, slot: number, nextArch: number, access: n
 
 export function startDemolish(sim: Sim, slot: number, access: number): void {
   const w = sim.world;
-  // A ruin stays a ruin while it is torn down, so the renderer keeps the rubble and shrinks it with the progress.
-  w.bFlags[slot] = BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING | (w.bFlags[slot]! & BFLAG.RUBBLE);
+  // A ruin stays a ruin while it is torn down, so the renderer keeps the rubble and shrinks it with the progress. A ruin the player
+  // ordered rebuilt keeps its mark: finishDemolition raises the building again.
+  w.bFlags[slot] = BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING | (w.bFlags[slot]! & (BFLAG.RUBBLE | BFLAG.REBUILD));
   w.bHeat[slot] = 0;
   w.bProg[slot] = 255;
   openJob(sim, slot, JOB.DEMOLISH, 0, JOB_MAX, access);
@@ -173,6 +174,7 @@ const nearestReadyDepot = (w: World, from: number): number => {
 function finishDemolition(sim: Sim, s: number): void {
   const w = sim.world, m = mods(w), arch = archetype(w.bArch[s]!);
   const ruin = (w.bFlags[s]! & BFLAG.RUBBLE) !== 0;
+  const ordered = ruin && (w.bFlags[s]! & BFLAG.REBUILD) !== 0;
   const rci = arch !== undefined && arch.zone !== undefined;
   const x = w.bX[s]!, y = w.bY[s]!, access = w.jAccess[s]!;
   if (m.recycle > 0 && rci) {
@@ -183,9 +185,12 @@ function finishDemolition(sim: Sim, s: number): void {
     }
   }
   releaseLot(sim, s);
-  if (m.autoRebuild && ruin && rci) {
+  if ((m.autoRebuild || ordered) && ruin && rci) {
     const next = archetype(rciId(arch.zone!, arch.density!, 1));
     if (next) startBuild(sim, next, x, y, access);
+  } else if (ordered && arch !== undefined && !isMega(arch.id)) {
+    // Rebuild all also puts a destroyed service or utility building back, from the same kind of foundation and hauled material.
+    startBuild(sim, arch, x, y, access);
   }
 }
 
@@ -201,6 +206,8 @@ export function settleJobs(sim: Sim): void {
     } else if (w.jProg[s]! >= JOB_MAX) {
       if ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0) { clearJob(w, s); continue; }
       if (kind === JOB.BUILD && isMega(w.bArch[s]!) && advanceMega(sim, s)) continue;
+      // A service rebuilt after a disaster was built as level 1 for its material and work; services have no levels, so it finishes at 0.
+      if (kind === JOB.BUILD && zoneOfArch(w.bArch[s]!) === 0 && !isMega(w.bArch[s]!)) w.bLevel[s] = 0;
       w.bFlags[s] = w.bFlags[s]! & ~(BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING);
       w.bProg[s] = 255;
       clearJob(w, s);
@@ -293,9 +300,10 @@ export function growthDirector(sim: Sim, builders: number): void {
   adoptOrphans(sim, net, anchors);
   refreshAccess(sim, net, anchors);
   if (anchors === null || anchors.length === 0 || builders === 0) return;
-  let jobs = 0, demolitions = 0;
+  let jobs = 0, demolitions = 0, ordered = 0;
   const perZone = [0, 0, 0, 0];
   for (let s = 0; s < BMAX; s++) {
+    if ((w.bFlags[s]! & (BFLAG.REBUILD | BFLAG.RUBBLE)) === (BFLAG.REBUILD | BFLAG.RUBBLE) && w.bArch[s] !== 0) ordered++;
     const k = w.jKind[s]!;
     if (k === 0) continue;
     jobs++;
@@ -311,16 +319,17 @@ export function growthDirector(sim: Sim, builders: number): void {
   const m = mods(w);
   // Ruins from a disaster go first: they block their lot and the renderer shows rubble until the robots clear it.
   const ruin = (s: number): number => ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0 ? 1 : 0);
+  const queued = (s: number): number => ((w.bFlags[s]! & BFLAG.REBUILD) !== 0 ? 1 : 0);
   const demolishOne = (ruinsOnly: boolean): boolean => {
-    for (const s of abandonedBuildings(w).sort((a, b) => ruin(b) - ruin(a) || a - b)) {
+    for (const s of abandonedBuildings(w).sort((a, b) => queued(b) - queued(a) || ruin(b) - ruin(a) || a - b)) {
       if (w.jKind[s] !== 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) !== 0 || (ruinsOnly && ruin(s) === 0)) continue;
       const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
       if (access >= 0) { startDemolish(sim, s, access); return true; }
     }
     return false;
   };
-  // Rebuild protocol: ruins are cleared before anything new starts, a little beyond the usual demolition limit.
-  if (m.autoRebuild && demolitions < MAX_DEMOLITIONS + REBUILD_EXTRA_DEMOLITIONS && demolishOne(true)) return;
+  // Rebuild protocol, and ruins the player ordered rebuilt: they are cleared before anything new starts, a little beyond the usual demolition limit.
+  if ((m.autoRebuild || ordered > 0) && demolitions < MAX_DEMOLITIONS + REBUILD_EXTRA_DEMOLITIONS && demolishOne(true)) return;
   // One job per builder keeps the crews together (up to three bots on a site) instead of spreading thin over many foundations.
   // Parallel fabrication adds one job slot per depot.
   const depots = m.extraJobsPerDepot > 0 ? countDepots(w) : 0;

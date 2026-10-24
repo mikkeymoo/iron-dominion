@@ -1,15 +1,61 @@
 // Every balancing constant of the disasters. Integer ticks (10 per second); chances are out of 65536 unless noted.
 import { ARCH, CATALOG, isRci } from '../catalog.ts';
-import { ZONE } from '../layers.ts';
+import { HAZ, ZONE } from '../layers.ts';
 
-export const DMODE = { OFF: 0, RARE: 1, NORMAL: 2 } as const;
-export const DMODE_NAMES = ['off', 'rare', 'normal'] as const;
-/** Multiplier on every random chance, by mode. Triggered disasters ignore it. */
-export const MODE_SCALE = [0, 1, 3] as const;
+/** Disaster modes. The numbers are stored in saves, so Gentle and Hard were added after Normal instead of between them. */
+export const DMODE = { OFF: 0, RARE: 1, NORMAL: 2, GENTLE: 3, HARD: 4 } as const;
+export const DMODE_NAMES = ['off', 'rare', 'normal', 'gentle', 'hard'] as const;
+/** Multiplier on the chance of a random fire, by mode (indexed by DMODE). Gentle has none: its hazards come only as forecasts. Triggered disasters ignore it. */
+export const MODE_SCALE = [0, 1, 3, 0, 6] as const;
+/** How harsh each mode is (indexed by DMODE): the numbers are not in order because Gentle and Hard were added after the saved ones. */
+export const MODE_RANK = [0, 2, 3, 1, 4] as const;
+/** A scenario's disaster floor (1 at least Rare, 2 at least Normal) applied to a mode: the harsher of the two. */
+export function withFloor(mode: number, floor: number): number {
+  return (MODE_RANK[floor] ?? 0) > (MODE_RANK[mode] ?? 0) ? floor : mode;
+}
+/** Percent of the damage a fire or quake does, by mode: Gentle halves it. */
+export const DAMAGE_PCT = [100, 100, 100, 50, 125] as const;
+/** The highest hazard intensity level a mode reaches however big the city is, and the level Hard adds on top of the tier's. Gentle stops at 2. */
+export const LEVEL_CAP = [0, 4, 6, 2, 8] as const;
+export const LEVEL_BONUS = [0, 0, 0, 0, 1] as const;
+
+// ---- Hazards: forecast storms, heatwaves, cold snaps, meteor showers and quake swarms (hazards.ts) ----
+/** A hazard is announced this many ticks before it starts, plus up to LEAD_SPAN more: one to two months (a month is a day, 4800 ticks). */
+export const LEAD_MIN = 4800;
+export const LEAD_SPAN = 4800;
+/** The first hazard is planned this long after disasters are switched on, so a new city has a month of peace. */
+export const FIRST_PLAN = 4800;
+/** Quiet spell after a hazard ends before the next is planned, [minimum, random span] in ticks, by mode: Hard is relentless, Rare and Gentle are patient. */
+export const GAP: readonly (readonly [number, number])[] = [[0, 0], [14400, 9600], [7200, 7200], [14400, 9600], [4800, 4800]];
+/** How long each hazard kind lasts, in ticks (indexed by HAZ). */
+export const DURATION = [0, 4800, 7200, 7200, 2400, 2400] as const;
+/** Chance weight of each hazard kind per season [spring, summer, autumn, winter] (indexed by HAZ; kind 0 is unused). */
+export const KIND_WEIGHT: readonly (readonly [number, number, number, number])[] = [
+  [0, 0, 0, 0], [3, 6, 3, 1], [0, 5, 0, 0], [0, 0, 2, 6], [1, 1, 1, 1], [2, 2, 2, 2],
+];
+/** Chance (of 65536) that a lightning bolt of a storm season sets the building it strikes alight. */
+export const STORM_IGNITE = 36000;
+/** Heatwave and cold snap add this many sixteenths to the whole city's power use, plus one more per two levels. */
+export const HEAT_ADD = 3;
+export const COLD_ADD = 4;
+/** A heatwave doubles the chance of a random fire. */
+export const HEAT_FIRE_MUL = 2;
+/** A cold snap leaves solar farms this fraction of their output, in 1/1024. */
+export const COLD_SOLAR_Q = 717;
+
+/** Extra power load, in sixteenths of the base, that a hazard of a kind and level adds while it runs (0 for the kinds that do not strain the grid). */
+export function hazardAdd16(kind: number, level: number): number {
+  if (kind === HAZ.HEATWAVE) return HEAT_ADD + (level >> 1);
+  if (kind === HAZ.COLD_SNAP) return COLD_ADD + (level >> 1);
+  return 0;
+}
+/** Cash paid when a hazard starts and the city is ready for it: BONUS_BASE x (1 + level), so $2,000 at level 1. */
+export const BONUS_BASE = 1000;
+/** A city counts as ready when at least this share of what is at stake is protected. */
+export const PREP_READY = 0.6;
 
 export const FIRE_PERIOD = 10;
 export const IGNITE_PERIOD = 50;
-export const BIG_PERIOD = 100;
 export const HEAL_PERIOD = 100;
 
 // ---- Fire ----
@@ -26,7 +72,7 @@ export const SNOW_COOL = 3;
 export const SPREAD_SHIFT = 4;
 export const SPREAD_REACH = 2;
 /** Chance (of 65536) that a lightning strike on a building sets it alight, by mode. */
-export const STRIKE_IGNITE = [0, 13107, 26214] as const;
+export const STRIKE_IGNITE = [0, 13107, 26214, 13107, 39321] as const;
 /** Ignition chance units: risk is out of 2^20 per building per IGNITE_PERIOD. */
 export const RISK_BITS = 20;
 
@@ -58,9 +104,6 @@ export const QUAKE_DAMAGE_MIN = 40;
 export const QUAKE_DAMAGE_SPAN = 190;
 /** Chance a road tile at the epicentre cracks, falling to zero at the edge. */
 export const QUAKE_ROAD = 36000;
-/** Random chances per BIG_PERIOD at mode scale 1. */
-export const QUAKE_CHANCE = 131;
-export const METEOR_CHANCE = 33;
 
 // ---- Meteor ----
 export const METEOR_DELAY = 25;

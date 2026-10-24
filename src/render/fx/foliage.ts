@@ -21,6 +21,7 @@ import { withNeighbours } from '../terrainMesh.ts';
 import { SPECIES_COUNT, STRIDE, buildChunkFoliage, type ChunkFoliage, type FoliageLayers } from './foliageRules.ts';
 import { billboardMesh, grassTuft, oakMesh, pineMesh, poplarMesh, shrubMesh, type FoliageMesh } from './foliageGeo.ts';
 import { cloudLight, noiseAt } from './gfxNodes.ts';
+import { autumnLeaf, leafKept } from './seasonNodes.ts';
 import { fxU } from './uniforms.ts';
 
 // TSL node graphs are built dynamically; the published typings reject most mixed-type chains, so graph code is loosely typed.
@@ -96,9 +97,10 @@ function grassMaterial(cloudShadows: boolean): MeshStandardNodeMaterial {
   const reach = fxU.camDist.mul(1.5).add(26);
   const k = distanceScale(base, reach);
   m.positionNode = vec3(base.x, base.y.add(stretch).sub(height.mul(float(1).sub(k))), base.z).add(swayNode(base, w, height, iVar.y));
-  const dry = step(0.8, iVar.x);
+  // A few tufts are dry in any season; as the year goes on the rest follow (each at its own time), and in winter the field is straw brown.
+  const dry = step(0.8, iVar.x).max(smoothstep(iVar.x.mul(0.5), iVar.x.mul(0.5).add(0.5), fxU.dry));
   const baseCol = mix(vec3(0.055, 0.12, 0.02), vec3(0.11, 0.17, 0.03), dry);
-  const tipCol = mix(vec3(0.21, 0.42, 0.07), vec3(0.46, 0.4, 0.12), dry);
+  const tipCol = mix(mix(vec3(0.21, 0.42, 0.07), vec3(0.46, 0.4, 0.12), dry), vec3(0.34, 0.27, 0.16), fxU.dry.mul(fxU.dry));
   let c: N = mix(baseCol, tipCol, w.mul(w).mul(0.4).add(w.mul(0.6))).mul(vertexColor().rgb).mul(float(0.9).add(iVar.y.mul(0.24)));
   c = weatherTint(c, w);
   if (cloudShadows) c = c.mul(cloudLight(positionWorld.xz));
@@ -108,7 +110,11 @@ function grassMaterial(cloudShadows: boolean): MeshStandardNodeMaterial {
   return m;
 }
 
-function treeMaterial(cloudShadows: boolean, autumnChance: number): MeshStandardNodeMaterial {
+/**
+ * `evergreen` (0..1) is how much of the crown keeps its leaves through autumn and winter: 1 for pines, 0 for oaks and poplars,
+ * in between for shrubs. The season (fxU.autumn, fxU.bare) turns the leaves gold and red and then strips them; bark stays.
+ */
+function treeMaterial(cloudShadows: boolean, autumnChance: number, evergreen = 0): MeshStandardNodeMaterial {
   const m = standard();
   const iVar: N = attribute('iVar', 'vec4');
   const w: N = vertexColor().a;
@@ -118,9 +124,15 @@ function treeMaterial(cloudShadows: boolean, autumnChance: number): MeshStandard
   const k = distanceScale(base, reach);
   m.positionNode = vec3(base.x, base.y.sub(height.mul(float(1).sub(k))), base.z).add(swayNode(base, w, height, iVar.y));
   let c: N = vertexColor().rgb.mul(instanceTint(iVar.x, autumnChance));
+  c = autumnLeaf(c, iVar.x, evergreen);
   c = weatherTint(c, w.mul(0.8).add(0.2));
   if (cloudShadows) c = c.mul(cloudLight(positionWorld.xz));
   m.colorNode = c;
+  if (evergreen < 1) {
+    const crown = noiseAt(vec2(positionLocal.x.add(positionLocal.z.mul(0.7)).mul(9).add(iVar.y.mul(23)), positionLocal.y.mul(9).add(iVar.x.mul(17)))).g;
+    m.maskNode = leafKept(vertexColor().rgb, crown, evergreen);
+    m.maskShadowNode = m.maskNode;
+  }
   return m;
 }
 
@@ -160,12 +172,16 @@ function billboardMaterial(cloudShadows: boolean): MeshStandardNodeMaterial {
 
   const uv = mix(vec2(local.x, local.y), vec2(local.x, local.z), canopy);
   const noise = noiseAt(uv.mul(1.9).add(vec2(iVar.y.mul(5), iVar.x.mul(3)))).g;
-  m.opacityNode = silhouette(uv, species, canopy, noise);
+  // Pines keep their needles. In winter the others lose their crowns (the trunk stays), so a far forest reads as bare.
+  const evergreen = step(0.5, species).mul(step(species, 1.5));
+  const trunkGuard = mix(smoothstep(0.3, 0.5, local.y), float(1), canopy);
+  m.opacityNode = silhouette(uv, species, canopy, noise).sub(fxU.bare.mul(float(1).sub(evergreen)).mul(0.62).mul(trunkGuard));
 
   const h = mix(local.y, float(0.6), canopy);
   const leafDark = mix(mix(vec3(0.04, 0.15, 0.02), vec3(0.012, 0.07, 0.034), step(0.5, species)), vec3(0.09, 0.2, 0.025), step(1.5, species));
   const leafLight = mix(mix(vec3(0.14, 0.34, 0.05), vec3(0.04, 0.17, 0.07), step(0.5, species)), vec3(0.24, 0.4, 0.06), step(1.5, species));
   let c: N = mix(leafDark, leafLight, smoothstep(0.1, 0.95, h.add(noise.sub(0.5).mul(0.5)))).mul(instanceTint(iVar.x, 0.12));
+  c = autumnLeaf(c, iVar.x, evergreen);
   c = mix(c, vec3(0.2, 0.125, 0.07), step(local.y, 0.3).mul(step(0.5, float(1).sub(canopy))).mul(step(species, 0.5).add(step(1.5, species)).clamp(0, 1)).mul(0.9));
   c = weatherTint(c, canopy.mul(0.8).add(0.2));
   if (cloudShadows) c = c.mul(cloudLight(positionWorld.xz));
@@ -286,15 +302,16 @@ export class FoliageView {
       this.grass = instancedBatch(geometryOf(grassTuft()), grassMaterial(cs), f.capGrass, 'grass');
       this.grass.mesh.receiveShadow = true;
       this.group.add(this.grass.mesh);
-      this.shrubs = instancedBatch(geometryOf(shrubMesh()), treeMaterial(cs, 0.05), Math.max(64, Math.floor(f.capMeshTrees / 2)), 'shrubs');
+      this.shrubs = instancedBatch(geometryOf(shrubMesh()), treeMaterial(cs, 0.05, 0.45), Math.max(64, Math.floor(f.capMeshTrees / 2)), 'shrubs');
       this.shrubs.mesh.receiveShadow = true;
       this.group.add(this.shrubs.mesh);
     }
     if (f.trees > 0) {
       const species: FoliageMesh[] = [oakMesh(), pineMesh(), poplarMesh()];
       const autumn = [0.2, 0.02, 0.35];
+      const evergreen = [0, 1, 0];
       this.trees = species.map((m, k) => {
-        const b = instancedBatch(geometryOf(m), treeMaterial(cs, autumn[k]!), f.capMeshTrees, ['oak', 'pine', 'poplar'][k]!);
+        const b = instancedBatch(geometryOf(m), treeMaterial(cs, autumn[k]!, evergreen[k]!), f.capMeshTrees, ['oak', 'pine', 'poplar'][k]!);
         b.mesh.castShadow = this.shadows;
         b.mesh.receiveShadow = true;
         this.group.add(b.mesh);

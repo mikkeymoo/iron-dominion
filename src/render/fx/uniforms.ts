@@ -11,8 +11,13 @@ export const fxU = {
   night: u(0),
   /** 0..1 accumulated rain wetness on roads and ground. */
   wet: u(0),
-  /** 0..1 snow cover on upward faces. */
+  /** 0..1 snow cover on upward faces: the weather's snowfall or the winter's standing snow, whichever is deeper. */
   snow: u(0),
+  /** The season (see seasonLook.ts): leaf colour turned 0..1, deciduous leaves gone 0..1, dry grass 0..1 and the multiplier on ground colour. */
+  autumn: u(0),
+  bare: u(0),
+  dry: u(0),
+  seasonTint: u(new Color(1, 1, 1)),
   overcast: u(0),
   /** Lightning envelope 0..1. */
   flash: u(0),

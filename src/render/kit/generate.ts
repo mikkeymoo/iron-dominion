@@ -14,6 +14,7 @@ const RCI_CAP: readonly (readonly number[])[] = [[900, 1500, 3000], [2600, 3800,
 const SERVICE_CAP: Readonly<Record<number, number>> = {
   1: 2600, 2: 6500, 3: 2600, 4: 3600, 5: 3600, 6: 3000, 7: 6500, 8: 3600, 9: 2600, 10: 6500, 11: 4200, 12: 6500, 13: 2600, 14: 4500, 15: 3000,
   43: 9000, 44: 12000, 45: 10000, 46: 9000,
+  48: 1500, 49: 4500, 50: 3000, 51: 9000,
 };
 
 export function triangleCap(archetypeId: number): number {

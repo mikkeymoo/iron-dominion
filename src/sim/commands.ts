@@ -4,14 +4,15 @@ import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
 import { grantRp, invalidateModuleCache, mods, researchNode, setModule, toggleEdictCard } from './firmware.ts';
 import { debugScenario, finishScenario } from './scenarioRun.ts';
 import { clearJob } from './robots/pool.ts';
+import { DMODE, LEAD_MIN, planHazard, rebuildAll, setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { debugPost, holdFestival, respond } from './council/index.ts';
-import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
 import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
-import { MAP, RMAX, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
+import { D, HAZ, MAP, RMAX, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
 import { megaBlock } from './milestones.ts';
+import { yearPosition } from './seasons.ts';
 import { MAX_TIER } from './unlocks.ts';
 import { isMega, megaStages } from './megaprojects.ts';
 import { inBounds, tileIdx } from './tiles.ts';
@@ -53,6 +54,12 @@ export type CommandBody =
   | { type: 'setDepotModule'; slot: number; index: number; module: number }
   /** Debug-only: add research points. */
   | { type: 'debugRp'; amount: number }
+  /** Order every ruin rebuilt at a 25% discount, paid now; the robots clear each ruin and raise the building again (sim/disasters/rebuild.ts). */
+  | { type: 'rebuildAll' }
+  /** Debug-only: jump the calendar to game day `day` (0 is the first day of spring), keeping the time of day. */
+  | { type: 'debugSeason'; day: number }
+  /** Debug-only: plan a hazard of kind HAZ now, announced at once and starting `lead` ticks later (default one month). Needs disasters on. */
+  | { type: 'debugHazard'; kind: number; lead?: number }
   /** Accept or decline the council request in `slot` (0 or 1; sim/council). Declining costs a little approval. */
   | { type: 'councilRespond'; slot: number; accept: boolean }
   /** Pay for a festival (FESTIVAL id; needs approval above 70, the festival off cooldown, and night for Fireworks). */
@@ -427,6 +434,21 @@ function firmwareCommand(sim: Sim, c: Extract<Command, { type: 'research' | 'tog
   if (why) reject(why);
 }
 
+function debugSeason(sim: Sim, c: Extract<Command, { type: 'debugSeason' }>): void {
+  if (!sim.debug) reject('debug-only');
+  if (!isInts(c.day) || c.day < 0 || c.day > 100000) reject('invalid');
+  const s = sim.world.scalars;
+  s[S.day] = c.day;
+  s[S.season] = yearPosition(c.day, s[S.dayFrac]!);
+}
+
+function debugHazard(sim: Sim, c: Extract<Command, { type: 'debugHazard' }>): void {
+  if (!sim.debug) reject('debug-only');
+  if (!isInts(c.kind) || c.kind < HAZ.STORM || c.kind > HAZ.QUAKE_SWARM || (c.lead !== undefined && (!isInts(c.lead) || c.lead < 1 || c.lead > 100000))) reject('invalid');
+  if (sim.world.disaster[D.MODE] === DMODE.OFF) reject('disasters-off');
+  planHazard(sim, { kind: c.kind, lead: c.lead ?? LEAD_MIN });
+}
+
 /** Validate and execute one command. Never throws: failures become `rejected` events with state unchanged. */
 export function execute(sim: Sim, cmd: Command): boolean {
   const tick = sim.world.scalars[S.tick]!;
@@ -450,6 +472,9 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'undo': undo(sim, cmd); break;
       case 'claimDirective': claimDirective(sim, cmd); break;
       case 'research': case 'toggleEdict': case 'setDepotModule': case 'debugRp': firmwareCommand(sim, cmd); break;
+      case 'rebuildAll': { const why = rebuildAll(sim); if (why) reject(why); break; }
+      case 'debugSeason': debugSeason(sim, cmd); break;
+      case 'debugHazard': debugHazard(sim, cmd); break;
       case 'councilRespond': case 'holdFestival': case 'debugCouncil': {
         const why = cmd.type === 'councilRespond' ? respond(sim, cmd.slot, cmd.accept)
           : cmd.type === 'holdFestival' ? holdFestival(sim, cmd.festival) : debugPost(sim, cmd.kind, cmd.accept === true);

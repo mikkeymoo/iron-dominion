@@ -9,6 +9,8 @@ export type CelebrationEvent = Extract<SimEvent, { type: 'milestone' | 'megaStag
 const CELEBRATED = new Set<string>(['milestone', 'megaStage', 'megaComplete', 'victory', 'directiveReady', 'directiveClaimed', 'firstBuilding', 'festival']);
 /** A disaster event from the sim, queued for the effects (meteor streak, shockwave, quake shake). */
 export type DisasterEvent = Extract<SimEvent, { type: 'disaster' }>;
+/** A hazard defence at work: a Lightning Rod took a bolt, or a Shield Dome stopped a meteor. */
+export type BlockedEvent = Extract<SimEvent, { type: 'hazardBlocked' }>;
 
 /**
  * Main-thread copy of the render-relevant sim state. The renderer, picking and ghost preview read only this;
@@ -38,6 +40,7 @@ export class RenderMirror {
   private lightning: { x: number; y: number; tick: number }[] = [];
   private celebrations: CelebrationEvent[] = [];
   private disasters: DisasterEvent[] = [];
+  private blocked: BlockedEvent[] = [];
   private terrainDirty = new Set<number>();
   private dirtyGeometry = new Set<number>();
   private dirtyOverlay = new Set<number>();
@@ -110,6 +113,7 @@ export class RenderMirror {
         this.scalars[S.weather] = m.weather;
         this.scalars[S.weatherIntensity] = m.weatherIntensity;
         if (m.milestone) this.scalars[S.tier] = m.milestone.tier;
+        if (m.hazards) this.scalars[S.season] = m.hazards.yearPos;
         return true;
       case 'events':
         if (m.tick > this.tick) this.tick = m.tick;
@@ -117,11 +121,13 @@ export class RenderMirror {
           if (e.type === 'lightning') this.lightning.push({ x: e.x, y: e.y, tick: e.tick });
           else if (CELEBRATED.has(e.type)) this.celebrations.push(e as CelebrationEvent);
           else if (e.type === 'disaster') this.disasters.push(e);
+          else if (e.type === 'hazardBlocked') this.blocked.push(e);
         }
         if (this.celebrations.length > 32) this.celebrations.splice(0, this.celebrations.length - 32);
         if (this.lightning.length > 16) this.lightning.splice(0, this.lightning.length - 16);
         if (this.disasters.length > 16) this.disasters.splice(0, this.disasters.length - 16);
-        return this.lightning.length > 0 || this.disasters.length > 0;
+        if (this.blocked.length > 8) this.blocked.splice(0, this.blocked.length - 8);
+        return this.lightning.length > 0 || this.disasters.length > 0 || this.blocked.length > 0;
       default:
         return false;
     }
@@ -154,6 +160,13 @@ export class RenderMirror {
   takeDisasters(): DisasterEvent[] {
     const r = this.disasters;
     this.disasters = [];
+    return r;
+  }
+
+  /** Bolts a Lightning Rod took and meteors a Shield Dome stopped since the last call. */
+  takeBlocked(): BlockedEvent[] {
+    const r = this.blocked;
+    this.blocked = [];
     return r;
   }
 

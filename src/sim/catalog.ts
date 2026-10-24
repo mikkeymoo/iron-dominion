@@ -40,6 +40,8 @@ export const ARCH = {
   FUSION_SPIRE: 43, ARCOLOGY: 44, MECH_ARENA: 45, SPACE_ELEVATOR: 46,
   /** Produces research points while powered (sim/firmware.ts). Placed after the megaprojects so every existing id stays put. */
   ROBOTICS_LAB: 47,
+  /** Preparation buildings (sim/disasters/prep.ts): they protect the buildings around them from a forecast hazard. */
+  LIGHTNING_ROD: 48, BATTERY_BANK: 49, SEISMIC_DAMPER: 50, SHIELD_DOME: 51,
 } as const;
 
 /**
@@ -75,6 +77,8 @@ export const BFLAG = {
   BURNING: 64,
   /** Destroyed by a disaster (bDmg 255), always set together with ABANDONED so the economy ignores it and the robots tear the ruin down. */
   RUBBLE: 128,
+  /** A ruin the player ordered rebuilt ("Rebuild all", sim/disasters/rebuild.ts): the robots clear it first and raise the building again on its lot. */
+  REBUILD: 8,
 } as const;
 
 const rciArchetypes = (): Archetype[] => {
@@ -110,6 +114,10 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.MECH_ARENA, name: 'mechArena', w: 6, h: 6, cost: 80000, placeable: true, upkeep: 600, unlock: 4 },
   { id: ARCH.SPACE_ELEVATOR, name: 'spaceElevator', w: 6, h: 6, cost: 400000, placeable: true, upkeep: 2500, unlock: 5 },
   { id: ARCH.ROBOTICS_LAB, name: 'roboticsLab', w: 3, h: 3, cost: 4000, placeable: true, upkeep: 80, unlock: 1 },
+  { id: ARCH.LIGHTNING_ROD, name: 'lightningRod', w: 1, h: 1, cost: 600, placeable: true, upkeep: 4 },
+  { id: ARCH.BATTERY_BANK, name: 'batteryBank', w: 3, h: 3, cost: 3500, placeable: true, upkeep: 40, unlock: 1 },
+  { id: ARCH.SEISMIC_DAMPER, name: 'seismicDamper', w: 2, h: 2, cost: 1800, placeable: true, upkeep: 20 },
+  { id: ARCH.SHIELD_DOME, name: 'shieldDome', w: 5, h: 5, cost: 30000, placeable: true, upkeep: 400, unlock: 3 },
   ...rciArchetypes(),
 ];
 

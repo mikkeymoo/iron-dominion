@@ -5,6 +5,7 @@ import {
 import { MAP } from '../sim/layers.ts';
 import { WATER_RANGE } from './fx/shore.ts';
 import { bumpNormal, cloudLight, noiseAt, toneShift, triplanarNoise, writeReflection } from './fx/gfxNodes.ts';
+import { dryGrass } from './fx/seasonNodes.ts';
 import { skyGradient } from './fx/skyNode.ts';
 import { fxU } from './fx/uniforms.ts';
 import type { GfxSpec } from './tier.ts';
@@ -107,6 +108,9 @@ export function createTerrainMaterial(waterInfo: Texture): { material: MeshStand
         normalNode = bumpNormal(height, float(0.34));
       }
     }
+
+    // Seasons: the grass dries to straw toward winter and the whole ground takes the year's tint (fresh, warm, orange, cold).
+    c = dryGrass(c, fxU.dry.mul(0.55)).mul(fxU.seasonTint);
 
     if (g.cloudShadows) c = c.mul(cloudLight(wp));
 
