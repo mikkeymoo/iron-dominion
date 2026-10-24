@@ -23,6 +23,7 @@ export class RenderMirror {
   private dirtyGeometry = new Set<number>();
   private dirtyOverlay = new Set<number>();
   private dirtyBuildings = new Set<number>();
+  private dirtyLines = new Set<number>();
 
   constructor() {
     for (const l of renderInfos) this.layers[l.name] = new l.ctor(l.length) as Typed;
@@ -50,7 +51,7 @@ export class RenderMirror {
         this.terrainVersion++;
         this.roadVersion++;
         for (let c = 0; c < CHUNKS * CHUNKS; c++) this.terrainDirty.add(c);
-        for (let c = 0; c < CHUNKS * CHUNKS; c++) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); }
+        for (let c = 0; c < CHUNKS * CHUNKS; c++) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); this.dirtyLines.add(c); }
         for (let b = 0; b < before.length; b++) if (before[b] || this.table.bArch[b]) this.dirtyBuildings.add(b);
         return true;
       }
@@ -61,7 +62,7 @@ export class RenderMirror {
           for (const c of m.chunks) this.terrainDirty.add(c);
         }
         if ('road' in m.layers) this.roadVersion++;
-        for (const c of m.chunks) this.dirtyGeometry.add(c);
+        for (const c of m.chunks) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); }
         for (const b of m.buildings) { writeBuilding(this.table, b); this.dirtyBuildings.add(b.slot); }
         this.tick = m.tick;
         return true;
@@ -102,8 +103,12 @@ export class RenderMirror {
       const info = renderInfos.find((l) => l.name === name);
       if (!info || !isTileLayer(info)) continue;
       const watch = name === 'height' || name === 'road';
+      const lines = name === 'ugPower' || name === 'ugWater';
       chunks.forEach((chunk, n) => {
-        if (watch && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK)) groundChanged.add(chunk);
+        const differs = (watch || lines) && this.chunkDiffers(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
+        if (watch && differs) groundChanged.add(chunk);
+        // Pylons and pipes sit on the ground, so a height change redraws the lines in that chunk too.
+        if ((lines || name === 'height') && differs) this.dirtyLines.add(chunk);
         copyChunkIn(this.layers[name]!, chunk, layers[name]!, n * CHUNK * CHUNK);
       });
     }
@@ -137,6 +142,8 @@ export class RenderMirror {
     }
   }
 
+  /** Chunks whose power-line or pipe tiles changed since the last call (everything after a resync). */
+  takeDirtyLines(): number[] { const r = [...this.dirtyLines].sort((a, b) => a - b); this.dirtyLines.clear(); return r; }
   takeDirtyGeometry(): number[] { const r = [...this.dirtyGeometry].sort((a, b) => a - b); this.dirtyGeometry.clear(); return r; }
   takeDirtyOverlay(): number[] { const r = [...this.dirtyOverlay].sort((a, b) => a - b); this.dirtyOverlay.clear(); return r; }
   takeDirtyBuildings(): number[] { const r = [...this.dirtyBuildings].sort((a, b) => a - b); this.dirtyBuildings.clear(); return r; }

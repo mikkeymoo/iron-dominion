@@ -494,8 +494,119 @@ const fireStation: Recipe = (c) => {
   stripeLines(g, -f / 2 + 0.2, 0.3, f / 2 - 0.2, 0.9, 4, hex(0xe8e8e0));
 };
 
+const PANEL_FRAME = hex(0xaab3b9), PANEL_CELL = hex(0x1b3a63), PANEL_CELL_HI = hex(0x2a5388), STEEL_MID = hex(0x8a959c);
+
+/** One tilted panel (cells on a frame, dark back) leaning toward +z (south), low edge at z + d. */
+function farmPanel(g: Geo, x0: number, z: number, w: number, d: number, yL: number, yH: number, cells: number): void {
+  g.quad(SLOT.METAL, [x0 - 0.02, yL - 0.006, z + d + 0.02], [x0 + w + 0.02, yL - 0.006, z + d + 0.02], [x0 + w + 0.02, yH - 0.006, z - 0.02], [x0 - 0.02, yH - 0.006, z - 0.02], PANEL_FRAME, [0.85, 0.85, 1, 1]);
+  const cw = w / cells;
+  for (let i = 0; i < cells; i++) {
+    const xa = x0 + i * cw + 0.012, xb = x0 + (i + 1) * cw - 0.012;
+    g.quad(SLOT.METAL, [xa, yL, z + d], [xb, yL, z + d], [xb, yH, z], [xa, yH, z], i % 2 ? PANEL_CELL_HI : PANEL_CELL, [0.88, 0.88, 1, 1]);
+  }
+  g.quad(SLOT.METAL, [x0 + w + 0.02, yL - 0.01, z + d + 0.02], [x0 - 0.02, yL - 0.01, z + d + 0.02], [x0 - 0.02, yH - 0.01, z - 0.02], [x0 + w + 0.02, yH - 0.01, z - 0.02], DARK, 0.6);
+  for (const px of [x0 + w * 0.2, x0 + w * 0.8]) g.tube(SLOT.METAL, [px, 0.008, z + d * 0.55], [px, yL + (yH - yL) * 0.45, z + d * 0.55], 0.011, 4, STEEL_MID, 0.8);
+}
+
+const solarFarm: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x70767a));
+  const half = f / 2;
+  for (let r = 0; r < 4; r++) for (let k = 0; k < 3; k++) {
+    const jitter = rng.chance(0.15) ? 0.02 : 0;
+    farmPanel(g, -half + 0.2 + k * 1.2, -half + 0.2 + r * 0.55 + jitter, 1.08, 0.36, 0.14, 0.4, 4);
+  }
+  // Inverter hut with transformer pads and a signal mast in the south-east corner.
+  const hut = rc(half - 0.62, half - 0.52, 0.9, 0.62);
+  plinth(g, hut, shade(CONCRETE, 0.6));
+  const top = facade(g, hut, 0.02, 1, 0.22, { wall: hex(0xcfd6da), glass: I_GLASS, cell: CELL.SLIT, density: 3, winH: 0.3, ledge: hex(0x96a09c) });
+  flatRoof(g, hut, top, hex(0x52606a), hex(0xcfd6da), 0.04, 0.025);
+  acUnit(g, hut.x0 + 0.2, top, hut.z0 + 0.2, 0.9);
+  g.box(SLOT.ACCENT, hut.x0 + 0.05, 0.16, hut.z1, hut.x1 - 0.05, 0.19, hut.z1 + 0.012, CYAN, { noBottom: true, noTop: true, sides: 1 });
+  for (let i = 0; i < 2; i++) {
+    const x = half - 1.55 + i * 0.28;
+    g.box(SLOT.METAL, x, 0.012, half - 0.5, x + 0.2, 0.2, half - 0.3, STEEL_MID, { aoRange: 0.2, aoMin: 0.65, top: hex(0x5a646a) });
+    g.box(SLOT.ACCENT, x + 0.04, 0.2, half - 0.46, x + 0.16, 0.215, half - 0.34, hex(0xffd24a), { noBottom: true });
+  }
+  antenna(g, half - 0.15, top, -half + 0.4 + 2.6, 0.5);
+  fence(g, -half + 0.06, -half + 0.06, half - 0.06, -half + 0.06, hex(0xb7bec2));
+  fence(g, half - 0.06, -half + 0.06, half - 0.06, half - 0.06, hex(0xb7bec2));
+  fence(g, -half + 0.06, -half + 0.06, -half + 0.06, half - 0.06, hex(0xb7bec2));
+  groundPatch(g, -half + 0.1, half - 0.62, half - 1.6, half - 0.1, ASPHALT, 0.013);
+};
+
+const waterTower: Recipe = (c) => {
+  const { g, f } = c;
+  lot(g, f, hex(0x8b9293));
+  const steel = hex(0xa4adb2), tankCol = hex(0x6fa0c0), legH = 0.95, r0 = 0.36, r1 = 0.27;
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
+  const at = (k: number, t: number): [number, number, number] => { const r = r0 + (r1 - r0) * t, [sx, sz] = corners[k % 4]!; return [sx * r, legH * t, sz * r]; };
+  for (let k = 0; k < 4; k++) g.tube(SLOT.METAL, at(k, 0), at(k, 1), 0.022, 5, steel, 0.85);
+  for (const t of [0.34, 0.68, 1]) for (let k = 0; k < 4; k++) g.tube(SLOT.METAL, at(k, t), at(k + 1, t), 0.011, 4, STEEL_MID, 0.9);
+  for (const [t0, t1] of [[0, 0.34], [0.34, 0.68], [0.68, 1]] as const) for (let k = 0; k < 4; k++) {
+    g.tube(SLOT.METAL, at(k, t0), at(k + 1, t1), 0.007, 3, STEEL_MID, 0.9);
+    g.tube(SLOT.METAL, at(k + 1, t0), at(k, t1), 0.007, 3, STEEL_MID, 0.9);
+  }
+  g.cyl(SLOT.METAL, 0, legH, 0, 0.47, 0.04, 16, shade(tankCol, 0.7), { capTop: false, aoRange: 0.2, aoMin: 0.6 });
+  g.cyl(SLOT.METAL, 0, legH + 0.04, 0, 0.44, 0.5, 16, tankCol, { capTop: false, aoBase: legH, aoRange: 0.9, aoMin: 0.6, band: [0.16, 0.2, shade(tankCol, 0.62)] });
+  g.dome(SLOT.METAL, 0, legH + 0.54, 0, 0.44, 16, 3, shade(tankCol, 1.12), legH);
+  g.cyl(SLOT.ACCENT, 0, legH + 0.34, 0, 0.446, 0.03, 16, CYAN, { capTop: false });
+  // Drop emblem on the street side of the tank.
+  const ez = 0.456, ey = legH + 0.25, drop = hex(0xf2fbff);
+  for (let i = 0; i < 8; i++) {
+    const a0 = (i / 8) * Math.PI * 2, a1 = ((i + 1) / 8) * Math.PI * 2;
+    g.tri(SLOT.ACCENT, [0, ey, ez], [Math.cos(a0) * 0.085, ey + Math.sin(a0) * 0.085, ez], [Math.cos(a1) * 0.085, ey + Math.sin(a1) * 0.085, ez], drop, 1);
+  }
+  g.tri(SLOT.ACCENT, [-0.074, ey + 0.03, ez], [0.074, ey + 0.03, ez], [0, ey + 0.19, ez], drop, 1);
+  antenna(g, 0, legH + 0.54 + 0.44, 0, 0.18);
+  g.tube(SLOT.METAL, [r0 + 0.02, 0, 0.0], [r1 + 0.02, legH, 0.0], 0.008, 3, STEEL_MID, 0.8);
+  g.tube(SLOT.METAL, [r0 + 0.07, 0, 0.0], [r1 + 0.07, legH, 0.0], 0.008, 3, STEEL_MID, 0.8);
+  for (let i = 1; i < 9; i++) { const t = i / 9; g.tube(SLOT.METAL, [r0 + 0.02 + (r1 - r0) * t, legH * t, 0], [r0 + 0.07 + (r1 - r0) * t, legH * t, 0], 0.005, 3, STEEL_MID, 0.8); }
+  const house = rc(0.1, 0.62, 0.6, 0.34);
+  plinth(g, house, shade(CONCRETE, 0.6));
+  const top = facade(g, house, 0.02, 1, 0.2, { wall: hex(0xb9c0bd), glass: I_GLASS, cell: CELL.TALL, density: 3, winH: 0.5, ledge: hex(0x96a09c) });
+  flatRoof(g, house, top, hex(0x52606a), hex(0xb9c0bd), 0.04, 0.025);
+  g.tube(SLOT.METAL, [0, 0.05, 0.2], [0.1, 0.05, 0.45], 0.022, 6, hex(0x7c8c96));
+  g.cyl(SLOT.METAL, -0.3, 0, 0.62, 0.05, 0.1, 8, hex(0x6fa0c0), { capTop: shade(tankCol, 1.2) });
+  groundPatch(g, -f / 2 + 0.1, 0.3, f / 2 - 0.1, f / 2 - 0.06, ASPHALT, 0.013);
+};
+
+const fusionReactor: Recipe = (c) => {
+  const { g, f } = c;
+  lot(g, f, hex(0x6e7478));
+  const shell = hex(0xdfe5e8), glow = hex(0x66e0ff), cx = 0, cz = -0.35;
+  g.cyl(SLOT.CONCRETE, cx, 0, cz, 0.85, 0.5, 24, shell, { capTop: false, aoRange: 1.0, aoMin: 0.6, band: [0.08, 0.12, hex(0x9aa4aa)] });
+  g.dome(SLOT.METAL, cx, 0.5, cz, 0.85, 24, 5, shade(shell, 1.03));
+  g.cyl(SLOT.ACCENT, cx, 0.34, cz, 0.856, 0.035, 24, glow, { capTop: false });
+  const N = 28, R = 1.02, TY = 0.62;
+  for (let i = 0; i < N; i++) {
+    const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2;
+    g.tube(SLOT.ACCENT, [cx + Math.cos(a0) * R, TY, cz + Math.sin(a0) * R], [cx + Math.cos(a1) * R, TY, cz + Math.sin(a1) * R], 0.05, 5, glow, 1);
+  }
+  for (let k = 0; k < 8; k++) {
+    const a = ((22.5 + k * 45) / 180) * Math.PI, x = cx + Math.cos(a) * 1.4, z = cz + Math.sin(a) * 1.4;
+    g.cyl(SLOT.METAL, x, 0, z, 0.1, 0.62, 10, hex(0xb6bec3), { capTop: shade(hex(0xb6bec3), 0.9), aoRange: 0.7, aoMin: 0.55, band: [0.3, 0.33, hex(0x4a5560)] });
+    g.cyl(SLOT.ACCENT, x, 0.62, z, 0.06, 0.04, 8, glow, { capTop: glow });
+    g.tube(SLOT.METAL, [x, 0.5, z], [cx + Math.cos(a) * 0.88, 0.5, cz + Math.sin(a) * 0.88], 0.014, 4, hex(0x4a5560), 0.9);
+  }
+  for (const sx of [-1, 1]) {
+    tank(g, sx * 1.6, -1.45, 0.45, 0.2, hex(0xd8dcd8));
+    tank(g, sx * 1.6, -0.95, 0.38, 0.16, hex(0xc8d0d4));
+    g.tube(SLOT.METAL, [sx * 1.6, 0.22, -1.2], [sx * 1.15, 0.22, -0.6], 0.016, 4, hex(0xb0b8bc), 0.9);
+  }
+  const hall = rc(0, 1.38, 2.5, 0.56);
+  plinth(g, hall, shade(CONCRETE, 0.6));
+  const top = facade(g, hall, 0.02, 2, 0.17, { wall: hex(0xcfd6da), glass: C_GLASS[0]!, cell: CELL.SLIT, density: 3.5, winH: 0.4, faces: FACE.ALL, ledge: hex(0x96a09c) });
+  flatRoof(g, hall, top, hex(0x6f7a80), hex(0xcfd6da), 0.04, 0.025);
+  g.box(SLOT.ACCENT, hall.x0 + 0.1, 0.3, hall.z1, hall.x1 - 0.1, 0.33, hall.z1 + 0.012, glow, { noBottom: true, noTop: true, sides: 1 });
+  roofGear(g, hall, top, c.rng, { ac: 2, antenna: true, antennaH: 0.35 });
+  pipeRack(g, [-0.9, 0.3, 0.9], [0.9, 0.3, 0.9], c.rng, 2);
+  groundPatch(g, -f / 2 + 0.1, 1.1, f / 2 - 0.1, f / 2 - 0.05, ASPHALT, 0.013);
+};
+
 export const RECIPES: Readonly<Record<number, Recipe>> = {
   [ARCH.DEPOT]: depot, [ARCH.POWER_PLANT]: powerPlant, [ARCH.WATER_PUMP]: waterPump, [ARCH.FIRE_STATION]: fireStation,
+  [ARCH.SOLAR_FARM]: solarFarm, [ARCH.WATER_TOWER]: waterTower, [ARCH.FUSION_REACTOR]: fusionReactor,
   [RCI_BASE + 0]: resLow1, [RCI_BASE + 1]: resLow2, [RCI_BASE + 2]: resLow3,
   [RCI_BASE + 3]: resMed1, [RCI_BASE + 4]: resMed2, [RCI_BASE + 5]: resMed3,
   [RCI_BASE + 6]: resHigh1, [RCI_BASE + 7]: resHigh2, [RCI_BASE + 8]: resHigh3,

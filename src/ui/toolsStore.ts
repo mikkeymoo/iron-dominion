@@ -1,7 +1,8 @@
-import { archetype } from '../sim/catalog.ts';
+import { archetype, BFLAG } from '../sim/catalog.ts';
 import type { CommandBody } from '../sim/commands.ts';
 import { tileReadOf } from '../sim/estimate.ts';
-import { S } from '../sim/layers.ts';
+import { BMAX, S } from '../sim/layers.ts';
+import type { ViewState } from '../render/viewState.ts';
 import { tileIdx } from '../sim/tiles.ts';
 import type { SimEvent } from '../sim/world.ts';
 import { ToolController, type ToolAction, type ToolWorld } from '../render/tools/controller.ts';
@@ -27,7 +28,9 @@ const REASONS: Record<string, string> = {
   superseded: 'That order was dropped when the city was reloaded.',
   invalid: 'That order was not valid.',
   'max-loans': 'You already have three loans. Repay one first.',
-  'no-loan': 'That loan has already been repaid.',};
+  'no-loan': 'That loan has already been repaid.',
+  locked: 'That is not unlocked yet.',
+};
 
 /** Plain-words text for a sim or estimate rejection reason. */
 export const reasonText = (reason: string): string => REASONS[reason] ?? 'That could not be done.';
@@ -47,12 +50,15 @@ interface Pending {
 export interface ToolsRuntimeDeps {
   world: ToolWorld;
   submit(body: CommandBody): number;
+  /** The player's view mode: bulldoze digs up pipes while the underground view is on. */
+  view?: ViewState;
 }
 
 const TOAST_MS = 4000;
 const FLOAT_MS = 1600;
 
-const labelOf = (cmd: CommandBody): string => (cmd.type === 'placeBuilding' ? (archetype(cmd.arch)?.name ?? 'building') : cmd.type);
+const labelOf = (cmd: CommandBody): string =>
+  cmd.type === 'placeBuilding' ? (archetype(cmd.arch)?.name ?? 'building') : cmd.type === 'placeLine' ? (cmd.kind === 'power' ? 'power line' : 'water pipe') : cmd.type;
 
 /**
  * Everything the tool UI and the smoke test share for one city: the controller, the player's undo stack, toasts and floating
@@ -69,11 +75,14 @@ export class ToolsRuntime {
   private readonly listeners = new Set<() => void>();
   private readonly eventListeners = new Set<(e: SimEvent) => void>();
   private seq = 1;
+  private unsubscribeView: (() => void) | undefined;
 
   constructor(private readonly deps: ToolsRuntimeDeps) {
-    this.controller = new ToolController(deps);
+    this.controller = new ToolController({ world: deps.world, submit: deps.submit, underground: () => deps.view?.underground ?? false });
     this.controller.onAction((a) => this.onAction(a));
     this.controller.subscribe(() => this.notify());
+    // The underground view changes what the bulldoze tool would do, so the ghost and cost must follow it.
+    this.unsubscribeView = deps.view?.subscribe(() => this.controller.refresh());
   }
 
   subscribe(fn: () => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
@@ -164,6 +173,7 @@ export class ToolsRuntime {
   }
 
   dispose(): void {
+    this.unsubscribeView?.();
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     this.listeners.clear();
@@ -188,6 +198,19 @@ export class ToolsRuntime {
       get toasts() { return rt.toasts.map((t) => t.text); },
       get selected() { return rt.controller.sel; },
       peek: (layer, x, y) => w.layers[layer]![tileIdx(x, y)]!,
+      buildings: () => {
+        const L = w.layers, out: BuildingStatus[] = [];
+        for (let s = 0; s < BMAX; s++) {
+          const arch = L.bArch![s]!;
+          if (arch === 0) continue;
+          const flags = L.bFlags![s]!;
+          out.push({
+            slot: s, arch, x: L.bX![s]!, y: L.bY![s]!, constructing: (flags & BFLAG.CONSTRUCTING) !== 0,
+            powered: (flags & BFLAG.UNPOWERED) === 0, watered: (flags & BFLAG.UNWATERED) === 0,
+          });
+        }
+        return out;
+      },
       findSite: (size = 14) => findFlatSite(tileReadOf(w.layers), size),
       findWater: () => findWaterTile(tileReadOf(w.layers)),
       tileFor: (name, topLeft) => {
@@ -199,6 +222,8 @@ export class ToolsRuntime {
     };
   }
 }
+
+export interface BuildingStatus { slot: number; arch: number; x: number; y: number; constructing: boolean; powered: boolean; watered: boolean }
 
 export interface ToolsDebug {
   select(tool: string, opts?: Record<string, unknown>): boolean;
@@ -212,6 +237,8 @@ export interface ToolsDebug {
   readonly toasts: string[];
   readonly selected: unknown;
   peek(layer: string, x: number, y: number): number;
+  /** Every building in the mirror with the outage flags the utilities solve last set (a new building counts as served). */
+  buildings(): BuildingStatus[];
   /** Top-left of a flat free land window near the map centre. */
   findSite(size?: number): Tile | null;
   findWater(): Tile | null;

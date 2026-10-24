@@ -30,6 +30,11 @@ export interface InstanceStats { near: number; far: number; sites: number; crane
 /** A continuous particle source anchored to a building: stack smoke on finished industry, dust on a building site. */
 export interface EmitterRec { kind: 'smoke' | 'dust' | 'debris'; x: number; y: number; z: number; rate: number }
 
+/** A finished building that lost power and/or water: where its outage icon floats (tile units, above the roof). */
+export interface OutageRec { x: number; y: number; z: number; power: boolean; water: boolean }
+/** How far above the model's highest point the outage icon floats. */
+const ICON_LIFT = 0.3;
+
 const SMOKE_RATE = 2.4;
 const DEBRIS_RATE_PER_TILE = 1.1;
 const DUST_RATE_PER_TILE = 1.6;
@@ -86,6 +91,9 @@ export class BuildingInstances {
   readonly crane = new InstancePacker();
   /** Particle sources per building slot, rebuilt whenever the slot is written. */
   readonly emitters = new Map<number, EmitterRec[]>();
+  /** Buildings currently showing an outage icon, rebuilt whenever the slot is written; `outageVersion` bumps on any change. */
+  readonly outages = new Map<number, OutageRec>();
+  outageVersion = 0;
   private pending = new Set<number>();
   private cls = new Map<number, 0 | 1>();
   private fineVersion = -1;
@@ -146,6 +154,7 @@ export class BuildingInstances {
     this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot);
     this.cls.delete(slot);
     this.emitters.delete(slot);
+    if (this.outages.delete(slot)) this.outageVersion++;
   }
 
   private write(slot: number): void {
@@ -177,9 +186,19 @@ export class BuildingInstances {
     }
     if (recs.length > 0) this.emitters.set(slot, recs); else this.emitters.delete(slot);
 
+    // A finished building without service goes dark (state.w) and shows an icon; one still being built shows neither.
+    const dark = p >= 1 && (b.flags & BFLAG.UNPOWERED) !== 0;
+    const dry = p >= 1 && (b.flags & BFLAG.UNWATERED) !== 0;
+    const had = this.outages.get(slot);
+    if (dark || dry) {
+      const y = gy + model.height + ICON_LIFT;
+      if (!had || had.power !== dark || had.water !== dry || had.x !== cx || had.y !== y || had.z !== cz) this.outageVersion++;
+      this.outages.set(slot, { x: cx, y, z: cz, power: dark, water: dry });
+    } else if (had) { this.outages.delete(slot); this.outageVersion++; }
+
     if (near) {
       composeMatrix(mat, cx, gy, cz, rot);
-      this.near.set(slot, `${b.arch}:${variant}`, { matrix: mat, tint: [v, v, v], state: [p, lit, model.height, 0] });
+      this.near.set(slot, `${b.arch}:${variant}`, { matrix: mat, tint: [v, v, v], state: [p, lit, model.height, dark ? 1 : 0] });
       this.far.remove(slot);
     } else {
       const hh = Math.max(0.12, model.bodyHeight * Math.max(0.05, p >= 1 ? 1 : builtFraction(p)));

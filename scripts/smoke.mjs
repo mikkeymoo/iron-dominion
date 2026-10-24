@@ -332,6 +332,11 @@ const BUILD_QUERY = '?autostart=1&seed=42&backend=webgl2&tier=low&governor=off';
 const DEPOT_COST = 500, STREET_COST = 10, ZONE_COST = 2;
 const until = (page, fn, arg, timeout = 20000) => page.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
 const camOf = (page) => page.evaluate(() => ({ ...window.__iron.render.camera }));
+// A page can report the renderer ready a moment before the first terrain resync reaches the mirror; until then findSite sees only water.
+const siteWhenReady = async (page, size) => {
+  await until(page, (n) => window.__iron.tools.findSite(n) !== null, size, 20000);
+  return page.evaluate((n) => window.__iron.tools.findSite(n), size);
+};
 
 async function bootBuildPage(open, add) {
   const page = await open(BUILD_QUERY);
@@ -340,8 +345,7 @@ async function bootBuildPage(open, add) {
   // A depot with a road at its door makes robots, and they cost money; these checks are about exact tool costs, so the sim waits
   // (commands still run at once while paused). The robot checks below run their own, unpaused page.
   await page.locator('button[title="Pause (0)"]').click();
-  await until(page, () => window.__iron.tools.findSite(14) !== null, null, 30000);
-  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  const site = await siteWhenReady(page, 14);
   if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return null; }
   await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
   await waitFrames(page, (await frames(page)) + 6, 10000);
@@ -528,8 +532,7 @@ async function roadGraphChecks(open) {
   const page = await open(`${BUILD_QUERY}&debug=1`);
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.roads); }, null, 60000);
   if (!up) { add('debug session boots with __iron.roads', 'renderer, tools or roads hook never ready'); await page.close(); return out; }
-  await until(page, () => window.__iron.tools.findSite(14) !== null, null, 30000);
-  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  const site = await siteWhenReady(page, 14);
   if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
   const A = { x: site.x + 1, y: site.y + 2 }, B = { x: site.x + 8, y: site.y + 2 }, D = { x: site.x + 8, y: site.y + 9 }, M = { x: site.x + 4, y: site.y + 2 };
   const idx = (p) => p.y * MAP + p.x;
@@ -574,8 +577,7 @@ async function economyChecks(open) {
   const page = await open(`${BUILD_QUERY}&debug=1`);
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
   if (!up) { add('debug session boots with __iron.economy', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
-  await until(page, () => window.__iron.tools.findSite(24) !== null, null, 30000);
-  const site = await page.evaluate(() => window.__iron.tools.findSite(24));
+  const site = await siteWhenReady(page, 24);
   if (!site) { add('a flat 24x24 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
   const sx = site.x, sy = site.y, roadY = sy + 8;
   const accepted = (id) => until(page, (i) => window.__iron.tools.lastEvent?.cmd === i && window.__iron.tools.lastEvent.type === 'accepted', id);
@@ -652,6 +654,121 @@ async function economyChecks(open) {
 }
 // ---- end U8 block ----
 
+// ---- U9 utilities checks (desktop, webgl2 low, sim debug mode) ----
+// A plant, a power line with houses along it and a pump with a pipe, all placed through __iron.tools. Houses are R low L1 (catalog id 16).
+// Cutting the line must darken exactly the houses beyond the cut; the overlay modes must each paint a different terrain texture;
+// the underground view must show the pipe and hide the buildings.
+async function utilitiesChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`utilities: ${name}`, problem]);
+  const page = await open(`${BUILD_QUERY}&debug=1`);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  if (!up) { add('debug session boots with tools and economy hooks', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
+  const site = await siteWhenReady(page, 24);
+  if (!site) { add('a flat 24x24 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
+  const sx = site.x, sy = site.y;
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 12, z: s.y + 8, dist: 36, pitch: 0.95, yaw: 0.35 }), site);
+  const accepted = (id) => until(page, (i) => window.__iron.tools.lastEvent?.cmd === i && window.__iron.tools.lastEvent.type === 'accepted', id);
+  const sel = (tool, opts) => page.evaluate(({ tool, opts }) => window.__iron.tools.select(tool, opts), { tool, opts });
+  const drag = (from, to) => page.evaluate(({ from, to }) => window.__iron.tools.dragTiles(from, to), { from, to });
+  const placeBuilding = async (name, x, y) => {
+    await sel('service', { name });
+    const t = await page.evaluate(({ name, x, y }) => window.__iron.tools.tileFor(name, { x, y }), { name, x, y });
+    return drag(t, t);
+  };
+  const houses = () => page.evaluate(() => window.__iron.tools.buildings().filter((b) => b.arch === 16).map((b) => ({ x: b.x, y: b.y, powered: b.powered, watered: b.watered })).sort((a, b) => a.x - b.x));
+  const darkXs = (h) => h.filter((b) => !b.powered).map((b) => b.x - sx);
+  const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  const plantId = await placeBuilding('powerPlant', sx + 1, sy + 1);
+  add('a power plant is placed through the tools and accepted', plantId > 0 && await accepted(plantId) ? null : `command ${plantId}`);
+  await sel('line', { kind: 'power' });
+  const lineId = await drag({ x: sx + 5, y: sy + 3 }, { x: sx + 21, y: sy + 3 });
+  add('a power line is dragged from the plant to the far end and accepted', lineId > 0 && await accepted(lineId) ? null : `command ${lineId}`);
+  const grow = (x, y) => page.evaluate((b) => window.__iron.economy.command({ type: 'debugGrow', ...b, progress: 1 }), { x, y, archetype: 16 });
+  for (const [dx, dy] of [[5, 1], [8, 4], [12, 4], [17, 4], [21, 4]]) await grow(sx + dx, sy + dy);
+  const lit = await until(page, () => { const h = window.__iron.tools.buildings().filter((b) => b.arch === 16); return h.length === 5 && h.every((b) => b.powered); }, null, 30000);
+  add('houses beside the plant and along the line all report powered', lit ? null : JSON.stringify(await houses()));
+  const stat = await until(page, () => { const s = window.__iron.economy.stats; return !!s && s.power.supply === 120 && s.power.demand === 5; }, null, 15000);
+  add('Stats carry the power supply (120 MW plant) and demand (5 houses at 1 MW)', stat ? null : JSON.stringify(await page.evaluate(() => window.__iron.economy.stats?.power)));
+  const hud = await until(page, () => { const e = document.querySelector('[data-testid="util-power"]'); return !!e && e.getAttribute('data-supply') === '120' && e.getAttribute('data-demand') === '5'; }, null, 15000);
+  add('the HUD power bar shows 120 supplied of 5 needed', hud ? null : await page.evaluate(() => document.querySelector('[data-testid="utilities"]')?.outerHTML ?? 'no utility bars'));
+
+  const lines = await until(page, () => window.__iron.render.lines.pylons > 0 && window.__iron.render.lines.spans > 0, null, 20000);
+  const gl = await page.evaluate(() => ({ ...window.__iron.render.lines, dc: window.__iron.render.drawCalls, budget: window.__iron.render.drawCallBudget }));
+  add('pylons and cable spans are built for the line, within the draw-call budget', lines && gl.pylons >= 6 && gl.dc <= gl.budget ? null : JSON.stringify(gl));
+
+  const pumpId = await placeBuilding('waterPump', sx + 1, sy + 6);
+  await sel('line', { kind: 'water' });
+  const pipeId = await drag({ x: sx + 3, y: sy + 6 }, { x: sx + 21, y: sy + 6 });
+  add('a water pump and a pipe are placed through the tools and accepted', pumpId > 0 && pipeId > 0 && await accepted(pipeId) ? null : `pump ${pumpId}, pipe ${pipeId}`);
+  const wet = await until(page, () => { const h = window.__iron.tools.buildings().filter((b) => b.arch === 16); return h.length === 5 && h.filter((b) => b.watered).length === 4; }, null, 30000);
+  add('the four houses within reach of the pipe are watered, the one five tiles away is not', wet ? null : JSON.stringify(await houses()));
+
+  await sel('bulldoze');
+  const cutId = await drag({ x: sx + 14, y: sy + 3 }, { x: sx + 14, y: sy + 3 });
+  await page.evaluate(() => window.__iron.tools.cancel());
+  const cut = await until(page, ({ x, y }) => window.__iron.tools.peek('ugPower', x, y) === 0, { x: sx + 14, y: sy + 3 }, 15000);
+  add('bulldozing one line tile removes it from the mirror', cutId > 0 && cut ? null : `command ${cutId}, tile cleared ${cut}`);
+  const dark = await until(page, (x0) => { const h = window.__iron.tools.buildings().filter((b) => b.arch === 16); return h.length === 5 && h.filter((b) => !b.powered).length === 2 && h.every((b) => (b.x - x0 >= 17) === !b.powered); }, sx, 30000);
+  const h1 = await houses();
+  add('exactly the two houses beyond the cut go unpowered; the three upstream stay lit', dark && sameList(darkXs(h1), [17, 21]) ? null : JSON.stringify(h1));
+  const icons = await until(page, () => window.__iron.render.outageIcons >= 2, null, 15000);
+  add('outage icons are drawn for the dark houses', icons ? null : `icons ${await page.evaluate(() => window.__iron.render.outageIcons)}`);
+  const warn = await until(page, () => /2 without power/.test(document.querySelector('[data-testid="util-warn"]')?.textContent ?? ''), null, 15000);
+  add('the HUD warns "2 without power"', warn ? null : await page.evaluate(() => document.querySelector('[data-testid="utilities"]')?.textContent ?? 'no utility bars'));
+
+  await sel('line', { kind: 'power' });
+  const fixId = await drag({ x: sx + 14, y: sy + 3 }, { x: sx + 14, y: sy + 3 });
+  await page.evaluate(() => window.__iron.tools.cancel());
+  const healed = await until(page, () => window.__iron.tools.buildings().filter((b) => b.arch === 16).every((b) => b.powered), null, 30000);
+  add('relaying the cut tile restores power to every house', fixId > 0 && healed ? null : JSON.stringify(await houses()));
+
+  // Overlay modes: each paints a different terrain texture (the page checksum), and the power overlay follows an edit within ~1 s.
+  await page.locator('.speeds button', { hasText: 'Max' }).click();
+  await until(page, () => (window.__iron.economy.stats?.tick ?? 0) > 400, null, 60000);
+  const sums = {};
+  let modeProblem = null;
+  for (const m of ['none', 'power', 'water', 'landValue', 'pollution']) {
+    await page.click(`[data-testid="overlay-${m}"]`);
+    const ok = await until(page, (mm) => window.__iron.render.overlay.mode === mm, m, 10000);
+    if (m === 'pollution') await until(page, (s) => window.__iron.render.overlay.checksum !== s, sums.none, 20000);
+    sums[m] = await page.evaluate(() => window.__iron.render.overlay.checksum);
+    if (!ok) modeProblem = `mode ${m} never applied`;
+  }
+  add('each overlay button switches the render overlay mode', modeProblem);
+  add('none, power, water, land value and pollution paint five different overlay textures', new Set(Object.values(sums)).size === 5 ? null : JSON.stringify(sums));
+  const pressed = await page.evaluate(() => document.querySelector('[data-testid="overlay-pollution"]').getAttribute('aria-pressed'));
+  add('the selected overlay button is marked pressed', pressed === 'true' ? null : `aria-pressed ${pressed}`);
+  await page.click('[data-testid="overlay-power"]');
+  await until(page, () => window.__iron.render.overlay.mode === 'power', null, 5000);
+  const before = await page.evaluate(() => window.__iron.render.overlay.checksum);
+  await sel('bulldoze');
+  await drag({ x: sx + 10, y: sy + 3 }, { x: sx + 10, y: sy + 3 });
+  await page.evaluate(() => window.__iron.tools.cancel());
+  const moved = await until(page, (b) => window.__iron.render.overlay.checksum !== b, before, 20000);
+  add('the power overlay repaints after another line tile is cut', moved ? null : 'checksum unchanged');
+  await page.click('[data-testid="overlay-none"]');
+
+  // Underground view.
+  await page.click('[data-testid="underground"]');
+  const under = await until(page, () => { const u = window.__iron.render.underground; return u.on && u.cutaway && u.buildingsHidden && u.pipeSegments > 0 && u.pipeDraws > 0; }, null, 20000);
+  add('the underground view cuts the terrain away, hides buildings and shows the pipe tubes', under ? null : JSON.stringify(await page.evaluate(() => window.__iron.render.underground)));
+  const ugOverlay = await page.evaluate(() => window.__iron.render.overlay.mode);
+  add('the underground view paints the water coverage tint', (await until(page, () => window.__iron.render.overlay.mode === 'water', null, 10000)) ? null : `overlay mode ${ugOverlay}`);
+  await sel('bulldoze');
+  const digId = await drag({ x: sx + 10, y: sy + 6 }, { x: sx + 10, y: sy + 6 });
+  await page.evaluate(() => window.__iron.tools.cancel());
+  const dug = await until(page, ({ x, y }) => window.__iron.tools.peek('ugWater', x, y) === 0 && window.__iron.tools.peek('ugWater', x + 1, y) === 1, { x: sx + 10, y: sy + 6 }, 15000);
+  add('bulldozing underground digs up only that pipe tile', digId > 0 && dug ? null : `command ${digId}, dug ${dug}`);
+  await page.click('[data-testid="underground"]');
+  const surface = await until(page, () => { const u = window.__iron.render.underground; return !u.on && !u.cutaway && !u.buildingsHidden; }, null, 10000);
+  add('leaving the underground view brings the surface back', surface ? null : JSON.stringify(await page.evaluate(() => window.__iron.render.underground)));
+  await page.close();
+  return out;
+}
+// ---- end U9 block ----
+
 // ---- U7 robot workforce checks (webgl2 low; desktop and one phone leg) ----
 // The key acceptance: no debug growth. A depot, a street grid and R/C/I zones placed through the build tools turn into
 // buildings built by robots, which the page reports through __iron.sim.workforce and __iron.render.robots.
@@ -666,8 +783,7 @@ async function workforceChecks(open, phone) {
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && window.__iron.tools); }, null, 120000);
   if (!up) { add('city boots with tools', 'renderer or __iron.tools never ready'); await page.close(); return out; }
   // The mirror's first Resync can land a moment after the renderer reports ready, so wait for a site instead of asking once.
-  await until(page, () => window.__iron.tools.findSite(14) !== null, null, 30000);
-  const site = await page.evaluate(() => window.__iron.tools.findSite(14));
+  const site = await siteWhenReady(page, 14);
   if (!site) { add('a flat 14x14 land site exists', 'findSite returned null'); await page.close(); return out; }
   await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 6, z: s.y + 7, dist: 24, pitch: 0.75, yaw: 0.5 }), site);
 
@@ -843,11 +959,19 @@ const RENDER_LEGS = {
 
 const browser = await chromium.launch({ ...(existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {}), args: ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-vulkan=swiftshader', '--enable-features=Vulkan'] });
 let failed = 0;
+<<<<<<< HEAD
 // SMOKE_ONLY=robots or SMOKE_ONLY=traffic runs just that block (the U7 workforce or the U10 traffic one), for iterating on it; the acceptance run leaves it unset.
 const onlyBlock = process.env.SMOKE_ONLY;
 const only = onlyBlock === 'robots' || onlyBlock === 'traffic';
+=======
+// SMOKE_ONLY=robots runs just the U7 workforce block, for iterating on it; the acceptance run leaves it unset.
+const only = process.env.SMOKE_ONLY === 'robots';
+// SMOKE_QUICK=1 (npm run smoke:quick) is the per-unit gate: desktop WebGL2 boot, render and the robots build loop.
+// The full run (every viewport, backend, showcase, fx and feature block) is kept for the gate before publishing.
+const quick = process.env.SMOKE_QUICK === '1';
+>>>>>>> main
 try {
-  for (const vp of VIEWPORTS) {
+  for (const vp of quick ? VIEWPORTS.filter((v) => v.name === 'desktop') : VIEWPORTS) {
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
     const page = await ctx.newPage();
     const errors = [];
@@ -864,12 +988,14 @@ try {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;
     }
-    for (const leg of only ? [] : RENDER_LEGS[vp.name] ?? []) {
+    const legs = only ? [] : quick ? [{ backend: 'webgl2' }] : RENDER_LEGS[vp.name] ?? [];
+    for (const leg of legs) {
       const p = await open(RENDER_QUERY(leg.backend));
       for (const [name, problem] of await renderChecks(p, leg.backend, { ...leg, shots: process.env.SMOKE_SHOTS ? `${process.env.SMOKE_SHOTS}-${vp.name}` : undefined })) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
+      if (quick) { await p.close(); continue; }
       const sp = await open(`${RENDER_QUERY(leg.backend)}&showcase=1`.replace('tier=low', `tier=${leg.showcaseTier ?? 'low'}`));
       for (const [name, problem] of await showcaseChecks(sp, p, leg.backend, vp.name)) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
@@ -885,17 +1011,26 @@ try {
       if (!sp.isClosed()) await sp.close();
       if (!p.isClosed()) await p.close();
     }
-    if (vp.name === 'desktop' && !only) {
+    if (vp.name === 'desktop' && !only && !quick) {
       for (const [name, problem] of await persistenceChecks(open)) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
     }
+<<<<<<< HEAD
     const buildChecks = only ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
     if (vp.name === 'desktop' && !only) buildChecks.push(...await roadGraphChecks(open));
     if (vp.name === 'desktop' && !only) buildChecks.push(...await economyChecks(open));
     if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     if (onlyBlock !== 'robots') buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
+=======
+    const full = !only && !quick;
+    const buildChecks = !full ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
+    if (vp.name === 'desktop' && full) buildChecks.push(...await roadGraphChecks(open));
+    if (vp.name === 'desktop' && full) buildChecks.push(...await economyChecks(open));
+    if (vp.name === 'desktop' && full) buildChecks.push(...await utilitiesChecks(open));
+    buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
+>>>>>>> main
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

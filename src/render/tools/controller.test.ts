@@ -153,6 +153,51 @@ describe('tool controller', () => {
   });
 });
 
+describe('utility tools', () => {
+  it('plans a power line with its per-tile cost, skips tiles already laid, and refuses to cross water', () => {
+    const { c, w, sent, actions } = setup();
+    c.select({ tool: 'line', kind: 'power' });
+    c.begin({ x: 10, y: 10 });
+    c.move({ x: 19, y: 10 });
+    expect(c.plan?.cmd).toEqual({ type: 'placeLine', kind: 'power', ax: 10, ay: 10, bx: 19, by: 10 });
+    expect(c.plan?.est).toMatchObject({ cost: 10 * 8 });
+    expect(c.plan?.est.validTiles).toHaveLength(10);
+    w.ugPower[tileIdx(12, 10)] = 1;
+    c.move({ x: 18, y: 10 });
+    expect(c.plan?.est.validTiles).toHaveLength(8);
+    expect(c.end()).toBe(1);
+    expect(sent[0]).toMatchObject({ type: 'placeLine', kind: 'power' });
+    expect(actions).toMatchObject([{ kind: 'submitted', cost: 8 * 8 }]);
+    c.select({ tool: 'line', kind: 'water' });
+    expect(c.dragTiles({ x: 55, y: 64 }, { x: 75, y: 64 })).toBe(0);
+    expect(actions[actions.length - 1]).toMatchObject({ kind: 'refused', reason: 'terrain' });
+  });
+
+  it('plans an underground bulldoze only while the view says underground, and re-plans when it flips', () => {
+    const w = allocWorld();
+    w.terrain.fill(TERRAIN.GRASS);
+    w.scalars[S.treasury] = 1000;
+    w.ugWater[tileIdx(20, 20)] = 1; w.ugWater[tileIdx(21, 20)] = 1;
+    w.zone[tileIdx(22, 20)] = 1;
+    let under = false;
+    const sent: CommandBody[] = [];
+    const world: ToolWorld = { layers: w as unknown as Record<string, ArrayLike<number>>, scalars: w.scalars, tick: 0 };
+    const c = new ToolController({ world, submit: (b) => { sent.push(b); return sent.length; }, underground: () => under });
+    c.select({ tool: 'bulldoze' });
+    c.begin({ x: 20, y: 20 });
+    c.move({ x: 22, y: 20 });
+    expect(c.plan?.cmd).toEqual({ type: 'bulldoze', x0: 20, y0: 20, x1: 22, y1: 20 });
+    expect(c.plan?.est.validTiles).toEqual([tileIdx(22, 20)]);
+    under = true;
+    c.refresh();
+    expect(c.plan?.cmd).toEqual({ type: 'bulldoze', x0: 20, y0: 20, x1: 22, y1: 20, under: true });
+    expect(c.plan?.est.validTiles).toEqual([tileIdx(20, 20), tileIdx(21, 20)]);
+    expect(c.plan?.est.cost).toBe(2);
+    expect(c.end()).toBe(1);
+    expect(sent).toEqual([{ type: 'bulldoze', x0: 20, y0: 20, x1: 22, y1: 20, under: true }]);
+  });
+});
+
 describe('site helpers', () => {
   it('finds a free flat window and a water tile', () => {
     const { w } = setup();

@@ -6,6 +6,7 @@ import { budgetMessage, econStats } from './economy/index.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
 import { trafficStats } from './traffic/index.ts';
+import { utilStats } from './utilities/index.ts';
 import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
 import type { Sim } from './world.ts';
 
@@ -91,6 +92,7 @@ function flush(now: number, force = false): void {
       workforce: workforceOf(sim.world),
       traffic: trafficStats(sim.world),
       ...econStats(sim.world),
+      ...utilStats(sim),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);

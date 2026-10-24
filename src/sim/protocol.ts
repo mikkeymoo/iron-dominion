@@ -2,7 +2,7 @@ import type { Command } from './commands.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export type Speed = 0 | 1 | 2 | 4 | 'max';
 export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float32Array | Float64Array | Int8Array | Int32Array;
@@ -131,6 +131,14 @@ export interface Stats {
   weatherIntensity: number;
   /** Road graph epoch: bumps once per tick in which roads changed. */
   graphEpoch: number;
+  /** Totals of the last utilities solve: MW produced and drawn, ML of water produced and drawn. All zero until the first solve. */
+  power: { supply: number; demand: number };
+  water: { supply: number; demand: number };
+  /** Finished consumers currently without power or water (0 while that network is not modelled). */
+  unpowered: number;
+  unwatered: number;
+  /** True once the city has a finished power (water) producer; until then that network is not modelled and nothing is dark. */
+  modelled: { power: boolean; water: boolean };
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }

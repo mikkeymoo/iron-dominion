@@ -12,7 +12,10 @@ import { markDirty, type Sim } from './world.ts';
 export type CommandBody =
   | { type: 'placeRoad'; ax: number; ay: number; bx: number; by: number; cls: number }
   | { type: 'zone'; x0: number; y0: number; x1: number; y1: number; zone: number; density: number }
-  | { type: 'bulldoze'; x0: number; y0: number; x1: number; y1: number }
+  /** `under` clears water pipes only; without it the surface is cleared: buildings, roads, zones and power lines. */
+  | { type: 'bulldoze'; x0: number; y0: number; x1: number; y1: number; under?: boolean }
+  /** A power line or water pipe along the road-style L path (along x at ay from ax to bx, then along y at bx). Undoable. */
+  | { type: 'placeLine'; kind: 'power' | 'water'; ax: number; ay: number; bx: number; by: number }
   | { type: 'placeBuilding'; arch: number; x: number; y: number; rot: number }
   /** (x0, y0) is where the drag began: `level` flattens to that tile's height. Not undoable (the journal holds roads and zones only). */
   | { type: 'terraform'; mode: 'raise' | 'lower' | 'level'; x0: number; y0: number; x1: number; y1: number }
@@ -29,7 +32,7 @@ export type CommandBody =
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
 export type Command = { id: number; tick: number } & CommandBody;
 
-const UNDO = { NONE: 0, ROAD: 1, ZONE: 2, BUILDING: 3 } as const;
+const UNDO = { NONE: 0, ROAD: 1, ZONE: 2, BUILDING: 3, LINE: 4 } as const;
 const NEI = [[0, -1, ROAD.N], [1, 0, ROAD.E], [0, 1, ROAD.S], [-1, 0, ROAD.W]] as const;
 
 class Reject extends Error {}
@@ -55,12 +58,16 @@ interface Capture {
   cells: number[];
   road: number[];
   zone: number[];
+  ug: number[];
 }
 
-/** Previous road/zone values of the cells a command is about to change. */
+/** Power line (bit 0) and pipe (bit 1) presence of one tile. */
+const ugBits = (w: World, i: number): number => w.ugPower[i]! | (w.ugWater[i]! << 1);
+
+/** Previous road/zone/line values of the cells a command is about to change. */
 function capture(w: World, cells: Iterable<number>): Capture {
   const uniq = [...new Set(cells)];
-  return { cells: uniq, road: uniq.map((i) => w.road[i]!), zone: uniq.map((i) => w.zone[i]!) };
+  return { cells: uniq, road: uniq.map((i) => w.road[i]!), zone: uniq.map((i) => w.zone[i]!), ug: uniq.map((i) => ugBits(w, i)) };
 }
 
 /** Records the undo entry after the command mutated the world; returns the sim-assigned journal id (0 = not undoable). */
@@ -78,6 +85,8 @@ function journalCommit(sim: Sim, cap: Capture, kind: number, cost: number, arg: 
     w.jPostRoad[base + n] = w.road[idx]!;
     w.jPrevZone[base + n] = cap.zone[n]!;
     w.jPostZone[base + n] = w.zone[idx]!;
+    w.jPrevUg[base + n] = cap.ug[n]!;
+    w.jPostUg[base + n] = ugBits(w, idx);
   });
   w.uCmd[slot] = id;
   w.uKind[slot] = kind;
@@ -118,6 +127,16 @@ function placeRoad(sim: Sim, c: Extract<Command, { type: 'placeRoad' }>): number
   return journalCommit(sim, cap, UNDO.ROAD, cost, 0);
 }
 
+function placeLine(sim: Sim, c: Extract<Command, { type: 'placeLine' }>): number {
+  const w = sim.world;
+  const { validTiles, cost } = checked(sim, c);
+  const cap = capture(w, validTiles);
+  const layer = c.kind === 'power' ? w.ugPower : w.ugWater;
+  for (const i of validTiles) { layer[i] = 1; markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0); }
+  w.scalars[S.treasury]! -= cost;
+  return journalCommit(sim, cap, UNDO.LINE, cost, c.kind === 'power' ? 0 : 1);
+}
+
 function zone(sim: Sim, c: Extract<Command, { type: 'zone' }>): number {
   const w = sim.world;
   const { validTiles: changed, cost } = checked(sim, c);
@@ -149,12 +168,20 @@ function bulldoze(sim: Sim, c: Extract<Command, { type: 'bulldoze' }>): void {
   const w = sim.world;
   const { cost, rect } = checked(sim, c);
   const [x0, y0, x1, y1] = rect!;
+  if (c.under) {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = tileIdx(x, y);
+      if (w.ugWater[i]) { w.ugWater[i] = 0; markDirty(sim, 'geometry', x, y); }
+    }
+    w.scalars[S.treasury]! -= cost;
+    return;
+  }
   const slots = new Set<number>();
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (w.bId[tileIdx(x, y)]) slots.add(w.bId[tileIdx(x, y)]! - 1);
   for (const s of [...slots].sort((a, b) => a - b)) clearBuilding(sim, s);
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = tileIdx(x, y);
-    if (w.road[i] || w.zone[i]) { w.road[i] = 0; w.zone[i] = 0; markDirty(sim, 'geometry', x, y); }
+    if (w.road[i] || w.zone[i] || w.ugPower[i]) { w.road[i] = 0; w.zone[i] = 0; w.ugPower[i] = 0; markDirty(sim, 'geometry', x, y); }
   }
   for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) {
     if (inBounds(x, y) && (x < x0 || x > x1 || y < y0 || y > y1)) { const before = w.road[tileIdx(x, y)]; fixRoad(w, x, y); if (before !== w.road[tileIdx(x, y)]) markDirty(sim, 'geometry', x, y); }
@@ -201,6 +228,7 @@ function placeBuilding(sim: Sim, c: Extract<Command, { type: 'placeBuilding' }>)
   if (!isInts(c.arch, c.x, c.y, c.rot) || c.rot < 0 || c.rot > 3) reject('invalid');
   const a = archetype(c.arch) ?? reject('unknown-archetype');
   if (!a.placeable) reject('not-placeable');
+  if (a.locked) reject('locked');
   return placeSite(sim, a, c.x, c.y, c.rot, { level: 0, prog: 0, flags: 0, cost: a.cost, journal: true });
 }
 
@@ -281,9 +309,11 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   for (let s = 0; s < UMAX; s++) if (w.uCmd[s] === c.target && w.uKind[s] !== UNDO.NONE) slot = s;
   if (slot < 0) reject('not-undoable');
   const base = slot * UCELLS, n = w.uCount[slot]!, kind = w.uKind[slot]!;
+  // A line undo looks only at its own kind (uArg 0 power, 1 water): a pipe can be undone under a power line laid later.
+  const line = kind === UNDO.LINE, bit = 1 << w.uArg[slot]!;
   for (let k = 0; k < n; k++) {
     const i = w.jIdx[base + k]!;
-    if (w.road[i] !== w.jPostRoad[base + k] || w.zone[i] !== w.jPostZone[base + k]) reject('consumed');
+    if (line ? (ugBits(w, i) & bit) !== (w.jPostUg[base + k]! & bit) : w.road[i] !== w.jPostRoad[base + k] || w.zone[i] !== w.jPostZone[base + k]) reject('consumed');
   }
   if (kind === UNDO.BUILDING) {
     const b = w.uArg[slot]!;
@@ -299,8 +329,8 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   const refund = w.uCost[slot]!;
   for (let k = 0; k < n; k++) {
     const i = w.jIdx[base + k]!;
-    w.road[i] = w.jPrevRoad[base + k]!;
-    w.zone[i] = w.jPrevZone[base + k]!;
+    if (line) (bit === 1 ? w.ugPower : w.ugWater)[i] = (w.jPrevUg[base + k]! & bit) === 0 ? 0 : 1;
+    else { w.road[i] = w.jPrevRoad[base + k]!; w.zone[i] = w.jPrevZone[base + k]!; }
     markDirty(sim, 'geometry', i % MAP, (i / MAP) | 0);
   }
   w.scalars[S.treasury]! += refund;
@@ -329,6 +359,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
     switch (cmd.type) {
       case 'placeRoad': journal = placeRoad(sim, cmd); break;
       case 'zone': journal = zone(sim, cmd); break;
+      case 'placeLine': journal = placeLine(sim, cmd); break;
       case 'bulldoze': bulldoze(sim, cmd); break;
       case 'placeBuilding': journal = placeBuilding(sim, cmd); break;
       case 'terraform': terraform(sim, cmd); break;

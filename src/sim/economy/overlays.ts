@@ -6,6 +6,7 @@ import {
   POLL_EMIT_I, POLL_KEEP,
 } from './tables.ts';
 import { LV_COMMUTE_SHIFT, TRAFFIC_POLL_FREE, TRAFFIC_POLL_MAX } from '../traffic/constants.ts';
+import { GRID_WATER, LV_NO_POWER, LV_NO_WATER } from '../utilities/tables.ts';
 import { isOperating, zoneOfArch } from './totals.ts';
 
 const EMIT_OTHER = new Int32Array(256);
@@ -36,7 +37,8 @@ export const commutePenalty = (w: World, i: number): number => w.cFail[i]! >> LV
 
 /**
  * Land value of one tile, 0..255, from the current layers: terrain base, a mild hill bonus, a water-view bonus (water
- * sampled every fourth tile within 8, 3 points each), road access (nearest road within 2), minus pollution, plus serviceBonus. Water is 0.
+ * sampled every fourth tile within 8, 3 points each), road access (nearest road within 2), minus pollution, plus serviceBonus,
+ * minus the utilities penalties (LV_NO_WATER, LV_NO_POWER). Water is 0.
  */
 export function landValueAt(w: World, x: number, y: number): number {
   const i = y * MAP + x;
@@ -68,6 +70,9 @@ export function landValueAt(w: World, x: number, y: number): number {
   v -= w.pollution[i]! >> LV_POLLUTION_SHIFT;
   v += serviceBonus(w, i);
   v -= commutePenalty(w, i);
+  // Utilities, once the city models them: no water reach costs the tile land value, and so does standing under a dark building.
+  if ((w.scalars[S.grid]! & GRID_WATER) !== 0 && w.waterOn[i] !== 1 && w.waterOn[i] !== 2) v -= LV_NO_WATER;
+  if (w.bId[i] !== 0 && (w.bFlags[w.bId[i]! - 1]! & BFLAG.UNPOWERED) !== 0) v -= LV_NO_POWER;
   return v < 0 ? 0 : v > 255 ? 255 : v;
 }
 

@@ -1,4 +1,5 @@
 import { HEIGHT_SCALE, MAP, TERRAIN } from '../sim/layers.ts';
+import { isBridgeTile } from './fx/bridge.ts';
 import { cornerHeight, type HeightLayer } from './heightfield.ts';
 
 // Pure geometry builders over the mirror's full-map layers. No three, no DOM: positions, normals, vertex colours
@@ -184,32 +185,50 @@ export function withNeighbours(chunks: Iterable<number>, perSide: number = MAP /
   return out;
 }
 
+/** Share of a river's carve depth that holds water: below 1, so the carved banks (not a hard tile edge) bound the visible water. */
+const RIVER_FILL = 0.9;
+
 /**
  * Water surface quads over wet tiles. Corner levels average the surrounding wet tiles' levels (height + depth), so a
  * river stepping downhill reads as one continuous sheet instead of floating tiles with gaps between them.
  */
 export function buildWaterMesh(l: TerrainLayers, x0: number, y0: number, size: number): MeshData {
-  const level = (x: number, y: number): number => {
+  const level = (x: number, y: number, full: boolean): number => {
     const t = clampTile(y) * MAP + clampTile(x);
-    return l.waterDepth[t]! > 0 ? (l.height[t]! + l.waterDepth[t]!) / HEIGHT_SCALE : NaN;
+    if (l.waterDepth[t]! <= 0) return NaN;
+    // A river is carved a tile and a half below its banks; its surface sits partway down the channel so the banks, not a hard
+    // tile edge, bound the visible water. A bridge tile (dry bank between two diagonal river tiles) takes the full level, flush
+    // with the bank, so it shows.
+    const fill = l.terrain[t] === TERRAIN.RIVER && !full ? RIVER_FILL : 1;
+    return (l.height[t]! + l.waterDepth[t]! * fill) / HEIGHT_SCALE;
   };
-  const corner = (i: number, j: number): number => {
+  const corner = (i: number, j: number, full = false, fallback = NaN): number => {
     let sum = 0, n = 0;
     for (let dy = -1; dy <= 0; dy++) {
       for (let dx = -1; dx <= 0; dx++) {
-        const v = level(i + dx, j + dy);
+        const v = level(i + dx, j + dy, full);
         if (v === v) { sum += v; n++; }
       }
     }
-    return sum / n;
+    return n > 0 ? sum / n : fallback;
   };
+  const wetAt = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < MAP && y < MAP && l.waterDepth[y * MAP + x]! > 0;
   const pos: number[] = [];
   const idx: number[] = [];
   for (let y = y0; y < y0 + size; y++) {
     for (let x = x0; x < x0 + size; x++) {
-      if (l.waterDepth[y * MAP + x]! <= 0) continue;
+      // Dry tiles that join two diagonal wet tiles are drawn as water too, so a diagonal river is one ribbon, not diamonds.
+      const bridge = l.waterDepth[y * MAP + x]! <= 0;
+      if (bridge && !isBridgeTile(wetAt, x, y)) continue;
       const v = pos.length / 3;
-      pos.push(x, corner(x, y), y, x + 1, corner(x + 1, y), y, x, corner(x, y + 1), y + 1, x + 1, corner(x + 1, y + 1), y + 1);
+      // A bridge corner may touch no wet tile at all; it then takes the mean level of the tile's wet neighbours.
+      let fb = NaN;
+      if (bridge) {
+        let s = 0, c = 0;
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) { const lv = level(x + dx, y + dy, true); if (lv === lv) { s += lv; c++; } }
+        fb = s / c;
+      }
+      pos.push(x, corner(x, y, bridge, fb), y, x + 1, corner(x + 1, y, bridge, fb), y, x, corner(x, y + 1, bridge, fb), y + 1, x + 1, corner(x + 1, y + 1, bridge, fb), y + 1);
       idx.push(v, v + 2, v + 3, v, v + 3, v + 1);
     }
   }

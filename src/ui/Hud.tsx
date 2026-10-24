@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LoanInfo, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
+import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
@@ -34,6 +35,13 @@ export interface HudStats {
   lastNet: number;
   loans: LoanInfo[];
   debtMonths: number;
+  /** MW and ML produced and drawn at the last utilities solve. */
+  power: { supply: number; demand: number };
+  water: { supply: number; demand: number };
+  /** Finished buildings without power or water. */
+  unpowered: number;
+  unwatered: number;
+  modelled: { power: boolean; water: boolean };
   workforce: Workforce;
   traffic?: TrafficStats;
 }
@@ -128,6 +136,7 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
           </div>
         )}
         <DemandBars demand={stats.rciDemand} />
+        <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} modelled={stats.modelled} />
         {follow && (
           <button type="button" className="tb wide" aria-pressed={follow.active} title="Chase a robot at street level (Esc or a tap to stop)" onClick={follow.toggle}>
             {follow.active ? 'Stop following' : 'Follow a robot'}

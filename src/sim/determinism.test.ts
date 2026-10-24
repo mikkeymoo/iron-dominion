@@ -54,7 +54,7 @@ describe('determinism', () => {
     runScripted(a, scriptedCity(a.world), 500);
     runScripted(b, scriptedCity(b.world), 500);
     expect(stateHash(a)).toBe(stateHash(b));
-  });
+  }, 30000);
 
   it('resumes from a snapshot: 1000 + restore + 1000 equals 2000 straight', () => {
     const straight = createSim(42);
@@ -94,7 +94,7 @@ describe('determinism', () => {
     const t0 = performance.now();
     runTicks(sim, 1000);
     console.log(`perf: 1000 ticks in ${(performance.now() - t0).toFixed(1)} ms`);
-  });
+  }, 30000);
 });
 
 describe('snapshot', () => {

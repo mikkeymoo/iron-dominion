@@ -20,6 +20,17 @@ export interface RenderDebug {
   readonly fx: FxDebug;
   /** Tiles the build-tool ghost is painting right now (0 when no tool plan is shown). */
   readonly ghostTiles: number;
+  /** The terrain overlay texture: the mode painted, an FNV checksum of its pixels, and how many times it was uploaded. */
+  readonly overlay: { mode: string; checksum: number; uploads: number };
+  /** Underground view state: cutaway on, pipe tubes built (CPU side, whether or not shown) and drawn, buildings hidden. */
+  readonly underground: { on: boolean; cutaway: boolean; pipeSegments: number; pipeDraws: number; buildingsHidden: boolean };
+  /** Power lines: pylons and cable spans built, draw calls they cost. */
+  readonly lines: { pylons: number; spans: number; pipeSegments: number; drawCalls: number };
+  /** Outage icons uploaded this frame. */
+  readonly outageIcons: number;
+  /** Set the overlay mode (none, power, water, landValue, pollution) the way the HUD buttons do; false for an unknown mode. */
+  setOverlay(mode: string): boolean;
+  setUnderground(on: boolean): void;
   /** Set by ?showcase=1 once the district is planned: the camera pose that frames it. */
   readonly showcaseCamera?: { x: number; z: number; yaw: number; pitch: number; dist: number };
   readonly canvasCount: number;

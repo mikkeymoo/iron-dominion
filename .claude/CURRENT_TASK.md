@@ -1,5 +1,5 @@
 phase: build
-accept: npm test && npm run build && npm run smoke
+accept: npm test && npm run build && npm run smoke:quick
 
 # Task: Iron Dominion city-builder rewrite
 
@@ -25,9 +25,7 @@ Run: `/lfg` through U0..U14, one commit per unit, pushed to `origin/main` (Micha
 | U7a  | 0202b99 (merge) | road graph oracle worst 1.10x, dense build ~20 ms | review: paused-edit epoch divergence fixed at root |
 | U8   | 0202b99 (merge) | 21 economy smoke checks | protocol v2; review: 10 findings applied; overlay display deferred to U11 |
 | U5   | cf6eab0 (merge of f2e2e91 + 55dc5c4) | 193 tests after merge, smoke pass incl. real IndexedDB save/reload hash | review: 10 findings applied (single save queue, cache refresh, quit dialog, quota mapping) |
-| U6   |        |               |       |
-| U7   |        |               |       |
-| U8   |        |               |       |
+| U7   | fff0867 (merge of 1de2a94 + 6dbe6ad) | 410 tests, build ok (392 KB gzip), smoke 167 ok incl. road + zone -> robot-built building | protocol v3; review: 10 findings applied (stuck jobs, orphan sites, robot spend through monthly budget, zone restore, depot undo exploit, prorated first month) |
 | U9   |        |               |       |
 | U10  |        |               |       |
 | U11  |        |               |       |

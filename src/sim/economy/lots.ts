@@ -3,6 +3,8 @@ import { BMAX, MAP, ROAD, TILES, ZONE, type World } from '../layers.ts';
 import { lotAccess, roadsOf } from '../roads/index.ts';
 import type { RoadNet } from '../roads/graph.ts';
 import type { Sim } from '../world.ts';
+import { LOT_NO_POWER, LOT_NO_WATER } from '../utilities/tables.ts';
+import { lotService } from '../utilities/index.ts';
 import { zoneDemand } from './demand.ts';
 import {
   ABANDON_AT, ABANDON_CLEAR, ABANDON_DEMAND, ABANDON_DESIRABILITY, LEVELUP_DEMAND, LEVELUP_LV, ONE,
@@ -55,9 +57,12 @@ function lotScoreAt(world: World, x: number, y: number, bw: number, bh: number, 
   lv = Math.floor(lv / n); pol = Math.floor(pol / n);
   const demand = Math.round(zoneDemand(world, zone) * ONE);
   const cls = world.road[access]! & ROAD.CLASS_MASK;
-  if (zone === ZONE.R) return demand + lv * 4 - pol * 4 + cls * 16;
-  if (zone === ZONE.C) return demand + lv * 3 - pol * 2 + cls * 32;
-  return demand + (255 - lv) + cls * 8;
+  // Once the city models power or water, a lot with no reachable supply is a poor site; it can still grow (level 1), just last.
+  const svc = lotService(world, x, y, bw, bh);
+  const util = (svc.power ? 0 : LOT_NO_POWER) + (svc.water ? 0 : LOT_NO_WATER);
+  if (zone === ZONE.R) return demand + lv * 4 - pol * 4 + cls * 16 - util;
+  if (zone === ZONE.C) return demand + lv * 3 - pol * 2 + cls * 32 - util;
+  return demand + (255 - lv) + cls * 8 - util;
 }
 
 /**
@@ -91,7 +96,7 @@ export function growthCandidates(sim: Sim, zone: number, max: number): Lot[] {
       let ok = true;
       for (let yy = y; yy < y + f && ok; yy++) for (let xx = x; xx < x + f; xx++) {
         const j = yy * MAP + xx;
-        if (w.zone[j] !== zb || w.bId[j] !== 0 || claimed[j] || (w.road[j]! & ROAD.CLASS_MASK) !== 0) { ok = false; break; }
+        if (w.zone[j] !== zb || w.bId[j] !== 0 || claimed[j] || (w.road[j]! & ROAD.CLASS_MASK) !== 0 || w.ugPower[j] !== 0) { ok = false; break; }
       }
       if (!ok) continue;
       const access = reachableAccess(net, anchors, x, y, f, f);
@@ -113,6 +118,8 @@ export function levelUpCandidates(sim: Sim, zone: number, max: number): LevelUp[
   for (let s = 0; s < BMAX; s++) {
     const arch = w.bArch[s]!;
     if (zoneOfArch(arch) !== zone || !isOperating(w, s) || w.bLevel[s]! >= 3) continue;
+    // Growing past level 1 needs both services: isOperating already excludes the unpowered, and a building the water misses stays put.
+    if ((w.bFlags[s]! & BFLAG.UNWATERED) !== 0) continue;
     const lv = footprintMean(w, w.landValue, s);
     if (lv < LEVELUP_LV) continue;
     out.push({ slot: s, x: w.bX[s]!, y: w.bY[s]!, arch, nextArch: arch + 1, level: w.bLevel[s]!, score: lv * 4 + demand });

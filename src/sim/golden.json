@@ -2,14 +2,14 @@
   "seed": 42,
   "scripted": {
     "ticks": 2000,
-    "hash": 3259502079
+    "hash": 550466710
   },
   "idle": {
     "ticks": 200,
-    "hash": 847172813
+    "hash": 3278418984
   },
   "traffic": {
     "ticks": 600,
-    "hash": 3261416475
+    "hash": 3008793214
   }
 }

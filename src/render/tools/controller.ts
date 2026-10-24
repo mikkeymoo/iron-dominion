@@ -25,6 +25,8 @@ export interface ToolControllerDeps {
   world: ToolWorld;
   /** Sends a command to the sim and returns its command id. */
   submit(body: CommandBody): number;
+  /** True while the underground view is on: bulldoze then digs up pipes only. */
+  underground?(): boolean;
 }
 
 /** Identity of everything the ghost and cost label show: the command, the estimate's cost, reason and tile lists. */
@@ -79,7 +81,7 @@ export class ToolController {
     const t = this.drag ? this.drag.to : this.hoverTile;
     if (!this.sel || !t || !inMap(t)) this.plan = null;
     else {
-      const cmd = commandFor(this.sel, this.drag ? this.drag.from : t, t, this.rot);
+      const cmd = commandFor(this.sel, this.drag ? this.drag.from : t, t, this.rot, this.deps.underground?.() ?? false);
       const w = this.deps.world;
       this.plan = { cmd, est: estimate(tileReadOf(w.layers), cmd, w.scalars[S.treasury]), tile: t };
     }
@@ -93,6 +95,13 @@ export class ToolController {
     this.sel = sel;
     this.drag = null;
     if (!sel) this.hoverTile = null;
+    this.recompute();
+    this.changed();
+  }
+
+  /** Re-plan after something outside the controller changed what the tool would do (the underground view toggled). */
+  refresh(): void {
+    if (!this.sel) return;
     this.recompute();
     this.changed();
   }

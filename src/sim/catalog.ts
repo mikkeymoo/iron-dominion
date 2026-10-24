@@ -14,9 +14,13 @@ export interface Archetype {
   upkeep?: number;
   /** Pollution units emitted per pollution pass by a non-RCI building (economy/overlays.ts). */
   pollution?: number;
+  /** Utility buildings: which network they belong to. The tool sheet groups them under Utilities. */
+  utility?: 'power' | 'water';
+  /** Listed but not yet buildable (U13 unlocks it): placeBuilding and its estimate refuse with `locked`. */
+  locked?: boolean;
 }
 
-export const ARCH = { DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4 } as const;
+export const ARCH = { DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4, SOLAR_FARM: 5, WATER_TOWER: 6, FUSION_REACTOR: 7 } as const;
 
 /**
  * RCI archetype ids are stable and never renumbered: ids 1-15 are services and utilities, 16-42 are the 27 grown
@@ -41,6 +45,12 @@ export const BFLAG = {
   ABANDONED: 2,
   /** Set with CONSTRUCTING while robots tear a building down: bProg runs from 255 down to 0, then the slot is freed. */
   DEMOLISHING: 4,
+  /**
+   * Outage bits are set by the utilities solve (utilities/solve.ts) and mean "this consumer is not served". They are inverted
+   * on purpose: a new or legacy building has flags 0 and so counts as served until a solve says otherwise.
+   */
+  UNPOWERED: 16,
+  UNWATERED: 32,
 } as const;
 
 const rciArchetypes = (): Archetype[] => {
@@ -57,9 +67,12 @@ const rciArchetypes = (): Archetype[] => {
 
 export const CATALOG: readonly Archetype[] = [
   { id: ARCH.DEPOT, name: 'depot', w: 2, h: 2, cost: 500, placeable: true, upkeep: 20 },
-  { id: ARCH.POWER_PLANT, name: 'powerPlant', w: 4, h: 4, cost: 3000, placeable: true, upkeep: 120, pollution: 200 },
-  { id: ARCH.WATER_PUMP, name: 'waterPump', w: 2, h: 2, cost: 800, placeable: true, upkeep: 30 },
+  { id: ARCH.POWER_PLANT, name: 'powerPlant', w: 4, h: 4, cost: 3000, placeable: true, upkeep: 120, pollution: 200, utility: 'power' },
+  { id: ARCH.WATER_PUMP, name: 'waterPump', w: 2, h: 2, cost: 800, placeable: true, upkeep: 30, utility: 'water' },
   { id: ARCH.FIRE_STATION, name: 'fireStation', w: 3, h: 3, cost: 1200, placeable: true, upkeep: 60 },
+  { id: ARCH.SOLAR_FARM, name: 'solarFarm', w: 4, h: 4, cost: 2400, placeable: true, upkeep: 50, utility: 'power' },
+  { id: ARCH.WATER_TOWER, name: 'waterTower', w: 2, h: 2, cost: 900, placeable: true, upkeep: 25, utility: 'water' },
+  { id: ARCH.FUSION_REACTOR, name: 'fusionReactor', w: 4, h: 4, cost: 12000, placeable: true, upkeep: 260, utility: 'power', locked: true },
   ...rciArchetypes(),
 ];
 
@@ -68,6 +81,9 @@ export const archetype = (id: number): Archetype | undefined => CATALOG.find((a)
 export const ROAD_COST = [0, 10, 25, 60] as const;
 export const BRIDGE_EXTRA = 40;
 export const ZONE_COST = 2;
+/** Per tile laid: an overhead power line or an underground water pipe. Tiles that already carry one cost nothing. */
+export const POWER_LINE_COST = 8;
+export const PIPE_COST = 6;
 export const BULLDOZE_COST = 1;
 
 /** One raise or lower step is 1/4 tile of height (4 height units); leveling rounds each tile's change up to whole steps for cost. */

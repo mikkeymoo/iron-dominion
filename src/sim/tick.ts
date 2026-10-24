@@ -5,6 +5,7 @@ import { roadsSystem } from './roads/index.ts';
 import { robotsSystem } from './robots/index.ts';
 import { nextFloat, nextInt } from './rng.ts';
 import { trafficSystem } from './traffic/index.ts';
+import { utilitiesSystem } from './utilities/solve.ts';
 import type { Sim } from './world.ts';
 
 export const TICK_HZ = 10;
@@ -53,7 +54,7 @@ function clockWeather(sim: Sim): void {
 }
 
 // Named no-op hooks reserve each future system's slot in the fixed order.
-const utilities: System = () => {};
+const utilities: System = utilitiesSystem;
 const services: System = () => {};
 const disasters: System = () => {};
 

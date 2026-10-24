@@ -45,7 +45,9 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
 
   const seed = wid.add(0.5).floor().add(iState.y.mul(1000).floor().mul(131));
   const litRand = hash(seed);
-  const lit = step(float(1).sub(LIT_FRACTION), litRand).mul(isGlass);
+  // iState.w = 1 marks a finished building without power (utilities solve): its windows and signs go dark, day and night.
+  const powered = float(1).sub(iState.w);
+  const lit = step(float(1).sub(LIT_FRACTION), litRand).mul(isGlass).mul(powered);
   const warmth = hash(seed.add(7919));
   const litColor = mix(vec3(1.0, 0.78, 0.45), vec3(0.75, 0.88, 1.0), step(0.8, warmth));
 
@@ -62,7 +64,7 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
   material.colorNode = mix(albedo.mul(ao.mul(0.55).add(0.45)), vec3(0.93, 0.95, 0.99), snowOnTop().mul(0.9));
   material.aoNode = ao;
   material.emissiveNode = litColor.mul(pane).mul(glow).mul(lit).mul(buildingLight.night).mul(1.7)
-    .add(base.mul(isAccent).mul(buildingLight.night.mul(1.3).add(0.12)));
+    .add(base.mul(isAccent).mul(buildingLight.night.mul(1.3).add(0.12)).mul(powered.mul(0.92).add(0.08)));
   material.roughnessNode = mix(mix(float(0.86), float(0.42), isMetal), mix(float(0.55), float(0.12), pane), isGlass);
   material.metalnessNode = mix(mix(float(0), float(0.7), isMetal), pane.mul(0.25), isGlass);
 
