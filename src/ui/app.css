@@ -211,3 +211,4 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 @keyframes banner-pop { from { opacity: 0; transform: translateX(-50%) scale(0.85); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
 .lock { margin-left: 0.3em; font-size: 0.85em; opacity: 0.85; }
 .tool-toast.good { background: rgba(21, 78, 40, 0.94); border-color: #3fb950; }
+.pwa-toast { position: fixed; z-index: 50; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 14px); transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 24px); padding: 8px 10px; box-sizing: border-box; color: #e6edf3; background: rgba(11, 17, 22, 0.96); border: 1px solid rgba(123, 232, 223, 0.5); border-radius: 8px; font-size: 0.9rem; }

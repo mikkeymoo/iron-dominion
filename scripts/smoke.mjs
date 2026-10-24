@@ -11,7 +11,7 @@ import { chromium } from 'playwright-core';
 const GOLDEN = JSON.parse(readFileSync(new URL('../src/sim/golden.json', import.meta.url), 'utf8'));
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
 const ROOT = new URL('../dist/', import.meta.url).pathname;
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 const VIEWPORTS = [{ name: 'desktop', width: 1280, height: 760 }, { name: 'phone', width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 3 }];
 
 const server = createServer(async (req, res) => {
@@ -37,6 +37,15 @@ const CHECKS = [
     const tick = await page.evaluate(() => window.__iron?.sim?.tick ?? 0);
     const attr = await page.locator('[data-worker="ready"]').getAttribute('data-tick');
     return tick > 0 && Number(attr) > 0 ? null : `tick ${tick}, data-tick ${attr}`;
+  }],
+  // localhost is a secure context, so the worker registers here. Console errors from registration fail the run via the shared error list.
+  ['service worker registers and activates', async (page) => {
+    const state = await page.evaluate(async () => {
+      if (!navigator.serviceWorker) return 'no navigator.serviceWorker';
+      const reg = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 10000))]);
+      return reg && reg.active ? `active:${reg.scope}` : 'never became active';
+    });
+    return state.startsWith('active:') ? null : state;
   }],
   [`worker hash at seed ${GOLDEN.seed} tick ${GOLDEN.idle.ticks} equals the Vitest golden`, async (_page, open) => {
     const p = await open(`?seed=${GOLDEN.seed}&haltAt=${GOLDEN.idle.ticks}`);

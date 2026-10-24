@@ -2,7 +2,10 @@ import {build} from 'esbuild';
 import {mkdir,copyFile,writeFile,readFile,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {gzipSync} from 'node:zlib';
-import {join} from 'node:path';
+import {existsSync,readFileSync} from 'node:fs';
+import {join,sep} from 'node:path';
+import {renderIconPng} from './scripts/png.mjs';
+import {precacheList,renderServiceWorker,validateManifest} from './scripts/pwa-build.mjs';
 
 const GZIP_BUDGET=900*1024;
 
@@ -17,7 +20,7 @@ async function sourceFiles(dir){
 }
 // Hash of every source file plus the lockfile: both bundles get it, so a stale cached worker is detected at Hello.
 const hash=createHash('sha256');
-for(const f of [...await sourceFiles('src'),'package-lock.json','public/index.html']){hash.update(f);hash.update(await readFile(f));}
+for(const f of [...await sourceFiles('src'),'package-lock.json','public/index.html','public/sw.js','public/manifest.webmanifest','public/icon.svg','scripts/png.mjs']){hash.update(f);hash.update(await readFile(f));}
 const BUILD_HASH=hash.digest('hex').slice(0,12);
 
 await mkdir('dist',{recursive:true});
@@ -31,6 +34,15 @@ await build({...common,entryPoints:['src/sim/worker.ts'],outfile:'dist/sim-worke
 for(const name of ['index.html','manifest.webmanifest','icon.svg'])await copyFile('public/'+name,'dist/'+name);
 await writeFile('dist/.nojekyll','');
 await writeFile('dist/build.json',JSON.stringify({hash:BUILD_HASH})+'\n');
+
+// PWA: icons rendered from code, manifest assertion, then the service worker with this build's precache list and hash.
+await mkdir('dist/icons',{recursive:true});
+for(const [file,size,opts] of [['icon-192.png',192],['icon-512.png',512],['icon-maskable-512.png',512,{maskable:true}],['apple-touch-icon.png',180,{maskable:true}]])await writeFile('dist/icons/'+file,renderIconPng(size,opts));
+const manifestProblems=validateManifest(JSON.parse(await readFile('dist/manifest.webmanifest','utf8')),p=>existsSync('dist/'+p)?readFileSync('dist/'+p):undefined);
+if(manifestProblems.length){console.error(`build: manifest invalid:\n  ${manifestProblems.join('\n  ')}`);process.exit(1);}
+const distFiles=(await sourceFiles('dist')).map(f=>f.split(sep).slice(1).join('/'));
+const precache=precacheList(distFiles,BUILD_HASH);
+await writeFile('dist/sw.js',renderServiceWorker(await readFile('public/sw.js','utf8'),BUILD_HASH,precache));
 
 const worker=await readFile('dist/sim-worker.js','utf8');
 const leaked=['WebGPURenderer','THREE','three/webgpu','WebGLRenderer','MeshStandardNodeMaterial'].filter(s=>worker.includes(s));

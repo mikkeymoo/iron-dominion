@@ -3,6 +3,7 @@ import type { LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workf
 import { TIERS } from '../sim/unlocks.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
+import { InstallMenuItem } from './PwaUi';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { DEFAULT_SETTINGS, TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
@@ -302,6 +303,7 @@ export function Hud({
               {photo && <button type="button" className="tb row" data-testid="photo-menu" onClick={() => { closeMenu(); photo.enter(); }}>Photo mode (F2)</button>}
               {photo && <button type="button" className="tb row" data-testid="tour-menu" onClick={() => { closeMenu(); photo.tour(); }}>City tour</button>}
               <button type="button" className="tb row" onClick={() => setMode('settings')}>Settings</button>
+              <InstallMenuItem />
               <button type="button" className="tb row" onClick={() => { closeMenu(); onQuit(); }}>Quit to title (saves)</button>
               <button type="button" className="tb row" onClick={closeMenu}>Close</button>
             </>
