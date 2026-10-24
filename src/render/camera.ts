@@ -74,6 +74,7 @@ export class CameraRig {
   readonly state: RigState = { x: MAP / 2, z: MAP / 2, yaw: 0.6, pitch: 0.7, dist: 90, ty: 0 };
   private follow: (() => FollowPose | null) | null = null;
   private snapFollow = false;
+  private scripted: ((dt: number) => RigState | null) | null = null;
   private vx = 0; private vz = 0; private vyaw = 0; private vpitch = 0;
   private held = 0;
   private readonly keys = new Set<string>();
@@ -105,6 +106,17 @@ export class CameraRig {
   stopFollow(): void { this.follow = null; }
 
   get following(): boolean { return this.follow !== null; }
+
+  /**
+   * Hand the camera to a script (a cinematic path) until it returns null or script(null) is called. The script supplies the whole
+   * state each frame, including the target height, which the rig does not ease while scripted.
+   */
+  script(fn: ((dt: number) => RigState | null) | null): void {
+    this.scripted = fn;
+    if (fn) { this.follow = null; this.vx = this.vz = this.vyaw = this.vpitch = 0; }
+  }
+
+  get scripting(): boolean { return this.scripted !== null; }
 
   beginDrag(): void { this.held++; }
   endDrag(): void { this.held = Math.max(0, this.held - 1); }
@@ -152,6 +164,16 @@ export class CameraRig {
   step(dt: number): void {
     const s = this.state;
     const before = `${s.x}|${s.z}|${s.yaw}|${s.pitch}|${s.dist}|${s.ty}`;
+    if (this.scripted) {
+      const p = this.scripted(dt);
+      if (p) {
+        s.x = p.x; s.z = p.z; s.yaw = p.yaw; s.pitch = p.pitch; s.dist = p.dist; s.ty = p.ty;
+        this.clampState();
+        if (`${s.x}|${s.z}|${s.yaw}|${s.pitch}|${s.dist}|${s.ty}` !== before) this.version++;
+        return;
+      }
+      this.scripted = null;
+    }
     if (this.follow) {
       const p = this.follow();
       if (!p) this.follow = null;

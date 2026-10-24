@@ -155,6 +155,19 @@ async function renderChecks(page, backend, opts) {
       add('recovers from device loss on a fresh canvas and redraws terrain', r.canvases === 1 && r.frames >= f2 + 10 && r.drawCalls > 0 && r.triangles > 10000 && r.backend === backend ? null : JSON.stringify({ ...r, f2 }));
     }
   }
+
+  // U14c photo mode: capture returns a PNG within the tier's texture ceiling and the live canvas comes back at its old size.
+  const photo = await page.evaluate(async () => {
+    const r = window.__iron.render, cv = document.querySelector('canvas');
+    const before = [cv.width, cv.height];
+    r.photo.enter();
+    const active = r.photo.active;
+    const shot = await r.photo.capture().catch((e) => ({ error: String(e) }));
+    r.photo.exit();
+    return { active, shot, before, after: [cv.width, cv.height], activeAfter: r.photo.active, canvases: r.canvasCount };
+  });
+  add('photo mode: capture returns PNG bytes within the tier ceiling', photo.active && photo.shot.bytes > 0 && photo.shot.width > 0 && photo.shot.height > 0 && Math.max(photo.shot.width, photo.shot.height) <= 1024 ? null : JSON.stringify(photo));
+  add('photo mode: exit restores the canvas size', !photo.activeAfter && photo.canvases === 1 && photo.before.join() === photo.after.join() ? null : JSON.stringify(photo));
   return out;
 }
 

@@ -56,6 +56,8 @@ interface Props {
   onBudget(): void;
   /** Chase-camera state and toggle; absent while the 3D view is not running. */
   follow?: { active: boolean; toggle(): void };
+  /** Photo mode and the city tour, from the menu; absent while the 3D view is not running. */
+  photo?: { enter(): void; tour(): void };
   onSave(): void;
   onSaveAs(name: string): void;
   onExport(): void;
@@ -74,7 +76,7 @@ const clock = (f: number): string => {
 };
 
 
-export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
+export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, photo, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings'>('main');
@@ -146,6 +148,8 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
             <>
               <button type="button" className="tb row" onClick={() => { setName(''); setPanel('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
+              {photo && <button type="button" className="tb row" onClick={() => { closeMenu(); photo.enter(); }}>Photo mode (F2)</button>}
+              {photo && <button type="button" className="tb row" onClick={() => { closeMenu(); photo.tour(); }}>City tour</button>}
               <button type="button" className="tb row" onClick={() => setPanel('settings')}>Settings</button>
               <button type="button" className="tb row" onClick={() => { closeMenu(); onQuit(); }}>Quit to title (saves)</button>
               <button type="button" className="tb row" onClick={closeMenu}>Close</button>

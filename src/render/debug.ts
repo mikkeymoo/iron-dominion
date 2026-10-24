@@ -46,6 +46,12 @@ export interface RenderDebug {
   /** Follow-a-robot chase camera. `follow(true)` picks a random active robot and returns whether one was found. */
   readonly following: boolean;
   follow(on: boolean, kind?: number): boolean;
+  /** Agent kinds currently in the world (AGENT_KIND values); follow(true, kind) chases any of them, so a vehicle kind added later works unchanged. */
+  agentKinds(): number[];
+  /** Photo mode (U14c): `capture()` renders the framed shot and resolves with its PNG size; it rejects unless photo mode is active. */
+  readonly photo: { readonly active: boolean; enter(): void; exit(): void; capture(): Promise<{ width: number; height: number; bytes: number }> };
+  /** Cinematic camera: whether a path is playing, and the tour over the tallest buildings. */
+  readonly cinematic: { readonly active: boolean; tour(): boolean; skip(): void };
 }
 
 export interface BuildingDebug {

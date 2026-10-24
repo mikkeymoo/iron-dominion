@@ -22,6 +22,7 @@ import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { chromaticAberration } from 'three/addons/tsl/display/ChromaticAberrationNode.js';
 import { Color, Vector2 } from 'three/webgpu';
+import { NO_POST_LOOK, type PostLook } from '../photoSettings.ts';
 import type { TierSpec } from '../tier.ts';
 import { fxU } from './uniforms.ts';
 
@@ -39,6 +40,8 @@ export interface PostParams {
   aspect: number;
   night: number;
   overcast: number;
+  /** Photo-mode overrides; absent = the game's own look. */
+  look?: PostLook | null;
 }
 
 export interface Post {
@@ -49,10 +52,10 @@ export interface Post {
   dispose(): void;
 }
 
-function tiltShiftNode(input: N, taps: number, u: { strength: N; aspect: N }): N {
+function tiltShiftNode(input: N, taps: number, u: { strength: N; aspect: N; center: N }): N {
   return Fn(() => {
     const p = uv();
-    const d = abs(p.y.sub(0.5));
+    const d = abs(p.y.sub(u.center));
     const amount = smoothstep(0.13, 0.47, d).mul(u.strength);
     const radius = amount.mul(0.0125);
     const noise = interleavedGradientNoise(screenCoordinate);
@@ -88,26 +91,31 @@ function shaftsNode(depth: N, samples: number, u: { sunUv: N; amount: N; color: 
   })();
 }
 
-function gradeNode(ldr: N, u: { aspect: N; night: N; overcast: N }, vignette: number): N {
+function gradeNode(ldr: N, u: { aspect: N; night: N; overcast: N; sat: N; vignette: N; grain: N; seed: N }): N {
   const c = ldr.rgb;
   const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  let g: N = mix(vec3(l, l, l), c, float(1.08).sub(u.overcast.mul(0.34)));
+  let g: N = mix(vec3(l, l, l), c, float(1.08).sub(u.overcast.mul(0.34)).mul(u.sat));
   g = g.sub(0.5).mul(1.07).add(0.5);
   const tone = vec3(-0.012, 0.004, 0.02).mul(float(1).sub(l)).add(vec3(0.022, 0.008, -0.015).mul(l));
   g = g.add(tone.mul(0.9));
   g = mix(g, g.mul(vec3(0.88, 0.96, 1.14)), u.night.mul(0.55));
   const q = uv().sub(0.5).mul(vec2(u.aspect, 1));
   const vg = smoothstep(1.0, 0.28, q.length());
-  g = g.mul(mix(float(1), vg, vignette));
+  g = g.mul(mix(float(1), vg, u.vignette));
+  const grain = fract(sin(dot(screenCoordinate.add(u.seed), vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5);
+  g = g.add(grain.mul(u.grain));
   return vec4(g.clamp(0, 1), 1);
 }
 
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: PerspectiveCamera, spec: TierSpec): Post {
   const p = spec.post, fx = spec.fx;
   const passes: string[] = ['scene'];
+  const gameVignette = p.lens ? 0.34 : 0.28;
   const U = {
     tilt: uniform(0.7), aspect: uniform(1.6), sunUv: uniform(new Vector2(0.5, 0.9)), shafts: uniform(0), sunColor: uniform(new Color(1, 0.9, 0.7)),
     focus: uniform(100), focal: uniform(60), night: uniform(0), overcast: uniform(0),
+    tiltY: uniform(NO_POST_LOOK.tiltCenter), sat: uniform(NO_POST_LOOK.saturation), vignette: uniform(gameVignette),
+    grain: uniform(NO_POST_LOOK.grain), seed: uniform(0), bokeh: uniform(NO_POST_LOOK.bokeh),
   };
 
   const pipeline = new RenderPipeline(renderer);
@@ -137,12 +145,12 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Persp
   }
 
   if (p.tiltShift) {
-    c = tiltShiftNode(convertToTexture(c), fx.tiltShiftTaps, { strength: U.tilt.mul(p.dof ? 0.65 : 1), aspect: U.aspect });
+    c = tiltShiftNode(convertToTexture(c), fx.tiltShiftTaps, { strength: U.tilt.mul(p.dof ? 0.65 : 1), aspect: U.aspect, center: U.tiltY });
     passes.push('tiltShift');
   }
 
   if (p.dof) {
-    c = dof(c as never, scenePass.getViewZNode() as never, U.focus as never, U.focal as never, 1.1 as never) as N;
+    c = dof(c as never, scenePass.getViewZNode() as never, U.focus as never, U.focal as never, U.bokeh as never) as N;
     passes.push('dof');
   }
 
@@ -171,7 +179,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Persp
   if (p.aa === 'fxaa') { ldr = fxaa(ldr as never) as N; passes.push('fxaa'); }
   if (p.lens) { ldr = chromaticAberration(ldr as never, 0.1 as never, vec2(0.5, 0.5) as never) as N; passes.push('chromatic'); }
   if (p.grade) {
-    ldr = gradeNode(ldr, { aspect: U.aspect, night: U.night, overcast: U.overcast }, p.lens ? 0.34 : 0.28);
+    ldr = gradeNode(ldr, { aspect: U.aspect, night: U.night, overcast: U.overcast, sat: U.sat, vignette: U.vignette, grain: U.grain, seed: U.seed });
     passes.push('grade');
   }
   pipeline.outputNode = ldr as never;
@@ -188,6 +196,13 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Persp
       U.focal.value = v.focalRange;
       U.night.value = v.night;
       U.overcast.value = v.overcast;
+      const look = v.look ?? NO_POST_LOOK;
+      U.tiltY.value = look.tiltCenter;
+      U.sat.value = look.saturation;
+      U.vignette.value = look.vignette ?? gameVignette;
+      U.grain.value = look.grain;
+      U.seed.value = (U.seed.value + 37.31) % 1000;
+      U.bokeh.value = look.bokeh;
     },
     render: () => pipeline.render(),
     dispose: () => pipeline.dispose(),

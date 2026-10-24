@@ -1,7 +1,10 @@
 import { MAP } from '../sim/layers.ts';
 import type { AgentStore } from './agentStore.ts';
 import type { SimClient } from '../sim/client.ts';
-import { CameraRig, pixelToNdc, rayFromPose } from './camera.ts';
+import { CAMERA, CameraRig, pixelToNdc, rayFromPose } from './camera.ts';
+import { CinematicPlayer, pickTourStops, planTour, type Path } from './cinematic.ts';
+import { createPhoto, type PhotoController } from './photo.ts';
+import { tourCandidates } from './tourSites.ts';
 import { blockGestureZoom, createRenderContext, parseBackend, type RenderContext } from './context.ts';
 import type { RenderDebug } from './debug.ts';
 import { surfaceHeight } from './heightfield.ts';
@@ -48,6 +51,10 @@ export interface PerfSnapshot {
 
 export interface Game {
   readonly debug: RenderDebug;
+  /** Photo mode controller for the UI (settings, capture, saving). */
+  readonly photo: PhotoController;
+  /** Start the tour over the tallest buildings and busiest sites, or skip it when one is playing. Returns whether a tour started. */
+  tour(): boolean;
   perf(): PerfSnapshot;
   dispose(): void;
 }
@@ -130,7 +137,51 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     const n = pixelToNdc(px, py, w, h);
     return pickTile(rayFromPose(rig.pose(), world.camera.fov, w / h, n.nx, n.ny), mirror);
   };
-  const input = bindCameraInput({ element: host, rig, groundAt, tool: deps.tools ? createToolInput(deps.tools, pickAt) : undefined });
+  const toolInput = deps.tools ? createToolInput(deps.tools, pickAt) : undefined;
+
+  // Photo mode: the tools stand down (no drags, no ghost), the sim pause and the hidden HUD are the UI's job.
+  const photo = createPhoto({
+    viewSize: () => ({ w: host.clientWidth, h: host.clientHeight }),
+    maxTexture: () => TIER_TABLE[tier].maxTextureSize,
+    currentDayFrac: () => world.fx.dayFrac,
+    baseFov: () => CAMERA.fovDeg,
+    applyLook: (look, fov) => world.setPhotoLook(look, fov),
+    renderAt(width, height, aspect, fovDeg) {
+      ctx.renderer.setPixelRatio(1);
+      ctx.renderer.setSize(width, height, false);
+      world.camera.fov = fovDeg;
+      world.setAspect(aspect);
+      // Twice: temporal AA and AO read last frame's buffers, which are new at this size.
+      world.render();
+      world.render();
+    },
+    restore() {
+      ctx.resize();
+      world.camera.fov = photo.active ? photo.settings.fov : CAMERA.fovDeg;
+      world.setAspect(host.clientWidth / Math.max(1, host.clientHeight));
+      world.render();
+    },
+    encode: () => new Promise((resolve) => { ctx.canvas.toBlob((b) => resolve(b), 'image/png'); }),
+  });
+
+  // Cinematic camera: one path at a time, driven through the rig's script hook; a tap, wheel, or Escape skips it.
+  const cinematic = new CinematicPlayer();
+  const playPath = (path: Path, onEnd?: (completed: boolean) => void): void => {
+    rig.stopFollow(); followKey = null;
+    cinematic.play(path, onEnd);
+    rig.script((dt) => cinematic.step(dt));
+  };
+  const tour = (): boolean => {
+    if (cinematic.active) { cinematic.skip(); return false; }
+    const stops = pickTourStops(tourCandidates(mirror, (x, z) => Math.max(0, surfaceHeight(heights, x, z))), 4, 24);
+    playPath(planTour({ ...rig.state }, stops));
+    return true;
+  };
+
+  const input = bindCameraInput({
+    element: host, rig, groundAt,
+    tool: toolInput ? { ...toolInput, active: () => !photo.active && toolInput.active() } : undefined,
+  });
 
   // Follow-a-robot: chase a random active robot at street level; when it is gone pick another, and stop when none are left.
   let followKey: number | null = null;
@@ -143,6 +194,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   const follow = (on: boolean, kind?: number): boolean => {
     if (!on) { rig.stopFollow(); followKey = null; return false; }
     if (!pickRobot(kind)) return false;
+    cinematic.skip();
     let last: { x: number; z: number; yaw: number } | null = null;
     let lostAt = 0;
     rig.followTarget(() => {
@@ -158,8 +210,20 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   };
   // A tap or click anywhere on the view, or Escape, hands the camera back.
   const stopFollowing = (): void => { if (rig.following) follow(false); };
-  const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') stopFollowing(); };
-  host.addEventListener('pointerdown', stopFollowing, true);
+  const stopCamera = (): void => { stopFollowing(); cinematic.skip(); };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      const wasScripted = cinematic.active;
+      stopCamera();
+      if (!wasScripted && photo.active) photo.exit();
+    } else if (e.key === 'F2' && !e.repeat) {
+      e.preventDefault();
+      if (photo.active) photo.exit(); else photo.enter();
+    }
+  };
+  host.addEventListener('pointerdown', stopCamera, true);
+  const skipCinematic = (): void => cinematic.skip();
+  host.addEventListener('wheel', skipCinematic, true);
   window.addEventListener('keydown', onKey);
 
   const sendViewRect = (now: number): void => {
@@ -201,8 +265,11 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     world.updateUtilities(deps.view, now / 1000, rig.state.dist);
     if (deps.tools && ghost) { deps.tools.sync(); ghost.update(deps.tools); }
 
+    if (ghost) ghost.group.visible = !photo.active;
+    if (photo.active) world.icons.mesh.visible = false;
     world.render();
     const r = ctx.renderer.info.render;
+    if (photo.capturing) { photo.service(); governor.noteWarmup(now); }
     drawCalls = r.drawCalls; triangles = r.triangles;
     frames++;
     frameMs = frameMs ? frameMs * 0.9 + dtMs * 0.1 : dtMs;
@@ -246,6 +313,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       sawTerrain = false;
       governor = createGovernor({ tier, enabled: governorOn && resolved.source !== 'query' });
       ctx.setTier(tier);
+      photo.set({});
       lastRectKey = '';
       recovering = false;
       await start();
@@ -301,6 +369,14 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     get robots() { return world.robots.snapshot; },
     get following() { return rig.following; },
     follow,
+    agentKinds: () => deps.agents.kinds(),
+    photo: {
+      get active() { return photo.active; },
+      enter: () => photo.enter(),
+      exit: () => photo.exit(),
+      capture: () => photo.capture(),
+    },
+    cinematic: { get active() { return cinematic.active; }, tour, skip: () => cinematic.skip() },
     pickTile: pickAt,
     resetCamera(pose) { rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
     loseDevice() {
@@ -314,6 +390,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
 
   return {
     debug,
+    photo,
+    tour,
     perf: () => ({
       backend: ctx.backend, tier, adapter: ctx.adapterLabel, fps, frameMs, drawCalls, triangles,
       fineChunks: world.terrain.stats.fineChunks, coarseSupers: world.terrain.stats.coarseSupers, tick: mirror.tick,
@@ -322,7 +400,9 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     dispose() {
       disposed = true;
       ro.disconnect();
-      host.removeEventListener('pointerdown', stopFollowing, true);
+      host.removeEventListener('pointerdown', stopCamera, true);
+      host.removeEventListener('wheel', skipCinematic, true);
+      photo.exit();
       window.removeEventListener('keydown', onKey);
       input.dispose();
       unblock();

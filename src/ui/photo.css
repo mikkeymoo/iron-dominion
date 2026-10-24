@@ -1,0 +1,13 @@
+.hud[hidden] { display: none; }
+.photo-guide { position: absolute; box-sizing: border-box; border: 1px solid rgba(255, 255, 255, 0.7); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55); pointer-events: none; }
+.photo { position: absolute; left: 0; right: 0; bottom: 0; display: grid; justify-items: center; padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); pointer-events: none; color: #e6edf3; }
+.photo > * { pointer-events: auto; }
+.photo-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; padding: 8px; }
+.photo-bar .tb.shutter { background: #1d4c7c; border-color: #6fb0ff; }
+.photo-panel { width: min(34rem, 100vw); box-sizing: border-box; max-height: 46vh; overflow-y: auto; padding: 10px 14px; background: rgba(11, 17, 22, 0.92); border: 1px solid rgba(230, 237, 243, 0.25); border-radius: 8px 8px 0 0; touch-action: pan-y; }
+.photo-panel .row { display: grid; grid-template-columns: 7.5rem 1fr 3.2rem; align-items: center; gap: 8px; min-height: 40px; font-size: 0.85rem; }
+.photo-panel .row output { text-align: right; font: 0.75rem ui-monospace, monospace; opacity: 0.75; }
+.photo-panel input[type="range"] { width: 100%; min-height: 32px; }
+.photo-panel .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+.photo-panel .hint { margin: 2px 0; font-size: 0.72rem; opacity: 0.6; }
+.photo-status { min-height: 1.2em; font-size: 0.8rem; text-align: center; padding: 0 8px 4px; text-shadow: 0 1px 2px #000; }
