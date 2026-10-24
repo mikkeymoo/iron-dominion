@@ -1,11 +1,13 @@
 // Template: build.mjs substitutes __BUILD_HASH__ and the precache list and writes dist/sw.js. Do not serve this file as is.
 // Scope is the folder sw.js is served from, so the root build and /next/ install independent workers.
-const HASH = "51d6d9370930";
-const PRECACHE = ["./","./app.css","./app.js","./icon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/icon-maskable-512.png","./index.html","./manifest.webmanifest","./sim-worker.js?v=51d6d9370930"];
+const HASH = "2247e9e0a0dc";
+const PRECACHE = ["./","./app.css","./app.js","./icon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/icon-maskable-512.png","./index.html","./manifest.webmanifest","./sim-worker.js?v=2247e9e0a0dc"];
 const SCOPE = new URL(self.registration.scope).pathname;
 const PREFIX = `iron-dominion:${SCOPE}:`;
 const CACHE = PREFIX + HASH;
 const NAV_TIMEOUT_MS = 3500;
+// Folders under this scope that are installed as their own scope (the /next/ preview). Their requests belong to their own worker.
+const NESTED = ['next/'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE.map((u) => new Request(u, { cache: 'reload' })))));
@@ -28,6 +30,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || !url.pathname.startsWith(SCOPE)) return;
+  if (NESTED.some((n) => url.pathname.startsWith(SCOPE + n))) return;
   if (req.mode === 'navigate') {
     // Only this scope's own shell is served from and stored in this cache: a nested scope (/next/) must never overwrite it.
     if (url.pathname !== SCOPE && url.pathname !== SCOPE + 'index.html') return;
@@ -53,11 +56,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   event.respondWith((async () => {
-    // The sim worker must match the app that asks for it: an exact URL hit, or a failure, never another build's worker.
+    // The sim worker must match the app that asks for it: an exact URL hit, or the network, never another build's cached worker.
+    // The app's build-hash handshake catches a real mismatch and repairs it.
     const isWorker = url.pathname === SCOPE + 'sim-worker.js';
     const hit = (await caches.match(req, { cacheName: CACHE })) || (!isWorker && (await caches.match(req, { cacheName: CACHE, ignoreSearch: true })));
     if (hit) return hit;
-    if (isWorker) return Response.error();
+    if (isWorker) return fetch(req, { cache: 'no-store' });
     const res = await fetch(req);
     if (res.ok && res.type === 'basic') await (await caches.open(CACHE)).put(req, res.clone());
     return res;
