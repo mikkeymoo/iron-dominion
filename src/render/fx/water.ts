@@ -112,6 +112,8 @@ export function buildOceanRing(): BufferGeometry {
   const normals = new Float32Array(pos.length);
   for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
   g.setAttribute('normal', new BufferAttribute(normals, 3));
+  // The water material fades alpha with the red channel (wetness); open ocean is fully wet.
+  g.setAttribute('color', new BufferAttribute(new Float32Array(pos.length).fill(1), 3));
   g.setIndex(new BufferAttribute(Uint32Array.from(idx), 1));
   return g;
 }
@@ -259,13 +261,19 @@ export class WaterSystem {
     // Depth and shore distance at an xz position, continuous across the map border into open ocean.
     const waterAt = (xz: N): { depth: N; shore: N; outside: N; open: N } => {
       const uv = clamp(xz.div(MAP), 0.0005, 0.9995);
+      // Four bilinear taps half a texel off the point blend into a tent two tiles wide, so the shore field has no tile-sized
+      // ridges between texel centres: foam and bank fades follow smooth curves below one tile.
+      const o = 0.5 / MAP;
       const s = infoTex.sample(uv);
+      const blurG: N = spec.fx.foam
+        ? infoTex.sample(uv.add(vec2(o, o))).g.add(infoTex.sample(uv.add(vec2(-o, o))).g).add(infoTex.sample(uv.add(vec2(o, -o))).g).add(infoTex.sample(uv.add(vec2(-o, -o))).g).mul(0.25)
+        : s.g;
       const dx = max(xz.x.negate(), xz.x.sub(MAP)).max(0);
       const dz = max(xz.y.negate(), xz.y.sub(MAP)).max(0);
       const outside = max(dx, dz);
       const ramp = smoothstep(0, 28, outside);
       const depth = mix(s.r.mul(WATER_RANGE), float(OCEAN_DEPTH), ramp).max(mix(float(0), float(3), step(0.5, outside)));
-      const shore = mix(max(s.g.mul(WATER_RANGE).sub(0.2), 0), float(WATER_RANGE), ramp);
+      const shore = mix(max(blurG.mul(WATER_RANGE).sub(0.2), 0), float(WATER_RANGE), ramp);
       const open = mix(s.b, float(1), ramp);
       return { depth, shore, outside, open };
     };
@@ -317,6 +325,8 @@ export class WaterSystem {
 
     // Rivers are one or two tiles wide: marked 0.5 in the info texture's blue channel (lakes and sea 1). They get a richer body
     // colour and an alpha that fades out before the tile edge, so a narrow river reads as a soft channel, not pale tile-shaped patches.
+    // Per-corner wetness from the water mesh (1 on the ocean ring): a smooth curve through the shoreline, finer than a tile.
+    const wetMask = smoothstep(0.12, 0.5, vertexColor().r);
     const river = step(open, 0.6);
     const depthMix = float(1).sub(exp(depth.mul(-0.42))).max(river.mul(0.62));
     const shallowC = vec3(0.05, 0.4, 0.62), deepC = vec3(0.01, 0.08, 0.34);
@@ -341,11 +351,11 @@ export class WaterSystem {
     const stripes = sin(shore.mul(9).sub(time.mul(1.3)).add(wobble.mul(5))).mul(0.5).add(0.5);
     const openness = smoothstep(0.4, 0.9, open).mul(0.8).add(0.2);
     const foamShore = edge.mul(mix(float(0.45), float(1), stripes)).mul(openness).mul(float(1).sub(smoothstep(0, 40, outside)));
-    const foam = spec.fx.foam ? clamp(foamShore, 0, 1) : float(0);
+    const foam = spec.fx.foam ? clamp(foamShore.mul(wetMask), 0, 1) : float(0);
 
     let base: N = waterC;
     let emissive: N = reflRGB.mul(fres);
-    const bankFade = mix(smoothstep(0, 0.5, shore.add(0.12)), smoothstep(0.1, 0.31, shore), river);
+    const bankFade = mix(smoothstep(0, 0.5, shore.add(0.12)), float(1), river).mul(wetMask);
     let alpha: N = mix(float(0.62), float(0.97), depthMix).mul(bankFade);
     if (mode === 'refract') {
       const bend = vec2(nW.x, nW.z).mul(0.05).mul(float(1).sub(depthMix.mul(0.6)));
@@ -353,7 +363,7 @@ export class WaterSystem {
       const absorb = exp(depth.mul(vec3(0.5, 0.2, 0.1)).negate());
       emissive = emissive.add(behind.mul(absorb).mul(float(1).sub(fres)).mul(float(1).sub(depthMix.mul(0.8))));
       base = waterC.mul(depthMix);
-      alpha = max(float(0.95).mul(mix(smoothstep(0, 0.4, shore.add(0.12)), smoothstep(0.1, 0.31, shore), river)), foam);
+      alpha = max(float(0.95).mul(mix(smoothstep(0, 0.4, shore.add(0.12)), float(1), river)).mul(wetMask), foam);
     }
     m.colorNode = mix(base, vec3(1, 1, 1), foam.mul(0.9));
     m.emissiveNode = emissive.mul(float(1).sub(foam));

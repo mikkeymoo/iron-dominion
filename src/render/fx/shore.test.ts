@@ -73,6 +73,29 @@ describe('packWaterInfo', () => {
     expect(Array.from(data)).toEqual(Array.from(packWaterInfo(terrain, depth, S)));
   });
 
+  it('keeps the shore field continuous over a lake and a 4-connected river: neighbouring wet texels differ by less than one tile', () => {
+    const S = 96;
+    const lake = (x: number, y: number): boolean => (x - 30) ** 2 + (y - 30) ** 2 < 220;
+    const river = (x: number, y: number): boolean => y >= 60 && y < 63 && x > 8 && x < 90 || (x === 50 || x === 51) && y >= 30 && y < 64;
+    const terrain = grid(S, (x, y) => (lake(x, y) ? TERRAIN.WATER : river(x, y) ? TERRAIN.RIVER : TERRAIN.GRASS));
+    const depth = grid(S, (x, y) => (terrain[y * S + x] === TERRAIN.GRASS ? 0 : 2 * HEIGHT_SCALE));
+    const out = packWaterInfo(terrain, depth, S);
+    const limit = Math.ceil((Math.SQRT2 / WATER_RANGE) * 255) + 1;
+    let pairs = 0, worst = 0;
+    for (let y = 0; y < S - 1; y++) {
+      for (let x = 0; x < S - 1; x++) {
+        const a = (y * S + x) * 4;
+        for (const b of [a + 4, a + S * 4]) {
+          if (!out[a]! || !out[b]!) continue;
+          pairs++;
+          worst = Math.max(worst, Math.abs(out[a + 1]! - out[b + 1]!));
+        }
+      }
+    }
+    expect(pairs).toBeGreaterThan(500);
+    expect(worst).toBeLessThanOrEqual(limit);
+  });
+
   it('reuses a provided buffer', () => {
     const S = 4;
     const buf = new Uint8Array(S * S * 4);

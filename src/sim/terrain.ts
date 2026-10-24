@@ -135,11 +135,68 @@ export function generateTerrain(world: World, seed: number): void {
   };
   while (threshold > 4 && riverCells(threshold) < 12) threshold = Math.floor(threshold / 2);
   const carve = 1.5 * HEIGHT_SCALE;
+  // Channels are 4-connected so the water reads as one ribbon: wherever the flow path steps diagonally, one orthogonal tile
+  // joins the two ends. Width grows with flow accumulation (1, 2 or 3 tiles), then the banks are lowered on a gentle slope.
+  const river = new Uint8Array(TILES);
+  const mark = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= MAP || y >= MAP) return;
+    if (h[y * MAP + x]! > 0) river[y * MAP + x] = 1;
+  };
   for (let i = 0; i < TILES; i++) {
-    if (h[i]! > 0 && parent[i]! >= 0 && flow[i]! >= threshold) {
+    if (h[i]! <= 0 || parent[i]! < 0 || flow[i]! < threshold) continue;
+    const x = i % MAP, y = (i / MAP) | 0;
+    const f = flow[i]!;
+    river[i] = 1;
+    const p = parent[i]!;
+    const sx = (p % MAP) - x, sy = ((p / MAP) | 0) - y;
+    if (sx !== 0 && sy !== 0) {
+      const a = (y * MAP) + x + sx, b = (y + sy) * MAP + x;
+      const wetA = h[a]! <= 0, wetB = h[b]! <= 0;
+      if (!wetA && !wetB) {
+        if (h[a]! <= h[b]!) mark(x + sx, y); else mark(x, y + sy);
+      }
+    }
+    if (f >= threshold * 3) { mark(x + 1, y); mark(x, y + 1); }
+    if (f >= threshold * 8) { mark(x - 1, y); mark(x, y - 1); }
+  }
+  // Two branches (or a river and a coast) can still meet at a corner; join those with the lower of the two orthogonal tiles.
+  const isWetNow = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < MAP && y < MAP && (river[y * MAP + x] === 1 || h[y * MAP + x]! <= 0);
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let y = 0; y < MAP - 1; y++) for (let x = 0; x < MAP - 1; x++) {
+      for (let k = 0; k < 2; k++) {
+        const ax = x + k, ay = y, bx = x + 1 - k, by = y + 1;
+        if (!isWetNow(ax, ay) || !isWetNow(bx, by)) continue;
+        const ix = x + 1 - k, iy = y;
+        const jx = x + k, jy = y + 1;
+        if (isWetNow(ix, iy) || isWetNow(jx, jy)) continue;
+        if (river[ay * MAP + ax] === 0 && river[by * MAP + bx] === 0) continue;
+        const ci = iy * MAP + ix, cj = jy * MAP + jx;
+        if (h[ci]! <= h[cj]!) river[ci] = 1; else river[cj] = 1;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  const lower = new Float32Array(TILES);
+  for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) {
+    if (!river[y * MAP + x]) continue;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= MAP || ny >= MAP) continue;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 1 || dist > 2.5) continue;
+      const k = ny * MAP + nx;
+      lower[k] = Math.max(lower[k]!, 0.36 * Math.max(0, 1 - (dist - 1) / 1.6));
+    }
+  }
+  for (let i = 0; i < TILES; i++) {
+    if (river[i]) {
       h[i] = h[i]! - carve;
       t[i] = TERRAIN.RIVER;
       world.waterDepth[i] = carve;
+    } else if (lower[i]! > 0 && h[i]! > 0) {
+      h[i] = Math.max(1, Math.round(h[i]! - carve * lower[i]!));
     }
   }
   for (let i = 0; i < TILES; i++) if (t[i] === TERRAIN.WATER) world.waterDepth[i] = Math.min(255, -h[i]!);

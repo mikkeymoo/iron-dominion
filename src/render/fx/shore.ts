@@ -1,6 +1,5 @@
 // Distance-to-shore field and the packed water info texture. Pure: typed arrays in, typed arrays out.
 import { HEIGHT_SCALE, TERRAIN } from '../../sim/layers.ts';
-import { BRIDGE_DEPTH_TILES, isBridgeTile } from './bridge.ts';
 
 /** Largest depth/distance the 8-bit texture channels represent, in tiles. */
 export const WATER_RANGE = 12;
@@ -74,22 +73,15 @@ export function packWaterInfoRegion(
       wet[y * w + x] = isWaterTile(terrain[t]!, waterDepth[t]!) ? 1 : 0;
     }
   }
-  // Bridge tiles (see bridge.ts) count as river water, so the shore field and the foam treat a diagonal river as one channel.
-  const open = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < w && y < h && wet[y * w + x] === 1;
-  const bridge = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (isBridgeTile(open, x, y)) bridge[y * w + x] = 1;
-  for (let i = 0; i < bridge.length; i++) if (bridge[i]) wet[i] = 1;
   const shore = shoreFieldRect(wet, w, h);
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const t = y * size + x, o = t * 4;
       if (wet[(y - cy0) * w + (x - cx0)]) {
-        const isBridge = bridge[(y - cy0) * w + (x - cx0)] === 1;
-        const depthTiles = isBridge ? BRIDGE_DEPTH_TILES : waterDepth[t]! / HEIGHT_SCALE;
-        data[o] = Math.min(255, Math.round((depthTiles / WATER_RANGE) * 255));
+        data[o] = Math.min(255, Math.round((waterDepth[t]! / HEIGHT_SCALE / WATER_RANGE) * 255));
         data[o + 1] = Math.min(255, Math.round((shore[(y - cy0) * w + (x - cx0)]! / WATER_RANGE) * 255));
         // B marks how open the water is: narrow rivers (128) get less foam than the sea and lakes (255).
-        data[o + 2] = isBridge || terrain[t] === TERRAIN.RIVER ? 128 : 255;
+        data[o + 2] = terrain[t] === TERRAIN.RIVER ? 128 : 255;
       } else { data[o] = 0; data[o + 1] = 0; data[o + 2] = 0; }
       data[o + 3] = 255;
     }

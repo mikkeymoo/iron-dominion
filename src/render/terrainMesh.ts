@@ -1,5 +1,4 @@
 import { HEIGHT_SCALE, MAP, TERRAIN } from '../sim/layers.ts';
-import { isBridgeTile } from './fx/bridge.ts';
 import { cornerHeight, type HeightLayer } from './heightfield.ts';
 
 // Pure geometry builders over the mirror's full-map layers. No three, no DOM: positions, normals, vertex colours
@@ -51,15 +50,54 @@ const HOLE_SKIRT = 1.5;
 
 const clampTile = (v: number): number => (v < 0 ? 0 : v >= MAP ? MAP - 1 : v);
 
-function cornerColor(l: TerrainLayers, i: number, j: number, slope: number, out: number[]): void {
-  let r = 0, g = 0, b = 0;
+const SAND_COLOR = PALETTE[TERRAIN.SAND]!;
+/** Tiles around a corner scanned for water: covers the farthest beach reach (2.4 tiles) from either side of the corner. */
+const BANK_REACH = 3;
+
+const smooth = (a: number, b: number, v: number): number => {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+const isWetTile = (l: TerrainLayers, t: number): boolean => l.terrain[t] === TERRAIN.WATER || l.terrain[t] === TERRAIN.RIVER || l.waterDepth[t]! > 0;
+
+/**
+ * Sand weight at a corner from its distance to the nearest wet tile (a continuous function of position, so the beach has no
+ * tile staircase), fading out on higher ground. Rivers get a narrower, weaker margin than the sea and lakes.
+ */
+function beachAmount(l: TerrainLayers, i: number, j: number, height: number): number {
+  let sea = Infinity, river = Infinity;
+  for (let ty = j - BANK_REACH; ty < j + BANK_REACH; ty++) {
+    if (ty < 0 || ty >= MAP) continue;
+    const dy = Math.max(0, Math.abs(ty + 0.5 - j) - 0.5);
+    for (let tx = i - BANK_REACH; tx < i + BANK_REACH; tx++) {
+      if (tx < 0 || tx >= MAP) continue;
+      const t = ty * MAP + tx;
+      if (!isWetTile(l, t)) continue;
+      const d = Math.hypot(Math.max(0, Math.abs(tx + 0.5 - i) - 0.5), dy);
+      if (l.terrain[t] === TERRAIN.RIVER) { if (d < river) river = d; } else if (d < sea) sea = d;
+    }
+  }
+  const low = smooth(-1.2, -0.2, height) * (1 - smooth(1.0, 2.0, height));
+  const seaAmt = 1 - smooth(0.3, 2.4, sea);
+  const riverAmt = (1 - smooth(0.1, 1.5, river)) * 0.5;
+  return Math.max(seaAmt * 0.92, riverAmt) * low;
+}
+
+function cornerColor(l: TerrainLayers, i: number, j: number, slope: number, height: number, out: number[]): void {
+  let r = 0, g = 0, b = 0, sandTiles = 0;
   for (let dy = -1; dy <= 0; dy++) {
     for (let dx = -1; dx <= 0; dx++) {
-      const c = PALETTE[l.terrain[clampTile(j + dy) * MAP + clampTile(i + dx)]!] ?? FALLBACK;
+      const type = l.terrain[clampTile(j + dy) * MAP + clampTile(i + dx)]!;
+      // Sand tiles are painted as grass here: the beach comes from the distance field below, so the tile's hard edge does not show.
+      if (type === TERRAIN.SAND) sandTiles++;
+      const c = PALETTE[type === TERRAIN.SAND ? TERRAIN.GRASS : type] ?? FALLBACK;
       r += c[0]; g += c[1]; b += c[2];
     }
   }
   r /= 4; g /= 4; b /= 4;
+  const beach = Math.max(beachAmount(l, i, j, height), sandTiles / 4 * 0.3);
+  r += (SAND_COLOR[0] - r) * beach; g += (SAND_COLOR[1] - g) * beach; b += (SAND_COLOR[2] - b) * beach;
   const rock = Math.min(0.55, Math.max(0, (slope - 0.7) * 0.5));
   r += (ROCK_COLOR[0] - r) * rock; g += (ROCK_COLOR[1] - g) * rock; b += (ROCK_COLOR[2] - b) * rock;
   const shade = 0.93 + hash2(i, j) * 0.14;
@@ -115,7 +153,7 @@ export function buildTerrainMesh(
       const inv = 1 / Math.hypot(gx, 1, gz);
       positions[v * 3] = i; positions[v * 3 + 1] = cornerHeight(l.height, i, j); positions[v * 3 + 2] = j;
       normals[v * 3] = -gx * inv; normals[v * 3 + 1] = inv; normals[v * 3 + 2] = -gz * inv;
-      cornerColor(l, i, j, Math.hypot(gx, gz), col);
+      cornerColor(l, i, j, Math.hypot(gx, gz), cornerHeight(l.height, i, j), col);
       colors[v * 3] = col[0]!; colors[v * 3 + 1] = col[1]!; colors[v * 3 + 2] = col[2]!;
     }
   }
@@ -186,54 +224,58 @@ export function withNeighbours(chunks: Iterable<number>, perSide: number = MAP /
 }
 
 /** Share of a river's carve depth that holds water: below 1, so the carved banks (not a hard tile edge) bound the visible water. */
-const RIVER_FILL = 0.9;
+const RIVER_FILL = 0.45;
 
 /**
- * Water surface quads over wet tiles. Corner levels average the surrounding wet tiles' levels (height + depth), so a
- * river stepping downhill reads as one continuous sheet instead of floating tiles with gaps between them.
+ * Water surface over the corner grid. Each corner takes the mean level of the wet tiles around it and a wetness (the wet
+ * share of those four tiles, 0..1) that goes into the colour attribute's red channel. Quads cover every tile that has a wet
+ * corner, one ring beyond the water, and the fragment stage fades alpha with the interpolated wetness: shorelines and the
+ * two sides of a river become soft curves instead of tile-shaped squares, and a channel that steps diagonally stays one ribbon.
  */
 export function buildWaterMesh(l: TerrainLayers, x0: number, y0: number, size: number): MeshData {
-  const level = (x: number, y: number, full: boolean): number => {
+  const level = (x: number, y: number): number => {
     const t = clampTile(y) * MAP + clampTile(x);
     if (l.waterDepth[t]! <= 0) return NaN;
-    // A river is carved a tile and a half below its banks; its surface sits partway down the channel so the banks, not a hard
-    // tile edge, bound the visible water. A bridge tile (dry bank between two diagonal river tiles) takes the full level, flush
-    // with the bank, so it shows.
-    const fill = l.terrain[t] === TERRAIN.RIVER && !full ? RIVER_FILL : 1;
+    const fill = l.terrain[t] === TERRAIN.RIVER ? RIVER_FILL : 1;
     return (l.height[t]! + l.waterDepth[t]! * fill) / HEIGHT_SCALE;
   };
-  const corner = (i: number, j: number, full = false, fallback = NaN): number => {
-    let sum = 0, n = 0;
-    for (let dy = -1; dy <= 0; dy++) {
-      for (let dx = -1; dx <= 0; dx++) {
-        const v = level(i + dx, j + dy, full);
-        if (v === v) { sum += v; n++; }
+  const w = size + 1;
+  const wetness = new Float32Array(w * w);
+  const surface = new Float32Array(w * w);
+  for (let b = 0; b < w; b++) {
+    for (let a = 0; a < w; a++) {
+      const i = x0 + a, j = y0 + b;
+      let sum = 0, n = 0;
+      for (let dy = -1; dy <= 0; dy++) for (let dx = -1; dx <= 0; dx++) { const v = level(i + dx, j + dy); if (!Number.isNaN(v)) { sum += v; n++; } }
+      wetness[b * w + a] = n / 4;
+      if (n === 0) {
+        // A dry corner of an outer-ring quad: borrow the level of the wet tiles within two tiles.
+        for (let dy = -2; dy <= 1; dy++) for (let dx = -2; dx <= 1; dx++) { const v = level(i + dx, j + dy); if (!Number.isNaN(v)) { sum += v; n++; } }
       }
-    }
-    return n > 0 ? sum / n : fallback;
-  };
-  const wetAt = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < MAP && y < MAP && l.waterDepth[y * MAP + x]! > 0;
-  const pos: number[] = [];
-  const idx: number[] = [];
-  for (let y = y0; y < y0 + size; y++) {
-    for (let x = x0; x < x0 + size; x++) {
-      // Dry tiles that join two diagonal wet tiles are drawn as water too, so a diagonal river is one ribbon, not diamonds.
-      const bridge = l.waterDepth[y * MAP + x]! <= 0;
-      if (bridge && !isBridgeTile(wetAt, x, y)) continue;
-      const v = pos.length / 3;
-      // A bridge corner may touch no wet tile at all; it then takes the mean level of the tile's wet neighbours.
-      let fb = NaN;
-      if (bridge) {
-        let s = 0, c = 0;
-        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) { const lv = level(x + dx, y + dy, true); if (lv === lv) { s += lv; c++; } }
-        fb = s / c;
-      }
-      pos.push(x, corner(x, y, bridge, fb), y, x + 1, corner(x + 1, y, bridge, fb), y, x, corner(x, y + 1, bridge, fb), y + 1, x + 1, corner(x + 1, y + 1, bridge, fb), y + 1);
-      idx.push(v, v + 2, v + 3, v, v + 3, v + 1);
+      surface[b * w + a] = n > 0 ? sum / n : 0;
     }
   }
-  const positions = Float32Array.from(pos);
-  const normals = new Float32Array(positions.length);
-  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
-  return finish(positions, normals, idx);
+  const remap = new Int32Array(w * w).fill(-1);
+  const idx: number[] = [];
+  let used = 0;
+  const take = (v: number): number => { if (remap[v]! < 0) remap[v] = used++; return remap[v]!; };
+  for (let b = 0; b < size; b++) {
+    for (let a = 0; a < size; a++) {
+      const va = b * w + a, vb = va + 1, vc = va + w, vd = vc + 1;
+      if (wetness[va]! + wetness[vb]! + wetness[vc]! + wetness[vd]! <= 0) continue;
+      const ia = take(va), ib = take(vb), ic = take(vc), id = take(vd);
+      idx.push(ia, ic, id, ia, id, ib);
+    }
+  }
+  const positions = new Float32Array(used * 3);
+  const normals = new Float32Array(used * 3);
+  const colors = new Float32Array(used * 3);
+  for (let v = 0; v < w * w; v++) {
+    const o = remap[v]!;
+    if (o < 0) continue;
+    positions[o * 3] = x0 + (v % w); positions[o * 3 + 1] = surface[v]!; positions[o * 3 + 2] = y0 + Math.floor(v / w);
+    normals[o * 3 + 1] = 1;
+    colors[o * 3] = wetness[v]!; colors[o * 3 + 1] = wetness[v]!; colors[o * 3 + 2] = wetness[v]!;
+  }
+  return { ...finish(positions, normals, idx), colors };
 }
