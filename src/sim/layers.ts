@@ -203,6 +203,12 @@ export const SPEC = {
   // (DT in sim/districtTables.ts). A district exists while it owns at least one tile. Layers of their own so an older save loads as "no districts".
   district: L(Uint8Array, TILES, true, 'geometry'),
   districtTab: L(Uint8Array, DMAX * DSTRIDE, false, 'none'),
+
+  // Named bots and depot paint (sim/robots/names.ts, livery.ts). aJobs counts the jobs a robot has finished (a builder's build, level-up or
+  // teardown, a hauler's delivery); at NAMED_JOBS it earns a name. bLivery is a depot's paint scheme, which its robots wear. Layers of
+  // their own so a save from before them still loads: a missing layer reads as zeros, which is "no jobs" and the default paint.
+  aJobs: L(Uint16Array, RMAX, false, 'none'),
+  bLivery: L(Uint8Array, BMAX, false, 'none'),
 } as const;
 
 export type LayerName = keyof typeof SPEC;

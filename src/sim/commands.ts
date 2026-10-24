@@ -4,6 +4,7 @@ import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
 import { grantRp, invalidateModuleCache, mods, researchNode, setModule, toggleEdictCard } from './firmware.ts';
 import { debugScenario, finishScenario } from './scenarioRun.ts';
 import { clearJob } from './robots/pool.ts';
+import { setLivery } from './robots/livery.ts';
 import { isChainArch, used } from './robots/stock.ts';
 import { DMODE, LEAD_MIN, planHazard, rebuildAll, setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { debugPost, holdFestival, respond } from './council/index.ts';
@@ -54,6 +55,8 @@ export type CommandBody =
   | { type: 'toggleEdict'; edict: number }
   /** Fit module `module` (MODULE, 0 clears) into slot `index` (0 or 1) of the depot in building slot `slot`. Pays its price, refunds half the one it replaces. */
   | { type: 'setDepotModule'; slot: number; index: number; module: number }
+  /** Paint the depot in building slot `slot` in scheme `livery` (LIVERIES, 0..5); its builders and hauler drones wear it. Free. */
+  | { type: 'setDepotLivery'; slot: number; livery: number }
   /** Debug-only: add research points. */
   | { type: 'debugRp'; amount: number }
   /** Order every ruin rebuilt at a 25% discount, paid now; the robots clear each ruin and raise the building again (sim/disasters/rebuild.ts). */
@@ -239,6 +242,7 @@ export function clearBuilding(sim: Sim, slot: number): void {
   w.bAlloy[slot] = 0; w.bParts[slot] = 0; w.bIn[slot * 3] = 0; w.bIn[slot * 3 + 1] = 0; w.bIn[slot * 3 + 2] = 0;
   w.bStock[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0; w.bDmg[slot] = 0; w.bHeat[slot] = 0;
   if (w.bMod[slot] !== 0) { w.bMod[slot] = 0; invalidateModuleCache(w); }
+  w.bLivery[slot] = 0;
   clearJob(w, slot);
   w.bGen[slot] = (w.bGen[slot]! + 1) & 0xffff;
   for (let u = 0; u < UMAX; u++) if (w.uKind[u] === UNDO.BUILDING && w.uArg[u] === slot) { w.uKind[u] = UNDO.NONE; w.uCmd[u] = 0; }
@@ -517,6 +521,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'undo': undo(sim, cmd); break;
       case 'claimDirective': claimDirective(sim, cmd); break;
       case 'research': case 'toggleEdict': case 'setDepotModule': case 'debugRp': firmwareCommand(sim, cmd); break;
+      case 'setDepotLivery': { const why = setLivery(sim.world, cmd.slot, cmd.livery); if (why) reject(why); break; }
       case 'rebuildAll': { const why = rebuildAll(sim); if (why) reject(why); break; }
       case 'debugSeason': debugSeason(sim, cmd); break;
       case 'debugHazard': debugHazard(sim, cmd); break;

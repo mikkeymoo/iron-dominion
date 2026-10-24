@@ -43,13 +43,13 @@ export function spawnAgent(w: World, kind: number, homeRef: number, x: number, y
   w.aKind[a] = kind; w.aState[a] = AST.IDLE; w.aHome[a] = homeRef;
   w.aX[a] = x; w.aY[a] = y; w.aHead[a] = 0;
   w.aTarget[a] = 0; w.aGoal[a] = 0; w.aPlan[a] = 0; w.aStep[a] = 0; w.aFrac[a] = 0; w.aEpoch[a] = 0;
-  w.aCarry[a] = 0; w.aSrc[a] = 0; w.aWait[a] = 0; w.aTry[a] = 0; w.aRes[a] = 0;
+  w.aCarry[a] = 0; w.aSrc[a] = 0; w.aWait[a] = 0; w.aTry[a] = 0; w.aRes[a] = 0; w.aJobs[a] = 0;
   return a;
 }
 
 export function despawnAgent(w: World, a: number): void {
   w.aKind[a] = 0; w.aState[a] = 0; w.aHome[a] = 0; w.aTarget[a] = 0; w.aGoal[a] = 0; w.aPlan[a] = 0; w.aStep[a] = 0;
-  w.aFrac[a] = 0; w.aEpoch[a] = 0; w.aCarry[a] = 0; w.aSrc[a] = 0; w.aWait[a] = 0; w.aTry[a] = 0; w.aRes[a] = 0;
+  w.aFrac[a] = 0; w.aEpoch[a] = 0; w.aCarry[a] = 0; w.aSrc[a] = 0; w.aWait[a] = 0; w.aTry[a] = 0; w.aRes[a] = 0; w.aJobs[a] = 0;
   w.aX[a] = 0; w.aY[a] = 0; w.aHead[a] = 0;
   w.aGen[a] = (w.aGen[a]! + 1) & 0xffff;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Speed } from '../sim/protocol.ts';
-import { createLifecycle, type LifecycleDeps, type WriteOutcome, type WriteWhy } from './lifecycle.ts';
+import { AWAY_MS, SAFE_STOP_MIN_MS, createLifecycle, type LifecycleDeps, type WriteOutcome, type WriteWhy } from './lifecycle.ts';
 
 function harness(opt: { writeResult?: () => WriteOutcome } = {}) {
   let clock = 0;
@@ -180,5 +180,94 @@ describe('storage failure', () => {
   it('saveNow returns the failure to the caller', async () => {
     const h = harness({ writeResult: () => ({ ok: false, reason: 'quota' }) });
     expect(await h.lc.saveNow()).toEqual({ ok: false, reason: 'quota' });
+  });
+});
+
+describe('returning after a long absence', () => {
+  it('flags a return after 2 minutes or more hidden, with how long, and counts each one', () => {
+    const h = harness();
+    expect(h.lc.state.returned).toBeNull();
+    h.lc.hide();
+    h.jump(AWAY_MS);
+    h.lc.show();
+    expect(h.lc.state.returned).toEqual({ ms: AWAY_MS, n: 1 });
+    h.lc.resume();
+    h.lc.hide();
+    h.jump(300_000);
+    h.lc.show();
+    expect(h.lc.state.returned).toEqual({ ms: 300_000, n: 2 });
+  });
+
+  it('does not flag a short absence, and a short one after a long one leaves the earlier flag alone', () => {
+    const h = harness();
+    h.lc.hide();
+    h.jump(AWAY_MS - 1);
+    h.lc.show();
+    expect(h.lc.state.returned).toBeNull();
+    h.lc.hide();
+    h.jump(AWAY_MS + 5);
+    h.lc.show();
+    const first = h.lc.state.returned;
+    h.lc.hide();
+    h.jump(1000);
+    h.lc.show();
+    expect(h.lc.state.returned).toEqual(first);
+  });
+
+  it('tells subscribers when the page comes back', () => {
+    const h = harness();
+    const seen: (number | undefined)[] = [];
+    h.lc.subscribe((s) => seen.push(s.returned?.n));
+    h.lc.hide();
+    h.jump(AWAY_MS);
+    h.lc.show();
+    expect(seen.at(-1)).toBe(1);
+  });
+});
+
+describe('safe stopping point', () => {
+  it('autosaves when there is a slot and enough unsaved play', async () => {
+    const h = harness();
+    h.advance(SAFE_STOP_MIN_MS);
+    expect(h.lc.safeStop()).toBe(true);
+    await h.flush();
+    expect(h.writes.map((w) => w.why)).toEqual(['autosave']);
+    expect(h.lc.state.activeMs).toBe(0);
+  });
+
+  it('skips when little has happened since the last save, so a string of finished directives does not save over and over', async () => {
+    const h = harness();
+    h.advance(SAFE_STOP_MIN_MS - 1000);
+    expect(h.lc.safeStop()).toBe(false);
+    h.advance(1000);
+    expect(h.lc.safeStop()).toBe(true);
+    expect(h.lc.safeStop()).toBe(false);
+    await h.flush();
+    expect(h.writes).toHaveLength(1);
+  });
+
+  it('skips for an unsaved city, a paused game, a hidden page and a save already running', async () => {
+    const unsaved = harness();
+    unsaved.setSlot(false);
+    unsaved.advance(SAFE_STOP_MIN_MS);
+    expect(unsaved.lc.safeStop()).toBe(false);
+
+    const paused = harness();
+    paused.advance(SAFE_STOP_MIN_MS);
+    paused.lc.setSpeed(0);
+    expect(paused.lc.safeStop()).toBe(false);
+
+    const hidden = harness();
+    hidden.advance(SAFE_STOP_MIN_MS);
+    hidden.lc.hide();
+    await hidden.flush();
+    const before = hidden.writes.length;
+    expect(hidden.lc.safeStop()).toBe(false);
+    expect(hidden.writes).toHaveLength(before);
+
+    const busy = harness();
+    busy.advance(SAFE_STOP_MIN_MS);
+    void busy.lc.saveNow('manual');
+    expect(busy.lc.safeStop()).toBe(false);
   });
 });

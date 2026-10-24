@@ -6,6 +6,8 @@ import type { ChunkPatch, EventsMsg, FromWorker, OverlayPatch, ResyncMsg, Typed 
 import { DEFAULT_TAX } from './economy/tables.ts';
 import { RoadNet } from './roads/graph.ts';
 import { AKIND } from './robots/constants.ts';
+import { NAMED_JOBS, canBeNamed, hatVariant, packLook } from './robots/names.ts';
+import { homeSlot } from './robots/pool.ts';
 import { roadsSystem } from './roads/index.ts';
 import { seedRng } from './rng.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
@@ -133,6 +135,13 @@ export function collectOutgoing(sim: Sim, opt: CollectOptions = {}): FromWorker[
   return out;
 }
 
+/** Paint scheme of a builder's or hauler's home depot and, from NAMED_JOBS jobs on, its hat, packed for the Agents message. 0 for everything else. */
+function lookOf(w: World, s: number): number {
+  if (!canBeNamed(w, s)) return 0;
+  const home = homeSlot(w, s);
+  return packLook(home >= 0 ? w.bLivery[home]! : 0, w.aJobs[s]! >= NAMED_JOBS ? hatVariant(s, w.aGen[s]!) : 0);
+}
+
 /** Fill caller-owned buffers with live agents in slot order; returns the count. */
 export function packAgents(sim: Sim, pos: Float32Array, ids: Uint32Array, view?: { x0: number; y0: number; x1: number; y1: number }): number {
   const w = sim.world;
@@ -145,7 +154,7 @@ export function packAgents(sim: Sim, pos: Float32Array, ids: Uint32Array, view?:
     if (view && (x < view.x0 || x > view.x1 || y < view.y0 || y > view.y1)) continue;
     pos[n * 3] = x; pos[n * 3 + 1] = y; pos[n * 3 + 2] = w.aHead[s]!;
     ids[n * 2] = (s | (w.aGen[s]! << 16)) >>> 0;
-    ids[n * 2 + 1] = w.aKind[s]! | (w.aState[s]! << 8) | (w.aCarry[s]! > 0 && w.aState[s] === 5 ? (1 + (w.aRes[s]! & 3)) << 16 : 0);
+    ids[n * 2 + 1] = (w.aKind[s]! | (w.aState[s]! << 8) | (w.aCarry[s]! > 0 && w.aState[s] === 5 ? (1 + (w.aRes[s]! & 3)) << 16 : 0) | lookOf(w, s)) >>> 0;
     n++;
   }
   return n;

@@ -62,7 +62,10 @@ export interface AgentsMsg {
   count: number;
   /** x, y, heading per agent. */
   pos: Float32Array;
-  /** Per agent two words: slot | generation << 16, and kind | state << 8 | carrying << 16 (AKIND and AST in sim/robots/constants.ts, VKIND and VST in sim/traffic/constants.ts). */
+  /**
+   * Per agent two words: slot | generation << 16, and kind | state << 8 | carrying << 16 (AKIND and AST in sim/robots/constants.ts, VKIND and VST in sim/traffic/constants.ts),
+   * plus for builders and hauler drones the home depot's paint scheme in bits 20-22 and the hat of a named bot in bits 24-25 (sim/robots/names.ts packLook).
+   */
   ids: Uint32Array;
 }
 export interface AgentsReturn { type: 'agentsReturn'; pos: Float32Array; ids: Uint32Array }
@@ -354,6 +357,8 @@ export interface Stats {
   /** The named districts, by id. */
   districts: DistrictStat[];
   scenario: ScenarioStats | null;
+  /** Bots that earned a name, busiest first (at most 30). */
+  bots: NamedBot[];
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }
@@ -399,7 +404,7 @@ export interface BuildingInfo {
   /** Mines, Smelters, Factories: what they need to run now. Grown buildings below level 3: what they need to level up. */
   needs?: NeedItem[];
   /** Depots only: the road distance robots work from it, and who lives there. */
-  depot?: { radius: number; builders: number; haulers: number; stock: number; /** Robots the depot keeps (base, firmware and modules), and its two module codes (sim/firmware.ts MODULE). */ builderCap: number; haulerCap: number; droneCap: number; modules: [number, number] };
+  depot?: { radius: number; builders: number; haulers: number; stock: number; /** Robots the depot keeps (base, firmware and modules), and its two module codes (sim/firmware.ts MODULE). */ builderCap: number; haulerCap: number; droneCap: number; modules: [number, number]; /** Paint scheme its robots wear (sim/robots/livery.ts LIVERIES). */ livery: number };
 }
 export interface AgentInfo {
   kind: 'agent';
@@ -418,7 +423,13 @@ export interface AgentInfo {
   etaSec?: number;
   /** Set while it cannot move ('road blocked', 'no road'). */
   waiting?: string;
+  /** Builders and hauler drones: jobs finished so far, and whether that has earned the name shown in `name` (robots/names.ts). `role` is then the plain role. */
+  jobs?: number;
+  named?: boolean;
+  role?: string;
 }
+/** A bot that has earned its name: agent key (slot | generation << 16), AKIND, the name and the jobs it has finished. */
+export interface NamedBot { key: number; akind: number; name: string; jobs: number }
 export interface InfoMsg { type: 'info'; id: number; ok: boolean; reason?: string; info?: BuildingInfo | AgentInfo }
 
 export interface ViewRect { type: 'viewRect'; x0: number; y0: number; x1: number; y1: number }

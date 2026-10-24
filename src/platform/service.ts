@@ -2,6 +2,7 @@ import type { Outcome, PlatformDb, SlotMeta } from './db.ts';
 import { fail, ok } from './db.ts';
 import type { WriteOutcome } from './lifecycle.ts';
 import { PROTOCOL_VERSION } from '../sim/protocol.ts';
+import type { JournalData } from './journal.ts';
 import { browserCodec, buildSave, downloadSave, inspectSnapshot, parseSave, saveProtocol, type Codec, type SaveMeta } from './save.ts';
 
 export interface SimLink {
@@ -19,6 +20,8 @@ export interface ServiceDeps {
   newId?(): string;
   codec?: Codec;
   thumbnail?(): string | undefined;
+  /** The event journal to store in the save's header (platform/journal.ts); absent stores none. */
+  journal?(): JournalData | undefined;
 }
 
 export interface CurrentSlot { id: string; name: string; created: number }
@@ -41,7 +44,7 @@ export interface PlatformService {
    */
   writeSnapshot(snapshot: Uint8Array, opt?: WriteOptions): Promise<WriteOutcome>;
   /** Validates the slot fully, then hands it to the sim. The running city is untouched on any failure. */
-  load(slotId: string): Promise<Outcome<{ slot: SlotMeta; snapshot: Uint8Array }>>;
+  load(slotId: string): Promise<Outcome<{ slot: SlotMeta; snapshot: Uint8Array; /** The journal the save carried, if it had one. */ journal?: JournalData }>>;
   exportCurrent(): Promise<Outcome<true>>;
   /** Validates the bytes, then stores them as a new slot. Never overwrites an existing slot. */
   importBytes(bytes: Uint8Array): Promise<Outcome<SlotMeta>>;
@@ -53,6 +56,8 @@ const randomId = (): string => `s${Date.now().toString(36)}${Math.random().toStr
 const unavailable = (): Outcome<never> => fail('unavailable', 'saving is not available in this browser');
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const cleanName = (n: string): string => n.trim().slice(0, 40) || 'Untitled city';
+/** The slot list row keeps the headline numbers only; the journal stays in the save's own header. */
+const slotMetaOf = (meta: SaveMeta): Omit<SaveMeta, 'journal'> => { const { journal: _journal, ...rest } = meta; return rest; };
 
 export function createPlatformService(deps: ServiceDeps): PlatformService {
   const now = deps.now ?? Date.now;
@@ -98,8 +103,10 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
         const meta: SaveMeta = { name: slot.name, population: info.population, treasury: info.treasury, day: info.day, protocol: PROTOCOL_VERSION };
         const thumb = deps.thumbnail?.();
         if (thumb) meta.thumbnail = thumb;
+        const journal = deps.journal?.();
+        if (journal) meta.journal = journal;
         const bytes = await buildSave(snapshot, meta, slot.created, codec);
-        const r = await d.putSlot({ id: slot.id, created: slot.created, updated: now(), byteSize: bytes.byteLength, ...meta }, bytes);
+        const r = await d.putSlot({ id: slot.id, created: slot.created, updated: now(), byteSize: bytes.byteLength, ...slotMetaOf(meta) }, bytes);
         if (!r.ok) return { ok: false, reason: r.reason, message: r.message };
         current = slot;
         svc.lastSaveHash = info.hash;
@@ -124,7 +131,7 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
       deps.sim.loadSnapshot(parsed.value.snapshot.slice());
       deps.sim.requestHash();
       current = { id: meta.value.id, name: meta.value.name, created: meta.value.created };
-      return ok({ slot: meta.value, snapshot: parsed.value.snapshot });
+      return ok({ slot: meta.value, snapshot: parsed.value.snapshot, journal: parsed.value.meta.journal });
     },
     async exportCurrent() {
       try {
@@ -132,6 +139,8 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
         const info = inspectSnapshot(snapshot);
         const name = current?.name ?? 'city';
         const meta: SaveMeta = { name, population: info.population, treasury: info.treasury, day: info.day, protocol: PROTOCOL_VERSION };
+        const journal = deps.journal?.();
+        if (journal) meta.journal = journal;
         downloadSave(await buildSave(snapshot, meta, current?.created ?? now(), codec), name);
         return ok(true as const);
       } catch (e) {
@@ -144,7 +153,7 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
       const parsed = await parseSave(bytes, codec);
       if (!parsed.ok) return fail('corrupt', parsed.reason);
       const t = now();
-      return d.putSlot({ id: newId(), created: t, updated: t, byteSize: bytes.byteLength, ...parsed.value.meta }, bytes.slice());
+      return d.putSlot({ id: newId(), created: t, updated: t, byteSize: bytes.byteLength, ...slotMetaOf(parsed.value.meta) }, bytes.slice());
     },
   };
   return svc;

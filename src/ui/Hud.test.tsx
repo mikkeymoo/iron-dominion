@@ -16,7 +16,7 @@ const stats: HudStats = {
 };
 
 function fakeLifecycle(speed: Speed = 1) {
-  const state: LifecycleState = { speed, visible: true, awaitingResume: false, activeMs: 0, saving: false, lastSavedAt: null, lastError: null };
+  const state: LifecycleState = { speed, visible: true, awaitingResume: false, activeMs: 0, saving: false, lastSavedAt: null, lastError: null, returned: null };
   const setSpeed = vi.fn((s: Speed) => { state.speed = s; });
   const lc = { state, setSpeed, subscribe: () => () => {}, resume: vi.fn(), tick: vi.fn(), hide: vi.fn(), show: vi.fn(), cacheSnapshot: vi.fn(), holdForResume: vi.fn(), saveNow: vi.fn() } as unknown as Lifecycle;
   return { lc, setSpeed };

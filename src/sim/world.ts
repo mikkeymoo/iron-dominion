@@ -55,7 +55,11 @@ export type SimEvent =
   /** A festival began (with the show's length in ticks) or its show ended. (x, y) is the middle of the shops. */
   | { type: 'festival'; tick: number; phase: 'start' | 'end'; festival: number; x: number; y: number; ticks: number }
   /** Approval has stayed under 15 for 3 months running. A warning only: nothing ends the game. */
-  | { type: 'approvalWarning'; tick: number; approval: number; months: number };
+  | { type: 'approvalWarning'; tick: number; approval: number; months: number }
+  /** A building of archetype `arch` was finished at (x, y) (a new build, not a level-up or a megaproject stage). Feeds the while-you-were-away journal. */
+  | { type: 'buildingDone'; tick: number; arch: number; x: number; y: number }
+  /** A robot finished its NAMED_JOBS-th job and earned `name` (robots/names.ts); `slot` and `gen` give its agent key. */
+  | { type: 'botNamed'; tick: number; slot: number; gen: number; kind: number; name: string };
 
 export interface DirtySets {
   geometry: Set<number>;

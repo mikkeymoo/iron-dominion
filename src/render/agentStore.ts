@@ -1,4 +1,5 @@
 import type { AgentsMsg } from '../sim/protocol.ts';
+import { hatOfMeta, liveryOfMeta } from '../sim/robots/names.ts';
 
 // Main-thread copy of the sim's moving agents (robots and vehicles). The worker sends the agents in view whenever the sim ticks;
 // positions only change when it does, so the store keeps the last two tick snapshots and interpolates between them. Agents are
@@ -24,6 +25,10 @@ export interface AgentSample {
   kind: Uint8Array;
   state: Uint8Array;
   carry: Uint8Array;
+  /** Paint scheme of the home depot (0..5). */
+  livery: Uint8Array;
+  /** Hat of a named bot (1..3), 0 for a bot that has not earned a name. */
+  hat: Uint8Array;
 }
 
 const MIN_TICK_MS = 16;
@@ -144,7 +149,9 @@ export class AgentStore {
       out.key[j] = key;
       out.kind[j] = meta & 0xff;
       out.state[j] = (meta >> 8) & 0xff;
-      out.carry[j] = (meta >> 16) & 0xff;
+      out.carry[j] = (meta >> 16) & 0xf;
+      out.livery[j] = liveryOfMeta(meta);
+      out.hat[j] = hatOfMeta(meta);
     }
     out.count = m;
     return out;
@@ -203,5 +210,8 @@ export class AgentStore {
 }
 
 export function makeSample(capacity: number): AgentSample {
-  return { count: 0, pos: new Float32Array(capacity * 3), key: new Uint32Array(capacity), kind: new Uint8Array(capacity), state: new Uint8Array(capacity), carry: new Uint8Array(capacity) };
+  return {
+    count: 0, pos: new Float32Array(capacity * 3), key: new Uint32Array(capacity), kind: new Uint8Array(capacity), state: new Uint8Array(capacity), carry: new Uint8Array(capacity),
+    livery: new Uint8Array(capacity), hat: new Uint8Array(capacity),
+  };
 }

@@ -10,6 +10,7 @@ import {
   DISPATCH_MAX, REASSIGN_PERIOD, RES, RES_COUNT, SITE_WALK, SMELTER_TARGET, SPAWN_RESERVE, TRANSFER_BIT, rateFor,
 } from './constants.ts';
 import { bufferCap } from './chain.ts';
+import { creditJob } from './names.ts';
 import { dropPath, startTrip, stepAgent } from './move.ts';
 import { SPEND, available, despawnAgent, homeSlot, jobSlot, liveSlot, nearestTileOf, refOf, spawnAgent } from './pool.ts';
 import { finishedStore, isChainArch, producedBy, stockLayer, used } from './stock.ts';
@@ -199,7 +200,11 @@ export function updateAgent(sim: Sim, net: RoadNet, a: number): void {
       const res = w.aRes[a]! & 3;
       if ((w.aRes[a]! & TRANSFER_BIT) !== 0) {
         const t = liveSlot(w, w.aTarget[a]!);
-        if (t >= 0) w.aCarry[a] = w.aCarry[a]! - deposit(w, t, res, w.aCarry[a]!);
+        if (t >= 0) {
+          const took = deposit(w, t, res, w.aCarry[a]!);
+          w.aCarry[a] = w.aCarry[a]! - took;
+          if (took > 0) creditJob(sim, a);
+        }
       } else {
         const j = jobSlot(w, a);
         if (j >= 0 && (w.jKind[j] === JOB.BUILD || w.jKind[j] === JOB.LEVEL) && w.jRes[j] === res) {
@@ -208,6 +213,7 @@ export function updateAgent(sim: Sim, net: RoadNet, a: number): void {
           w.jInbound[j] = Math.max(0, w.jInbound[j]! - c);
           w.aCarry[a] = 0;
           used(w, res, c);
+          if (c > 0) creditJob(sim, a);
         }
       }
       goHome(net, w, a);

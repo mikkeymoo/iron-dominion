@@ -15,6 +15,7 @@ import { scenarioStats } from './scenarioRun.ts';
 import { specFor } from './scenarios.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
+import { hallOfBots } from './robots/names.ts';
 import { serviceStats } from './services/index.ts';
 import { trafficStats } from './traffic/index.ts';
 import { utilStats } from './utilities/index.ts';
@@ -129,6 +130,7 @@ function flush(now: number, force = false): void {
       council: councilStats(sim.world),
       districts: districtStats(sim.world),
       scenario: scenarioStats(sim.world),
+      bots: hallOfBots(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);

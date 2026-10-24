@@ -15,7 +15,7 @@ import { keyLabel, kindOfId, nextScenario, scenarioById, specFor, type ScenarioC
 import { scoreId } from './scenarioText.ts';
 import { GameView } from './GameView';
 import { NO_WORKFORCE, failText, type HudStats } from './Hud';
-import { openSession, saveSession, type Session } from './session.ts';
+import { noteResumed, openSession, saveSession, type Session } from './session.ts';
 import { Title } from './Title';
 import './app.css';
 
@@ -79,6 +79,7 @@ export function App() {
     if (dbg) {
       dbg.sim = { tick: 0 };
       dbg.tools = s.tools.debug;
+      dbg.openCard = (slot) => { const t = s.mirror.table; s.why.tap({ kind: 'building', slot, x: t.bX[slot]!, y: t.bY[slot]! }); };
       graphEpoch.current = 0;
       delete dbg.economy;
       samplesRef.current = null;
@@ -110,7 +111,7 @@ export function App() {
     setWorker('loading');
     setHud(ZERO);
     const s = openSession({
-      seed, haltAt, scenario, getDb: () => db.current,
+      seed, haltAt, scenario, getDb: () => db.current, pauseOnCrises: () => settingsRef.current.pauseOnCrises,
       disasters: haltAt !== undefined ? haltDisasterMode(query().get('disasters')) : disasterModeOf(settingsRef.current.disasters),
       debug: query().get('debug') === '1' || query().get('showcase') === '1',
       onState: (st) => { if (current.current === s || current.current === null) setWorker(st); },
@@ -133,7 +134,7 @@ export function App() {
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
           rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths, workforce: st.workforce, traffic: st.traffic,
-          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled, services: st.services, milestone: st.milestone, directives: st.directives, firmware: st.firmware, hazards: st.hazards, council: st.council, scenario: st.scenario,
+          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled, services: st.services, milestone: st.milestone, directives: st.directives, firmware: st.firmware, hazards: st.hazards, council: st.council, scenario: st.scenario, bots: st.bots,
           districts: st.districts,
         });
       },
@@ -147,6 +148,7 @@ export function App() {
       s.tools.reset();
       s.lifecycle.cacheSnapshot(r.value.snapshot);
       s.lifecycle.holdForResume();
+      noteResumed(s, r.value.journal);
       // The save carries the mode it was made with; the player's setting wins.
       s.client.command({ type: 'setDisasters', mode: disasterModeOf(settingsRef.current.disasters) });
     }
@@ -328,7 +330,7 @@ export function App() {
       <GameView
         key={sessionN}
         scenario={{ result, nextName: next?.name, onRetry, onNext: onNextScenario, onBack: () => { void leave(); } }}
-        client={live.client} mirror={live.mirror} agents={live.agents} tools={live.tools} why={live.why} view={live.view} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
+        client={live.client} mirror={live.mirror} agents={live.agents} tools={live.tools} why={live.why} view={live.view} lifecycle={live.lifecycle} away={live.away} pacing={live.pacing} stats={hud} settings={settings} notice={notice}
         tick={hud.tick} worker={worker} onExit={onQuit}
         quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
       />
