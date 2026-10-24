@@ -49,8 +49,19 @@ export interface SimClient {
   terminate(): void;
 }
 
-/** Wraps a Worker (or any object with its shape): handshake, error plumbing, typed API. No DOM beyond Worker/console. */
-export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimClient {
+/** Makes the Worker. Attempt 0 is the first try; attempt 1 is the single retry after a load failure, which should use a cache-busting URL. */
+export type WorkerFactory = (attempt: number) => Worker;
+
+/**
+ * Wraps a Worker (or any object with its shape): handshake, error plumbing, typed API. No DOM beyond Worker/console.
+ * Given a factory, a worker that errors before sending any message (a load failure) is replaced once before the client fails.
+ */
+export function createSimClient(source: Worker | WorkerFactory, opt: ClientOptions = {}): SimClient {
+  const factory = typeof source === 'function' ? source : undefined;
+  let worker: Worker = typeof source === 'function' ? source(0) : source;
+  let heard = false;
+  let retried = false;
+  const early: ToWorker[] = [];
   let state: ClientState = 'loading';
   let nextCmd = 1;
   let nextSnap = 1;
@@ -78,9 +89,14 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
     if (s === 'failed') rejectSnaps(error ?? 'sim failed');
     opt.onState?.(s, error);
   };
-  const send = (m: ToWorker, transfer: Transferable[] = []): void => worker.postMessage(m, transfer);
+  const send = (m: ToWorker, transfer: Transferable[] = []): void => {
+    if (!heard && factory && !retried && transfer.length === 0) early.push(m);
+    worker.postMessage(m, transfer);
+  };
 
-  worker.onmessage = (e: MessageEvent<FromWorker>) => {
+  const onMessage = (e: MessageEvent<FromWorker>): void => {
+    heard = true;
+    early.length = 0;
     const m = e.data;
     switch (m.type) {
       case 'ready':
@@ -100,8 +116,25 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
       case 'info': infos.get(m.id)?.res(m); infos.delete(m.id); break;
     }
   };
-  worker.onerror = (e) => setState('failed', `worker error: ${e.message || 'unknown'}`);
-  worker.onmessageerror = () => setState('failed', 'worker message could not be deserialised');
+  const onError = (e: ErrorEvent): void => {
+    if (!heard && factory && !retried) {
+      retried = true;
+      console.warn(`[sim] worker failed to load (${e.message || 'unknown'}); retrying once`);
+      const resend = early.splice(0);
+      worker.terminate();
+      try { worker = factory(1); } catch (err) { setState('failed', `worker error: ${err instanceof Error ? err.message : String(err)}`); return; }
+      wire(worker);
+      for (const m of resend) worker.postMessage(m);
+      return;
+    }
+    setState('failed', `worker error: ${e.message || 'unknown'}`);
+  };
+  const wire = (w: Worker): void => {
+    w.onmessage = onMessage;
+    w.onerror = onError;
+    w.onmessageerror = () => setState('failed', 'worker message could not be deserialised');
+  };
+  wire(worker);
 
   send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, buildHash: opt.buildHash, seed: opt.seed, debug: opt.debug, haltAt: opt.haltAt, hashEvery: opt.hashEvery, disasters: opt.disasters, scenario: opt.scenario });
 

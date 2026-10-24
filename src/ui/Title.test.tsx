@@ -12,6 +12,32 @@ const setup = (slots: SlotMeta[]) => {
   return fns;
 };
 
+describe('Title when the engine failed', () => {
+  const failed = (workerError: string | undefined, onRepair = vi.fn()) => {
+    render(<Title worker="failed" workerError={workerError} onRepair={onRepair} tick={0} slots={[]} storageOk message="" onNew={vi.fn()} onLoad={vi.fn()} onDelete={vi.fn()} onImport={vi.fn()} />);
+    return onRepair;
+  };
+
+  it('shows a readable reason, the raw detail and a repair button', () => {
+    const repair = failed('build mismatch: worker a, app b (stale cache? reload the page)');
+    expect(screen.getByText(/Engine: failed/)).toBeTruthy();
+    expect(screen.getByText('The game was updated while loading.')).toBeTruthy();
+    expect(screen.getByText(/build mismatch: worker a, app b/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Repair and reload' }));
+    expect(repair).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains a worker start failure and a failure with no detail', () => {
+    failed('worker error: unknown');
+    expect(screen.getByText("Couldn't start the simulation worker.")).toBeTruthy();
+  });
+
+  it('shows no failure notice while the engine is fine', () => {
+    setup([]);
+    expect(screen.queryByRole('button', { name: 'Repair and reload' })).toBeNull();
+  });
+});
+
 describe('Title', () => {
   it('disables Continue and Load with no saves', () => {
     setup([]);

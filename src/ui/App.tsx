@@ -13,6 +13,7 @@ import { readFileBytes } from '../platform/save.ts';
 import { loadScores, recordScore, type ScoreRecord, type ScoreUpdate } from '../platform/scores.ts';
 import { keyLabel, kindOfId, nextScenario, scenarioById, specFor, type ScenarioChoice } from '../sim/scenarios.ts';
 import { scoreId } from './scenarioText.ts';
+import { autoRepairOnce, clearRepairGuard, describeFailure } from '../platform/repair.ts';
 import { GameView } from './GameView';
 import { NO_WORKFORCE, failText, type HudStats } from './Hud';
 import { noteResumed, openSession, saveSession, type Session } from './session.ts';
@@ -33,6 +34,7 @@ const query = (): URLSearchParams => new URLSearchParams(window.location.search)
 
 export function App() {
   const [worker, setWorker] = useState<ClientState>('loading');
+  const [workerError, setWorkerError] = useState<string | undefined>(undefined);
   const [hud, setHud] = useState<HudStats>(ZERO);
   const [view, setView] = useState<'title' | 'game'>(() => (query().get('autostart') === '1' ? 'game' : 'title'));
   const [live, setLive] = useState<Session | null>(null);
@@ -62,6 +64,11 @@ export function App() {
   useEffect(() => {
     if (live && worker === 'ready' && !query().has('haltAt')) live.client.command({ type: 'setDisasters', mode: disasterModeOf(settings.disasters) });
   }, [live, worker, settings.disasters]);
+
+  useEffect(() => {
+    if (worker === 'ready') clearRepairGuard();
+    else if (worker === 'failed') autoRepairOnce(describeFailure(workerError));
+  }, [worker, workerError]);
 
   const refreshSlots = useCallback(async (): Promise<void> => {
     const r = await db.current?.listSlots();
@@ -114,7 +121,7 @@ export function App() {
       seed, haltAt, scenario, getDb: () => db.current, pauseOnCrises: () => settingsRef.current.pauseOnCrises,
       disasters: haltAt !== undefined ? haltDisasterMode(query().get('disasters')) : disasterModeOf(settingsRef.current.disasters),
       debug: query().get('debug') === '1' || query().get('showcase') === '1',
-      onState: (st) => { if (current.current === s || current.current === null) setWorker(st); },
+      onState: (st, error) => { if (current.current === s || current.current === null) { setWorker(st); setWorkerError(st === 'failed' ? error : undefined); } },
       onStats: (st) => {
         if (current.current !== s) return;
         graphEpoch.current = st.graphEpoch;
@@ -167,6 +174,7 @@ export function App() {
       attach(first);
     } catch (e) {
       console.error('[sim] failed to start worker', e);
+      setWorkerError(`failed to start worker: ${e instanceof Error ? e.message : String(e)}`);
       setWorker('failed');
     }
     void (async () => {
@@ -193,7 +201,7 @@ export function App() {
     setTitleMessage('');
     setNotice('');
     let s: Session;
-    try { s = open(seed, undefined, scenario); } catch (e) { console.error('[sim] failed to start worker', e); setWorker('failed'); return; }
+    try { s = open(seed, undefined, scenario); } catch (e) { console.error('[sim] failed to start worker', e); setWorkerError(`failed to start worker: ${e instanceof Error ? e.message : String(e)}`); setWorker('failed'); return; }
     attach(s);
     if (await start(s)) setView('game');
     else {
@@ -331,7 +339,7 @@ export function App() {
         key={sessionN}
         scenario={{ result, nextName: next?.name, onRetry, onNext: onNextScenario, onBack: () => { void leave(); } }}
         client={live.client} mirror={live.mirror} agents={live.agents} tools={live.tools} why={live.why} view={live.view} lifecycle={live.lifecycle} away={live.away} pacing={live.pacing} stats={hud} settings={settings} notice={notice}
-        tick={hud.tick} worker={worker} onExit={onQuit}
+        tick={hud.tick} worker={worker} workerError={workerError} onExit={onQuit}
         quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
       />
     );
@@ -339,7 +347,7 @@ export function App() {
 
   return (
     <Title
-      worker={worker} tick={hud.tick} slots={slots} storageOk={platformReady ? db.current !== undefined : true} message={titleMessage}
+      worker={worker} workerError={workerError} tick={hud.tick} slots={slots} storageOk={platformReady ? db.current !== undefined : true} message={titleMessage}
       onNew={onNew} onLoad={onLoad} onDelete={onDelete} onImport={onImport} scores={scores} onScenario={onScenario}
     />
   );

@@ -38,6 +38,7 @@ import { useLeaveFocusOnOpen } from './focusReset.ts';
 import { ServicesPanel } from './ServicesPanel';
 import { Tools, type ToolHints } from './Tools';
 import type { SandboxDisaster, ToolsRuntime } from './toolsStore.ts';
+import { EngineFailure } from './EngineFailure';
 import { WhyUi } from './WhyUi';
 import type { WhyStore } from './whyStore.ts';
 
@@ -56,6 +57,8 @@ interface Props {
   notice: string;
   tick: number;
   worker: 'loading' | 'ready' | 'failed';
+  /** The raw reason the sim client failed. */
+  workerError?: string;
   onExit: () => void;
   quitPrompt: string | null;
   onQuitSaveAs(name: string): void;
@@ -71,7 +74,7 @@ interface Props {
 
 type Phase = 'starting' | 'running' | 'failed';
 
-export function GameView({ client, mirror, agents, tools, why, view, lifecycle, away, pacing, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting, scenario }: Props) {
+export function GameView({ client, mirror, agents, tools, why, view, lifecycle, away, pacing, stats, settings, notice, tick, worker, workerError, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting, scenario }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [resultsHidden, setResultsHidden] = useState(false);
   const [phase, setPhase] = useState<Phase>('starting');
@@ -227,7 +230,14 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
         <div className="game-error" role="alert">
           <h2>The 3D view could not start</h2>
           <p>Iron Dominion needs WebGL2 or WebGPU. Try a current Chrome, Edge, Safari or Firefox, and check that hardware acceleration is on.</p>
-          <p className="detail">{error}</p>
+          <details className="detail"><summary>Details</summary><code>{error}</code></details>
+          <button className="primary" type="button" onClick={onExit}>Back to title</button>
+        </div>
+      )}
+      {phase !== 'failed' && worker === 'failed' && (
+        <div className="game-error" role="alert">
+          <h2>The simulation stopped</h2>
+          <EngineFailure detail={workerError} />
           <button className="primary" type="button" onClick={onExit}>Back to title</button>
         </div>
       )}

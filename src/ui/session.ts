@@ -53,18 +53,23 @@ export interface SessionOptions {
   /** The "Pause on crises" setting, read when a crisis arrives. A halting debug run (haltAt) never auto-pauses. */
   pauseOnCrises?(): boolean;
   getDb(): PlatformDb | undefined;
-  onState(state: ClientState): void;
+  onState(state: ClientState, error?: string): void;
   onStats(s: Stats): void;
+}
+
+/** The retry URL differs from the first so a poisoned HTTP or service worker cache entry for the first cannot answer it. */
+export function workerUrl(attempt: number): URL {
+  return new URL(`./sim-worker.js?v=${BUILD_HASH}${attempt > 0 ? `&r=${Date.now()}` : ''}`, document.baseURI);
 }
 
 export function openSession(o: SessionOptions): Session {
   const mirror = new RenderMirror();
   const view = new ViewState();
   const agents = new AgentStore();
-  const w = new Worker(new URL(`./sim-worker.js?v=${BUILD_HASH}`, document.baseURI));
+  const spawn = (attempt: number): Worker => new Worker(workerUrl(attempt));
   const tools = new ToolsRuntime({ world: mirror, submit: (body) => client.command(body), view });
   const why = new WhyStore({ requestInfo: (kind, ref) => client.requestInfo(kind, ref), mirror, view, tools });
-  const client: SimClient = createSimClient(w, {
+  const client: SimClient = createSimClient(spawn, {
     seed: o.seed,
     debug: o.debug,
     disasters: o.disasters,
@@ -72,7 +77,7 @@ export function openSession(o: SessionOptions): Session {
     haltAt: o.haltAt,
     hashEvery: HASH_EVERY,
     buildHash: BUILD_HASH,
-    onState: (s) => o.onState(s),
+    onState: (s, error) => o.onState(s, error),
     onPatch: (m) => { mirror.apply(m); },
     // The store copies what it needs, so the client hands the ping-pong buffers straight back to the worker.
     onAgents: (m) => { agents.ingest(m, performance.now()); return false; },

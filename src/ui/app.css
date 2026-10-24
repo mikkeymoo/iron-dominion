@@ -281,3 +281,7 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .radial-label { position: absolute; top: 100%; margin-top: 2px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; text-shadow: 0 1px 3px #000; pointer-events: none; }
 @keyframes radial-pop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.5); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .pnl, .pnl *, .radial, .radial * { animation: none !important; transition: none !important; } }
+.engine-failure { display: grid; justify-items: center; gap: 0.2rem; max-width: 34rem; }
+.engine-failure .reason { margin: 0.4rem 0 0; font-weight: 600; color: #ffd08a; }
+.engine-failure .detail { opacity: 0.6; font-size: 0.75rem; max-width: 100%; word-break: break-word; }
+.engine-failure .detail summary { cursor: pointer; }

@@ -3,10 +3,14 @@ import type { SlotMeta } from '../platform/db.ts';
 import { isOldVersion } from '../platform/save.ts';
 import type { ScoreRecord } from '../platform/scores.ts';
 import type { ScenarioChoice } from '../sim/scenarios.ts';
+import { EngineFailure } from './EngineFailure';
 import { Challenges, Scenarios } from './Scenarios';
 
 interface Props {
   worker: 'loading' | 'ready' | 'failed';
+  /** The raw reason the engine failed; shown under "Engine: failed". */
+  workerError?: string;
+  onRepair?(): void;
   tick: number;
   slots: SlotMeta[];
   storageOk: boolean;
@@ -28,7 +32,7 @@ const NO_SCORES: Readonly<Record<string, ScoreRecord>> = {};
 const when = (t: number): string => new Date(t).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
 const kb = (n: number): string => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
-export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, onDelete, onImport, scores = NO_SCORES, onScenario, now }: Props) {
+export function Title({ worker, workerError, onRepair, tick, slots, storageOk, message, onNew, onLoad, onDelete, onImport, scores = NO_SCORES, onScenario, now }: Props) {
   const [screen, setScreen] = useState<'main' | 'scenarios' | 'challenges'>('main');
   const [form, setForm] = useState(false);
   const [list, setList] = useState(false);
@@ -103,6 +107,7 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
       {!storageOk && <p className="notice" role="status">Saving is unavailable in this browser. You can still play.</p>}
       {message && <p className="notice" role="alert" data-testid="title-message">{message}</p>}
       <p className="status" data-worker={worker} data-tick={tick}>Engine: {worker}{worker === 'ready' ? ` (tick ${tick})` : ''}</p>
+      {down && <EngineFailure detail={workerError} onRepair={onRepair} />}
     </main>
   );
 }

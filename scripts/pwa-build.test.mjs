@@ -127,7 +127,8 @@ describe('service worker fetch handling', () => {
       addEventListener: (t, fn) => { handlers[t] = fn; },
     };
     class Request { constructor(u) { this.url = u; } }
-    const fetch = (req) => { fetched.push(req.url); return fetchImpl(req); };
+    const inits = [];
+    const fetch = (req, init) => { fetched.push(req.url); inits.push(init); return fetchImpl(req); };
     const ctx = {
       self, caches, URL, Request, Response: FakeResponse, fetch,
       setTimeout: (fn) => { timers.push(fn); return timers.length; },
@@ -141,7 +142,7 @@ describe('service worker fetch handling', () => {
       handlers.fetch({ request: req, respondWith: (p) => { responded = p; }, waitUntil: (p) => { waits.push(p); } });
       return { handled: responded !== undefined, result: responded, waits };
     };
-    return { dispatch, request, puts, timers, fetched };
+    return { dispatch, request, puts, timers, fetched, inits };
   }
 
   it('does not substitute the placeholders inside the template comment', () => {
@@ -185,18 +186,58 @@ describe('service worker fetch handling', () => {
     expect(sw.puts).toEqual([]);
   });
 
-  it('answers a sim worker request only by its exact versioned URL', async () => {
+  it('answers a sim worker request from its exact versioned cache entry', async () => {
     const worker = new FakeResponse('worker');
     const sw = boot('https://x.test/iron-dominion/', {
       fetchImpl: async () => new FakeResponse('network worker'),
       cached: { [ORIGIN + '/iron-dominion/sim-worker.js?v=hash9']: worker, [ORIGIN + '/iron-dominion/app.js']: new FakeResponse('app') },
     });
     expect(await (await sw.dispatch(sw.request('/iron-dominion/sim-worker.js?v=hash9'))).result).toBe(worker);
-    const stale = await (await sw.dispatch(sw.request('/iron-dominion/sim-worker.js?v=old1'))).result;
-    expect(stale.failed).toBe(true);
     expect(sw.fetched).toEqual([]);
-    expect(sw.puts).toEqual([]);
     expect((await (await sw.dispatch(sw.request('/iron-dominion/app.js?x=1'))).result).body).toBe('app');
+  });
+
+  it('sends a sim worker request without an exact cache hit to the network uncached, never to another build cached worker or an error', async () => {
+    const sw = boot('https://x.test/iron-dominion/', {
+      fetchImpl: async () => new FakeResponse('network worker'),
+      cached: { [ORIGIN + '/iron-dominion/sim-worker.js?v=old1']: new FakeResponse('old worker') },
+    });
+    for (const path of ['/iron-dominion/sim-worker.js?v=old1x', '/iron-dominion/sim-worker.js?v=hash9&r=123', '/iron-dominion/sim-worker.js']) {
+      const res = await (await sw.dispatch(sw.request(path))).result;
+      expect(res.body).toBe('network worker');
+      expect(res.failed).toBeUndefined();
+    }
+    expect(sw.fetched).toHaveLength(3);
+    expect(sw.inits).toEqual([{ cache: 'no-store' }, { cache: 'no-store' }, { cache: 'no-store' }]);
+    expect(sw.puts).toEqual([]);
+  });
+
+  it('lets a network failure for the sim worker reach the page as a failed fetch', async () => {
+    const sw = boot('https://x.test/iron-dominion/', { fetchImpl: async () => { throw new Error('offline'); } });
+    const { result } = await sw.dispatch(sw.request('/iron-dominion/sim-worker.js?v=hash9'));
+    await expect(result).rejects.toThrow('offline');
+  });
+
+  it('the root worker never intercepts, fetches or caches anything under the nested /next/ scope', async () => {
+    const sw = boot('https://x.test/iron-dominion/', { fetchImpl: async () => new FakeResponse('x') });
+    for (const path of ['/iron-dominion/next/app.js', '/iron-dominion/next/sim-worker.js?v=hash9', '/iron-dominion/next/icons/icon-192.png', '/iron-dominion/next/']) {
+      expect((await sw.dispatch(sw.request(path))).handled).toBe(false);
+    }
+    const own = await sw.dispatch(sw.request('/iron-dominion/app.js'));
+    expect(own.handled).toBe(true);
+    await own.result;
+    expect(sw.fetched).toEqual([ORIGIN + '/iron-dominion/app.js']);
+  });
+
+  it('the /next/ worker handles its own sim worker and assets', async () => {
+    const hit = new FakeResponse('next worker');
+    const sw = boot('https://x.test/iron-dominion/next/', {
+      fetchImpl: async () => new FakeResponse('network'),
+      cached: { [ORIGIN + '/iron-dominion/next/sim-worker.js?v=hash9']: hit },
+    });
+    expect(await (await sw.dispatch(sw.request('/iron-dominion/next/sim-worker.js?v=hash9'))).result).toBe(hit);
+    expect((await sw.dispatch(sw.request('/iron-dominion/sim-worker.js?v=hash9'))).handled).toBe(false);
+    expect((await sw.dispatch(sw.request('/iron-dominion/app.js'))).handled).toBe(false);
   });
 });
 
