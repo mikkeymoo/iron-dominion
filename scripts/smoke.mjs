@@ -959,17 +959,12 @@ const RENDER_LEGS = {
 
 const browser = await chromium.launch({ ...(existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {}), args: ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-vulkan=swiftshader', '--enable-features=Vulkan'] });
 let failed = 0;
-<<<<<<< HEAD
 // SMOKE_ONLY=robots or SMOKE_ONLY=traffic runs just that block (the U7 workforce or the U10 traffic one), for iterating on it; the acceptance run leaves it unset.
 const onlyBlock = process.env.SMOKE_ONLY;
 const only = onlyBlock === 'robots' || onlyBlock === 'traffic';
-=======
-// SMOKE_ONLY=robots runs just the U7 workforce block, for iterating on it; the acceptance run leaves it unset.
-const only = process.env.SMOKE_ONLY === 'robots';
 // SMOKE_QUICK=1 (npm run smoke:quick) is the per-unit gate: desktop WebGL2 boot, render and the robots build loop.
 // The full run (every viewport, backend, showcase, fx and feature block) is kept for the gate before publishing.
 const quick = process.env.SMOKE_QUICK === '1';
->>>>>>> main
 try {
   for (const vp of quick ? VIEWPORTS.filter((v) => v.name === 'desktop') : VIEWPORTS) {
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
@@ -1017,20 +1012,13 @@ try {
         if (problem) failed++;
       }
     }
-<<<<<<< HEAD
-    const buildChecks = only ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
-    if (vp.name === 'desktop' && !only) buildChecks.push(...await roadGraphChecks(open));
-    if (vp.name === 'desktop' && !only) buildChecks.push(...await economyChecks(open));
-    if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
-    if (onlyBlock !== 'robots') buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
-=======
     const full = !only && !quick;
     const buildChecks = !full ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
     if (vp.name === 'desktop' && full) buildChecks.push(...await roadGraphChecks(open));
     if (vp.name === 'desktop' && full) buildChecks.push(...await economyChecks(open));
     if (vp.name === 'desktop' && full) buildChecks.push(...await utilitiesChecks(open));
-    buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
->>>>>>> main
+    if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
+    if (onlyBlock === 'traffic' || full) buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;
