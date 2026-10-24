@@ -10,6 +10,9 @@ import { emptyServiceStats } from '../sim/services/coverage.ts';
 import { openPlatformDb, type PlatformDb, type SlotMeta } from '../platform/db.ts';
 import { DEFAULT_SETTINGS, disasterModeOf, haltDisasterMode, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
 import { readFileBytes } from '../platform/save.ts';
+import { loadScores, recordScore, type ScoreRecord, type ScoreUpdate } from '../platform/scores.ts';
+import { keyLabel, kindOfId, nextScenario, scenarioById, specFor, type ScenarioChoice } from '../sim/scenarios.ts';
+import { scoreId } from './scenarioText.ts';
 import { GameView } from './GameView';
 import { NO_WORKFORCE, failText, type HudStats } from './Hud';
 import { openSession, saveSession, type Session } from './session.ts';
@@ -39,6 +42,14 @@ export function App() {
   const [titleMessage, setTitleMessage] = useState('');
   const [notice, setNotice] = useState('');
   const [quitPrompt, setQuitPrompt] = useState<string | null>(null);
+  const [scores, setScores] = useState<Record<string, ScoreRecord>>({});
+  const [result, setResult] = useState<ScoreUpdate | null>(null);
+  // Bumps with every session so the game view (and its results screen) starts fresh on a retry.
+  const [sessionN, setSessionN] = useState(0);
+  const scoresRef = useRef(scores);
+  scoresRef.current = scores;
+  // The session whose scenario was seen playing: only a scenario that ends in front of the player is scored.
+  const watched = useRef<{ session: Session | null; playing: boolean; recorded: boolean }>({ session: null, playing: false, recorded: false });
   const db = useRef<PlatformDb | undefined>(undefined);
   const current = useRef<Session | null>(null);
   const iron = useRef<IronDebug | null>(null);
@@ -60,6 +71,9 @@ export function App() {
   const attach = useCallback((s: Session): void => {
     current.current?.dispose();
     current.current = s;
+    watched.current = { session: s, playing: false, recorded: false };
+    setResult(null);
+    setSessionN((n) => n + 1);
     setLive(s);
     const dbg = iron.current;
     if (dbg) {
@@ -92,11 +106,11 @@ export function App() {
     }
   }, []);
 
-  const open = useCallback((seed: number, haltAt?: number): Session => {
+  const open = useCallback((seed: number, haltAt?: number, scenario?: ScenarioChoice): Session => {
     setWorker('loading');
     setHud(ZERO);
     const s = openSession({
-      seed, haltAt, getDb: () => db.current,
+      seed, haltAt, scenario, getDb: () => db.current,
       disasters: haltAt !== undefined ? haltDisasterMode(query().get('disasters')) : disasterModeOf(settingsRef.current.disasters),
       debug: query().get('debug') === '1' || query().get('showcase') === '1',
       onState: (st) => { if (current.current === s || current.current === null) setWorker(st); },
@@ -117,7 +131,7 @@ export function App() {
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
           rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths, workforce: st.workforce, traffic: st.traffic,
-          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled, services: st.services, milestone: st.milestone, directives: st.directives, firmware: st.firmware,
+          power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled, services: st.services, milestone: st.milestone, directives: st.directives, firmware: st.firmware, scenario: st.scenario,
         });
       },
     });
@@ -157,6 +171,8 @@ export function App() {
       const loaded = await loadSettings(db.current, typeof localStorage === 'undefined' ? undefined : localStorage);
       if (cancelled) return;
       setSettings(loaded);
+      setScores(await loadScores(db.current));
+      if (cancelled) return;
       await refreshSlots();
       const slotId = q.get('slot');
       if (first && q.get('autostart') === '1' && slotId) {
@@ -168,11 +184,11 @@ export function App() {
     return () => { cancelled = true; current.current?.dispose(); current.current = null; db.current?.close(); };
   }, [open, attach, refreshSlots]);
 
-  const enterGame = useCallback(async (start: (s: Session) => Promise<boolean>, seed: number): Promise<void> => {
+  const enterGame = useCallback(async (start: (s: Session) => Promise<boolean>, seed: number, scenario?: ScenarioChoice): Promise<void> => {
     setTitleMessage('');
     setNotice('');
     let s: Session;
-    try { s = open(seed); } catch (e) { console.error('[sim] failed to start worker', e); setWorker('failed'); return; }
+    try { s = open(seed, undefined, scenario); } catch (e) { console.error('[sim] failed to start worker', e); setWorker('failed'); return; }
     attach(s);
     if (await start(s)) setView('game');
     else {
@@ -184,6 +200,14 @@ export function App() {
   const onNew = useCallback((name: string, seed: number | undefined): void => {
     const chosen = seed ?? Math.floor(Math.random() * 0xffffffff);
     void enterGame(async (s) => { s.service.startNew(name); return true; }, chosen);
+  }, [enterGame]);
+
+  const onScenario = useCallback((choice: ScenarioChoice): void => {
+    const spec = specFor(choice.id, choice.key);
+    if (!spec) return;
+    const kind = kindOfId(choice.id);
+    const name = kind ? `${kind === 'daily' ? 'Daily' : 'Weekly'} ${keyLabel(kind, choice.key ?? 0)}` : scenarioById(choice.id)?.name ?? 'Scenario';
+    void enterGame(async (s) => { s.service.startNew(name); return true; }, spec.seed, choice);
   }, [enterGame]);
 
   const onLoad = useCallback((id: string): void => {
@@ -270,9 +294,37 @@ export function App() {
     })();
   }, [leave]);
 
+  useEffect(() => {
+    const sc = hud.scenario, w = watched.current;
+    if (!sc || !live || w.session !== live) return;
+    if (sc.state === 0) { w.playing = true; return; }
+    if (!w.playing || w.recorded) return;
+    w.recorded = true;
+    const id = scoreId(sc);
+    void recordScore(db.current, id, { stars: sc.stars, score: sc.score }, Date.now(), scoresRef.current[id]).then((u) => {
+      if (watched.current.session !== live) return;
+      setScores((p) => ({ ...p, [id]: u.record }));
+      setResult(u);
+    });
+  }, [hud.scenario, live]);
+
+  const onRetry = useCallback((): void => {
+    const sc = hud.scenario;
+    if (sc) onScenario({ id: sc.id, key: sc.key || undefined });
+  }, [hud.scenario, onScenario]);
+
+  const onNextScenario = useCallback((): void => {
+    const sc = hud.scenario;
+    const next = sc ? nextScenario(sc.id) : undefined;
+    if (next) onScenario({ id: next.id });
+  }, [hud.scenario, onScenario]);
+
   if (view === 'game' && live && platformReady) {
+    const next = hud.scenario && !kindOfId(hud.scenario.id) ? nextScenario(hud.scenario.id) : undefined;
     return (
       <GameView
+        key={sessionN}
+        scenario={{ result, nextName: next?.name, onRetry, onNext: onNextScenario, onBack: () => { void leave(); } }}
         client={live.client} mirror={live.mirror} agents={live.agents} tools={live.tools} why={live.why} view={live.view} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
         tick={hud.tick} worker={worker} onExit={onQuit}
         quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
@@ -283,7 +335,7 @@ export function App() {
   return (
     <Title
       worker={worker} tick={hud.tick} slots={slots} storageOk={platformReady ? db.current !== undefined : true} message={titleMessage}
-      onNew={onNew} onLoad={onLoad} onDelete={onDelete} onImport={onImport}
+      onNew={onNew} onLoad={onLoad} onDelete={onDelete} onImport={onImport} scores={scores} onScenario={onScenario}
     />
   );
 }

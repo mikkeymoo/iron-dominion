@@ -64,7 +64,10 @@ class MinHeap {
 const DX = [0, 1, 1, 1, 0, -1, -1, -1];
 const DY = [-1, -1, 0, 1, 1, 1, 0, -1];
 
-export function generateTerrain(world: World, seed: number): void {
+/** Scenario terrain: the share of tiles under the sea (default 0.28) and whether rivers are carved (default true). */
+export interface TerrainPreset { sea?: number; rivers?: boolean }
+
+export function generateTerrain(world: World, seed: number, preset: TerrainPreset = {}): void {
   const n = new Float32Array(TILES);
   const hist = new Uint32Array(1024);
   for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) {
@@ -74,7 +77,8 @@ export function generateTerrain(world: World, seed: number): void {
   }
   // Sea level: the noise value below which ~28% of tiles fall.
   let acc = 0, bin = 0;
-  while (bin < 1023 && acc + hist[bin]! < TILES * 0.28) acc += hist[bin++]!;
+  const sea = preset.sea !== undefined && preset.sea > 0 && preset.sea < 0.9 ? preset.sea : 0.28;
+  while (bin < 1023 && acc + hist[bin]! < TILES * sea) acc += hist[bin++]!;
   const thr = bin / 1024;
 
   const h = world.height;
@@ -127,13 +131,15 @@ export function generateTerrain(world: World, seed: number): void {
   const t = world.terrain;
   for (let i = 0; i < TILES; i++) t[i] = h[i]! <= 0 ? TERRAIN.WATER : TERRAIN.GRASS;
 
-  let threshold = 260;
+  // No rivers: the threshold no tile's flow reaches, so nothing is carved.
+  const rivers = preset.rivers !== false;
+  let threshold = rivers ? 260 : Infinity;
   const riverCells = (th: number): number => {
     let c = 0;
     for (let i = 0; i < TILES; i++) if (h[i]! > 0 && parent[i]! >= 0 && flow[i]! >= th) c++;
     return c;
   };
-  while (threshold > 4 && riverCells(threshold) < 12) threshold = Math.floor(threshold / 2);
+  while (rivers && threshold > 4 && riverCells(threshold) < 12) threshold = Math.floor(threshold / 2);
   const carve = 1.5 * HEIGHT_SCALE;
   // Channels are 4-connected so the water reads as one ribbon: wherever the flow path steps diagonally, one orthogonal tile
   // joins the two ends. Width grows with flow accumulation (1, 2 or 3 tiles), then the banks are lowered on a gentle slope.

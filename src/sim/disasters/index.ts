@@ -1,4 +1,5 @@
 import { BMAX, D, MAP, S, type World } from '../layers.ts';
+import { mods } from '../firmware.ts';
 import { roadsOf } from '../roads/index.ts';
 import { nextU32 } from '../rng.ts';
 import { isInts } from '../estimate.ts';
@@ -20,7 +21,7 @@ export const disasterMode = (w: World): number => w.disaster[D.MODE]!;
 export function setDisasterMode(w: World, mode: number): string | undefined {
   if (!isInts(mode)) return 'invalid';
   if (mode < 0 || mode >= MODE_SCALE.length) return 'bounds';
-  w.disaster[D.MODE] = mode;
+  w.disaster[D.MODE] = Math.max(mode, mods(w).disasterFloor);
   return undefined;
 }
 

@@ -1,4 +1,5 @@
 import { BFLAG } from '../catalog.ts';
+import { mods } from '../firmware.ts';
 import { BMAX, MAP, S, TILES, isWaterTerrain, type World } from '../layers.ts';
 import { markDirty, type Sim } from '../world.ts';
 import {
@@ -191,7 +192,7 @@ export function nearWater(w: World, x: number, y: number, bw: number, bh: number
 }
 
 export const pumpOutput = (w: World, slot: number): number =>
-  nearWater(w, w.bX[slot]!, w.bY[slot]!, w.bW[slot]!, w.bH[slot]!) ? PUMP_NEAR_ML : PUMP_INLAND_ML;
+  !mods(w).inlandPumps && nearWater(w, w.bX[slot]!, w.bY[slot]!, w.bW[slot]!, w.bH[slot]!) ? PUMP_NEAR_ML : PUMP_INLAND_ML;
 
 function waterPass(sim: Sim): PassResult {
   const w = sim.world;

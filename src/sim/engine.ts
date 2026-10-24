@@ -9,6 +9,8 @@ import { AKIND } from './robots/constants.ts';
 import { roadsSystem } from './roads/index.ts';
 import { seedRng } from './rng.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
+import { setupScenario } from './scenarioTown.ts';
+import type { ScenarioSpec } from './scenarios.ts';
 import { placeStarter } from './starter.ts';
 import { generateTerrain } from './terrain.ts';
 import { commandsSystem, runTick } from './tick.ts';
@@ -23,8 +25,11 @@ export const START_DAYFRAC = 0.3;
  * systems never see a random fire; a session opens with the player's setting through Hello.disasters.
  * `starter` adds the new-city kit (sim/starter.ts: a depot, a short street and an idle crew). The worker always asks for it; a bare
  * createSim leaves the map empty so the system tests keep building their own towns, and a loaded snapshot never has it added.
+ * `scenario` opens a scenario or challenge (sim/scenarios.ts): its seed replaces `seed`, and its spec decides the terrain, money, kit or town.
  */
-export function createSim(seed: number, opt: { debug?: boolean; disasters?: number; starter?: boolean } = {}): Sim {
+export function createSim(seed: number, opt: { debug?: boolean; disasters?: number; starter?: boolean; scenario?: ScenarioSpec } = {}): Sim {
+  const spec = opt.scenario;
+  if (spec) seed = spec.seed;
   const world = allocWorld();
   const s = world.scalars;
   s[S.seed] = seed >>> 0;
@@ -38,9 +43,10 @@ export function createSim(seed: number, opt: { debug?: boolean; disasters?: numb
   // Disasters draw from their own stream, so switching them on or off never shifts the weather.
   seedRng(world.drng, seed ^ 0xd15a57e2);
   world.disaster[D.MODE] = opt.disasters !== undefined && opt.disasters >= 0 && opt.disasters <= DMODE.NORMAL ? Math.floor(opt.disasters) : DMODE.OFF;
-  generateTerrain(world, seed);
+  generateTerrain(world, seed, spec?.terrain);
   const sim: Sim = { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true };
-  if (opt.starter) placeStarter(sim);
+  if (spec) setupScenario(sim, spec);
+  else if (opt.starter) placeStarter(sim);
   sim.roads = RoadNet.build(world);
   return sim;
 }

@@ -1,4 +1,5 @@
 import type { CommandBody } from './commands.ts';
+import type { ScenarioChoice } from './scenarios.ts';
 import {
   PROTOCOL_VERSION, type AgentsMsg, type BudgetMsg, type EventsMsg, type FromWorker, type InfoKind, type InfoMsg, type PathMsg, type Speed, type Stats,
   type ToWorker,
@@ -15,6 +16,8 @@ export interface ClientOptions {
   hashEvery?: number;
   /** The Disasters setting the city opens with (0 off, 1 rare, 2 normal). */
   disasters?: number;
+  /** Open a scenario or daily/weekly challenge instead of a sandbox city; the scenario's own seed replaces `seed`. */
+  scenario?: ScenarioChoice;
   buildHash?: string;
   onState?: (state: ClientState, error?: string) => void;
   onStats?: (s: Stats) => void;
@@ -100,7 +103,7 @@ export function createSimClient(worker: Worker, opt: ClientOptions = {}): SimCli
   worker.onerror = (e) => setState('failed', `worker error: ${e.message || 'unknown'}`);
   worker.onmessageerror = () => setState('failed', 'worker message could not be deserialised');
 
-  send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, buildHash: opt.buildHash, seed: opt.seed, debug: opt.debug, haltAt: opt.haltAt, hashEvery: opt.hashEvery, disasters: opt.disasters });
+  send({ type: 'hello', protocolVersion: PROTOCOL_VERSION, buildHash: opt.buildHash, seed: opt.seed, debug: opt.debug, haltAt: opt.haltAt, hashEvery: opt.hashEvery, disasters: opt.disasters, scenario: opt.scenario });
 
   return {
     get state() { return state; },

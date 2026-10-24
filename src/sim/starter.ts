@@ -48,18 +48,18 @@ const boxCount = (t: Int32Array, x0: number, y0: number, x1: number, y1: number)
  * spread of 8, 16, 32 tiles-sixteenths that has a window), nearest the map centre, but a window with water within WATER_REACH tiles
  * wins over a drier one when it lies within SHORE_RADIUS of the centre. Null when no window of dry land exists.
  */
-export function starterSite(w: World): { x: number; y: number } | null {
+export function starterSite(w: World, siteW = SITE_W, siteH = SITE_H): { x: number; y: number } | null {
   const bad = summed(w, (i) => !ZONABLE(w.terrain[i]!) || w.waterDepth[i]! > 0);
   const wet = summed(w, (i) => isWaterTerrain(w.terrain[i]!) || w.waterDepth[i]! > 0);
   const cx = MAP / 2, cy = MAP / 2;
   const cands: { x: number; y: number; d: number }[] = [];
-  for (let y = 2; y + SITE_H < MAP - 2; y++) for (let x = 2; x + SITE_W < MAP - 2; x++) {
-    cands.push({ x, y, d: Math.hypot(x + SITE_W / 2 - cx, y + SITE_H / 2 - cy) });
+  for (let y = 2; y + siteH < MAP - 2; y++) for (let x = 2; x + siteW < MAP - 2; x++) {
+    cands.push({ x, y, d: Math.hypot(x + siteW / 2 - cx, y + siteH / 2 - cy) });
   }
   cands.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
   const flat = (x: number, y: number, limit: number): boolean => {
     let lo = Infinity, hi = -Infinity;
-    for (let yy = y; yy < y + SITE_H; yy++) for (let xx = x; xx < x + SITE_W; xx++) {
+    for (let yy = y; yy < y + siteH; yy++) for (let xx = x; xx < x + siteW; xx++) {
       const h = w.height[tileIdx(xx, yy)]!;
       if (h < lo) lo = h;
       if (h > hi) hi = h;
@@ -69,18 +69,18 @@ export function starterSite(w: World): { x: number; y: number } | null {
   for (const limit of SPREADS) {
     let first: { x: number; y: number } | null = null;
     for (const c of cands) {
-      if (boxCount(bad, c.x, c.y, c.x + SITE_W, c.y + SITE_H) !== 0 || !flat(c.x, c.y, limit)) continue;
+      if (boxCount(bad, c.x, c.y, c.x + siteW, c.y + siteH) !== 0 || !flat(c.x, c.y, limit)) continue;
       if (!first) first = { x: c.x, y: c.y };
       if (c.d > SHORE_RADIUS) break;
-      if (boxCount(wet, c.x - WATER_REACH, c.y - WATER_REACH, c.x + SITE_W + WATER_REACH, c.y + SITE_H + WATER_REACH) > 0) return { x: c.x, y: c.y };
+      if (boxCount(wet, c.x - WATER_REACH, c.y - WATER_REACH, c.x + siteW + WATER_REACH, c.y + siteH + WATER_REACH) > 0) return { x: c.x, y: c.y };
     }
     if (first) return first;
   }
   return null;
 }
 
-/** Place the kit; returns the depot's building slot, or -1 when the map has no site for it. */
-export function placeStarter(sim: Sim): number {
+/** Place the kit; returns the depot's building slot, or -1 when the map has no site for it. `crew` overrides the robots it starts with (a scenario with fewer robots per depot). */
+export function placeStarter(sim: Sim, crew = { builders: STARTER_BUILDERS, haulers: STARTER_HAULERS }): number {
   const w = sim.world;
   const site = starterSite(w);
   if (!site) return -1;
@@ -100,7 +100,7 @@ export function placeStarter(sim: Sim): number {
 
   const ref = refOf(w, slot);
   const cx = site.x + DEPOT_AT.x + depot.w / 2, cy = site.y + DEPOT_AT.y + depot.h / 2;
-  for (let n = 0; n < STARTER_BUILDERS; n++) spawnAgent(w, AKIND.BUILDER, ref, cx, cy);
-  for (let n = 0; n < STARTER_HAULERS; n++) spawnAgent(w, AKIND.HAULER, ref, cx, cy);
+  for (let n = 0; n < crew.builders; n++) spawnAgent(w, AKIND.BUILDER, ref, cx, cy);
+  for (let n = 0; n < crew.haulers; n++) spawnAgent(w, AKIND.HAULER, ref, cx, cy);
   return slot;
 }

@@ -1,9 +1,10 @@
 import {
-  archetype, BRIDGE_EXTRA, BULLDOZE_COST, HEIGHT_MAX, HEIGHT_MIN, MAX_TERRAFORM_TILES, PIPE_COST, POWER_LINE_COST, ROAD_COST,
+  ARCH, archetype, BRIDGE_EXTRA, BULLDOZE_COST, HEIGHT_MAX, HEIGHT_MIN, MAX_TERRAFORM_TILES, PIPE_COST, POWER_LINE_COST, ROAD_COST,
   TERRAFORM_COST, TERRAFORM_STEP, ZONE_COST, type Archetype,
 } from './catalog.ts';
 import type { CommandBody } from './commands.ts';
-import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, isWaterTerrain } from './layers.ts';
+import { scenarioMods } from './firmware.ts';
+import { MAP, ROAD, S, SC, SLOPE_LIMIT, TERRAIN, UCELLS, isWaterTerrain } from './layers.ts';
 import { isMega } from './megaprojects.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { DENSITY_UNLOCK, ROAD_UNLOCK, isLocked } from './unlocks.ts';
@@ -24,14 +25,17 @@ export interface TileRead {
   ugWater?: ArrayLike<number>;
   /** Sim scalars: S.tier gates roads, zoning density and buildings by unlock tier. Without them nothing is locked. */
   scalars?: ArrayLike<number>;
+  /** The scenario layer (SC): its modifier mask can forbid bridges and the burner power plant. Without it nothing is forbidden. */
+  scenario?: ArrayLike<number>;
 }
 
 export const tileReadOf = (layers: Record<string, ArrayLike<number>>, scalars?: ArrayLike<number>): TileRead => ({
   terrain: layers.terrain!, height: layers.height!, waterDepth: layers.waterDepth!,
-  road: layers.road!, zone: layers.zone!, bId: layers.bId!, ugPower: layers.ugPower, ugWater: layers.ugWater, scalars,
+  road: layers.road!, zone: layers.zone!, bId: layers.bId!, ugPower: layers.ugPower, ugWater: layers.ugWater, scalars, scenario: layers.scenario,
 });
 
 const tierOf = (v: TileRead): number | undefined => v.scalars?.[S.tier];
+const scenarioOf = (v: TileRead) => scenarioMods(v.scenario?.[SC.MODS] ?? 0);
 
 export interface Estimate {
   cost: number;
@@ -85,14 +89,16 @@ function estimateRoad(v: TileRead, c: Extract<CommandBody, { type: 'placeRoad' }
   if (isLocked(tierOf(v), ROAD_UNLOCK[c.cls]!)) return fail('locked');
   const path = roadPath(c);
   if (path.length > MAX_ROAD_CELLS) return fail('too-large');
-  let cost = 0;
+  let cost = 0, bridge = false;
   const valid: number[] = [], invalid: number[] = [];
+  const noBridges = scenarioOf(v).noBridges;
   for (const i of path) {
     if (v.bId[i]) { invalid.push(i); continue; }
+    if (noBridges && isWaterTerrain(v.terrain[i]!) && (v.road[i]! & ROAD.CLASS_MASK) === 0) { bridge = true; invalid.push(i); continue; }
     valid.push(i);
     if ((v.road[i]! & ROAD.CLASS_MASK) < c.cls) cost += ROAD_COST[c.cls]! + (isWaterTerrain(v.terrain[i]!) ? BRIDGE_EXTRA : 0);
   }
-  if (invalid.length > 0) return fail('blocked', valid, invalid);
+  if (invalid.length > 0) return fail(bridge ? 'no-bridges' : 'blocked', valid, invalid);
   if (cost === 0) return fail('noop', valid);
   return { cost, validTiles: valid, invalidTiles: invalid };
 }
@@ -195,6 +201,7 @@ function estimateBuilding(v: TileRead, c: Extract<CommandBody, { type: 'placeBui
   if (!a) return fail('unknown-archetype');
   if (!a.placeable) return fail('not-placeable');
   if (isLocked(tierOf(v), a.unlock ?? 0)) return fail('locked');
+  if (a.id === ARCH.POWER_PLANT && scenarioOf(v).noPowerPlant) return fail('scenario-locked');
   const e = estimateSite(v, a, c.x, c.y, c.rot, a.cost, treasury);
   if (!e.reason && isMega(a.id) && !touchesRoad(v, a, c.x, c.y, c.rot)) e.reason = 'no-road';
   if (!e.reason && a.needsOre) {
