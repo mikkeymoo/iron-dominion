@@ -1,6 +1,6 @@
 import { ARCH } from '../catalog.ts';
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
-import { AMAX, BMAX, MAP, S, ZONE, type World } from '../layers.ts';
+import { BMAX, MAP, RMAX, S, ZONE, type World } from '../layers.ts';
 import { lotAccess, nearestRoad, type RoadNet } from '../roads/index.ts';
 import type { Sim } from '../world.ts';
 import {
@@ -165,7 +165,7 @@ export function updateAgent(sim: Sim, net: RoadNet, a: number): void {
 export function spawnPass(sim: Sim, net: RoadNet): void {
   const w = sim.world;
   const builders = new Map<number, number>(), haulers = new Map<number, number>();
-  for (let a = 0; a < AMAX; a++) {
+  for (let a = 0; a < RMAX; a++) {
     const k = w.aKind[a]!;
     if (k === 0) continue;
     const h = homeSlot(w, a);
@@ -192,7 +192,7 @@ export function dispatch(sim: Sim, net: RoadNet): void {
   const w = sim.world;
   const idleB: number[] = [], idleH: number[] = [];
   const assigned = new Map<number, number>();
-  for (let a = 0; a < AMAX; a++) {
+  for (let a = 0; a < RMAX; a++) {
     const k = w.aKind[a]!, st = w.aState[a]!;
     if (k === 0) continue;
     if (st === AST.IDLE) {

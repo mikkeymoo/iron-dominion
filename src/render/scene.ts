@@ -4,6 +4,7 @@ import type { RenderMirror } from './mirror.ts';
 import type { AgentStore } from './agentStore.ts';
 import { BuildingsView } from './buildings.ts';
 import { RobotsView } from './robots.ts';
+import { TrafficView } from './traffic.ts';
 import { Fx } from './fx/index.ts';
 import { TerrainView } from './terrain.ts';
 import { TIER_TABLE, type Tier } from './tier.ts';
@@ -16,6 +17,7 @@ export class WorldScene {
   readonly terrain: TerrainView;
   readonly buildings: BuildingsView;
   readonly robots: RobotsView;
+  readonly traffic: TrafficView;
   private tier: Tier;
 
   constructor(private readonly renderer: WebGPURenderer, mirror: RenderMirror, search: string, tier: Tier, agents: AgentStore) {
@@ -27,6 +29,8 @@ export class WorldScene {
     this.scene.add(this.buildings.group);
     this.robots = new RobotsView(agents, mirror, (kind, x, y, z, n) => this.fx.particles.emit(kind, x, y, z, n), tier);
     this.scene.add(this.robots.group);
+    this.traffic = new TrafficView(agents, mirror);
+    this.scene.add(this.traffic.group);
     this.fx.attach(this.terrain, this.buildings);
     renderer.setClearColor(0xb4d4f0, 1);
   }
@@ -62,6 +66,11 @@ export class WorldScene {
     this.robots.update(dt, nowMs, pose.tx, pose.tz, Math.floor(TIER_TABLE[this.tier].fx.emitters / 6));
   }
 
+  /** Draw the interpolated vehicles near the camera focus: the tier's visible-agent cap minus the robots already drawn (call after updateRobots). */
+  updateTraffic(nowMs: number, pose: Pose, dist: number): void {
+    this.traffic.update(nowMs, pose.tx, pose.tz, TIER_TABLE[this.tier].visibleAgents - this.robots.snapshot.visible, dist);
+  }
+
   render(): void { this.fx.render(); }
 
   async compile(): Promise<void> {
@@ -69,6 +78,7 @@ export class WorldScene {
   }
 
   dispose(): void {
+    this.traffic.dispose();
     this.robots.dispose();
     this.fx.dispose();
     this.buildings.dispose();

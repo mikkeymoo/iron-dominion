@@ -740,6 +740,102 @@ async function workforceChecks(open, phone) {
 }
 // ---- end U7 block ----
 
+// ---- U10 traffic checks (webgl2 low; desktop pinned to night, phone pinned to noon) ----
+// A depot, a 3 x 3 street grid (the middle row and column are avenues) and sixteen completed buildings (8 R, 4 C, 4 I, all high
+// density level 3: catalog ids 24, 33, 42) laid through the tools and debugGrow. Residents and jobs make the trip generator run;
+// at max speed the page must show vehicles, all of them over road tiles, with headlights lit at night and dark at noon.
+const TRAFFIC_QUERY = (time) => `?autostart=1&seed=42&backend=webgl2&tier=low&governor=off&debug=1&weather=clear&time=${time}`;
+const TRAFFIC_LIMIT_MS = 180000;
+
+async function trafficChecks(open, phone) {
+  const out = [];
+  const label = phone ? 'phone ' : '';
+  const add = (name, problem) => out.push([`traffic: ${label}${name}`, problem]);
+  const night = !phone;
+  const page = await open(TRAFFIC_QUERY(night ? 0.97 : 0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && window.__iron.tools && window.__iron.economy); }, null, 120000);
+  if (!up) { add('city boots with tools and the economy hook', 'renderer, tools or economy never ready'); await page.close(); return out; }
+  await until(page, () => window.__iron.tools.findSite(26) !== null, null, 30000);
+  const site = await page.evaluate(() => window.__iron.tools.findSite(26));
+  if (!site) { add('a flat 26x26 land site exists', 'findSite returned null'); await page.close(); return out; }
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 12, z: s.y + 12, dist: 26, pitch: 0.8, yaw: 0.5 }), site);
+
+  const sent = await page.evaluate(async (s) => {
+    const t = window.__iron.tools, eco = window.__iron.economy;
+    const ids = [];
+    const drag = (opts, a, b) => { t.select('road', opts); ids.push(t.dragTiles(a, b)); };
+    for (const y of [4, 12, 20]) drag({ cls: y === 12 ? 2 : 1 }, { x: s.x + 2, y: s.y + y }, { x: s.x + 22, y: s.y + y });
+    for (const x of [2, 12, 22]) drag({ cls: x === 12 ? 2 : 1 }, { x: s.x + x, y: s.y + 4 }, { x: s.x + x, y: s.y + 20 });
+    t.select('service', { name: 'depot' });
+    const spot = t.tileFor('depot', { x: s.x + 4, y: s.y + 1 });
+    ids.push(t.dragTiles(spot, spot));
+    t.cancel();
+    await new Promise((r) => setTimeout(r, 500));
+    const grow = (x, y, archetype) => eco.command({ type: 'debugGrow', x: s.x + x, y: s.y + y, archetype, progress: 1 });
+    for (const x of [4, 8, 14, 18]) { grow(x, 5, 24); grow(x, 9, 24); grow(x, 13, 33); grow(x, 17, x < 10 ? 42 : 33); }
+    return ids;
+  }, site);
+  add('depot, a street grid and sixteen completed buildings are sent', sent.every((id) => id > 0) ? null : `command ids ${JSON.stringify(sent)}`);
+  const grown = await until(page, () => (window.__iron.economy.stats?.population ?? 0) >= 1700 && (window.__iron.economy.stats?.jobsC ?? 0) + (window.__iron.economy.stats?.jobsI ?? 0) >= 1400, null, 30000);
+  add('the buildings finish: population and jobs appear in the stats', grown ? null : JSON.stringify(await page.evaluate(() => { const s = window.__iron.economy.stats; return s && { population: s.population, jobsC: s.jobsC, jobsI: s.jobsI }; })));
+  if (!grown) { await page.close(); return out; }
+
+  await page.getByRole('button', { name: 'Max' }).click();
+  const active = await until(page, () => (window.__iron.sim.traffic?.vehicles ?? 0) > 0 && window.__iron.render.traffic.visible > 0, null, TRAFFIC_LIMIT_MS);
+  const sim1 = await page.evaluate(() => ({ ...window.__iron.sim.traffic }));
+  add('vehicles are active in the sim (Stats traffic.vehicles > 0)', active ? null : JSON.stringify(sim1));
+  add('vehicles are drawn (__iron.render.traffic.visible > 0, active > 0)', active ? null : JSON.stringify(await page.evaluate(() => ({ ...window.__iron.render.traffic, sample: undefined }))));
+  if (!active) { await page.close(); return out; }
+
+  const settled = await until(page, () => (window.__iron.sim.traffic?.trips ?? 0) >= 20, null, TRAFFIC_LIMIT_MS);
+  const st = await page.evaluate(() => ({ ...window.__iron.sim.traffic }));
+  add('trips complete: the congestion stat and failed-commute percent are defined', settled && Number.isFinite(st.congestion) && st.congestion >= 0 && st.congestion <= 1 && Number.isFinite(st.failedPct) && st.failedPct >= 0 && st.failedPct <= 100 ? null : JSON.stringify(st));
+  add('every commute in this connected grid succeeds (failed commutes 0%)', st.failedPct === 0 ? null : JSON.stringify(st));
+
+  // Every sampled vehicle must stand on a road tile of the mirror, and only vehicle kinds (car, taxi, truck, bus) may appear.
+  const bad = [];
+  let checked = 0;
+  const kinds = new Set();
+  for (let k = 0; k < 14; k++) {
+    const sample = await page.evaluate(() => window.__iron.render.traffic.sample(80).map((v) => ({ ...v, road: window.__iron.tools.peek('road', Math.floor(v.x), Math.floor(v.z)) & 7 })));
+    for (const v of sample) { checked++; kinds.add(v.kind); if (v.road === 0 || v.kind < 3 || v.kind > 6) bad.push(v); }
+    await page.waitForTimeout(250);
+  }
+  add('sampled vehicle positions are all over road tiles (mirror road layer)', checked >= 20 && bad.length === 0 ? null : `${checked} sampled, ${bad.length} bad: ${JSON.stringify(bad.slice(0, 3))}`);
+  add('cars appear (kind 3) and every sampled kind is a vehicle kind', kinds.has(3) ? null : `kinds ${JSON.stringify([...kinds])}`);
+
+  const hud = (await page.locator('[data-testid="traffic"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  add('the HUD shows vehicles, congestion and failed commutes', /Vehicles \d+/.test(hud) && /Congestion \d+%/.test(hud) && /Failed commutes [\d.]+%/.test(hud) ? null : JSON.stringify(hud));
+  const r = await page.evaluate(() => ({ ...window.__iron.render.traffic, sample: undefined, drawCalls: window.__iron.render.drawCalls, budget: window.__iron.render.drawCallBudget }));
+  add('visible vehicles never exceed the tier cap (300 on low) and draw calls stay in budget', r.visible <= 300 && r.visible <= r.active && r.drawCalls <= r.budget ? null : JSON.stringify(r));
+  if (night) {
+    const lit = await until(page, () => window.__iron.render.traffic.visible > 0 && window.__iron.render.traffic.lit > 0, null, 20000);
+    const t2 = await page.evaluate(() => ({ ...window.__iron.render.traffic, sample: undefined, dayFrac: window.__iron.render.fx.dayFrac }));
+    add('at night every drawn vehicle has its lights on (render.traffic.lit > 0)', lit && t2.lit === t2.visible ? null : JSON.stringify(t2));
+    // Brake lights: with enough traffic some vehicle slows or queues at least once.
+    const braked = await until(page, () => window.__iron.render.traffic.braking > 0, null, 60000);
+    add('a slowed vehicle lights its brake lights (render.traffic.braking > 0)', braked ? null : 'no vehicle ever braked in 60 s');
+  } else {
+    const t2 = await page.evaluate(() => ({ ...window.__iron.render.traffic, sample: undefined }));
+    add('at noon no vehicle has its lights on (render.traffic.lit === 0)', t2.visible > 0 && t2.lit === 0 ? null : JSON.stringify(t2));
+  }
+  // The overlay data layer fills along used roads and only there.
+  const heat = await until(page, () => { const t = window.__iron.tools; for (let i = 0; i < 65536; i++) if (t.peek('traffic', i & 255, i >> 8) > 0) return true; return false; }, null, 60000);
+  add('the traffic overlay layer carries load in the mirror', heat ? null : 'traffic layer stayed zero');
+  const off = await page.evaluate(() => { const t = window.__iron.tools; let n = 0; for (let i = 0; i < 65536; i++) if (t.peek('traffic', i & 255, i >> 8) > 0 && (t.peek('road', i & 255, i >> 8) & 7) === 0) n++; return n; });
+  add('no overlay load sits on a tile without a road', off === 0 ? null : `${off} tiles`);
+  if (!phone) {
+    const png = await page.screenshot();
+    const px = await decodeBands(page, png);
+    add('the street view with traffic is not uniform', px.centre.sd > 8 ? null : `stddev ${px.centre.sd.toFixed(2)}`);
+    if (process.env.SMOKE_SHOTS) await import('node:fs/promises').then((fs) => fs.writeFile(`${process.env.SMOKE_SHOTS}-traffic.png`, png));
+  }
+  console.log(`         ${label}traffic: sim ${JSON.stringify(st)}, render ${JSON.stringify(r)}, draw calls ${r.drawCalls}/${r.budget}`);
+  await page.close();
+  return out;
+}
+// ---- end U10 block ----
+
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true, fx: true, rain: true }, { backend: 'webgpu', showcaseTier: 'high', fx: true }],
   phone: [{ backend: 'webgl2' }],
@@ -747,8 +843,9 @@ const RENDER_LEGS = {
 
 const browser = await chromium.launch({ ...(existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {}), args: ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-vulkan=swiftshader', '--enable-features=Vulkan'] });
 let failed = 0;
-// SMOKE_ONLY=robots runs just the U7 workforce block, for iterating on it; the acceptance run leaves it unset.
-const only = process.env.SMOKE_ONLY === 'robots';
+// SMOKE_ONLY=robots or SMOKE_ONLY=traffic runs just that block (the U7 workforce or the U10 traffic one), for iterating on it; the acceptance run leaves it unset.
+const onlyBlock = process.env.SMOKE_ONLY;
+const only = onlyBlock === 'robots' || onlyBlock === 'traffic';
 try {
   for (const vp of VIEWPORTS) {
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
@@ -797,7 +894,8 @@ try {
     const buildChecks = only ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
     if (vp.name === 'desktop' && !only) buildChecks.push(...await roadGraphChecks(open));
     if (vp.name === 'desktop' && !only) buildChecks.push(...await economyChecks(open));
-    buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
+    if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
+    if (onlyBlock !== 'robots') buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

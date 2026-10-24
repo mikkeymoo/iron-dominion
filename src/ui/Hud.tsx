@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LoanInfo, Speed, Workforce } from '../sim/protocol.ts';
+import type { LoanInfo, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
@@ -35,6 +35,7 @@ export interface HudStats {
   loans: LoanInfo[];
   debtMonths: number;
   workforce: Workforce;
+  traffic?: TrafficStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -119,6 +120,13 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
           <span>Jobs {stats.workforce.jobs}</span>
           <span>Material {stats.workforce.stock}</span>
         </div>
+        {stats.traffic && (
+          <div className="traffic" data-testid="traffic" title="Vehicles on the road, how much traffic slows them below free flow, and the share of recent commutes that could not finish in time or find a route">
+            <span>Vehicles {stats.traffic.vehicles}</span>
+            <span>Congestion {Math.round(stats.traffic.congestion * 100)}%</span>
+            <span>Failed commutes {stats.traffic.failedPct}%</span>
+          </div>
+        )}
         <DemandBars demand={stats.rciDemand} />
         {follow && (
           <button type="button" className="tb wide" aria-pressed={follow.active} title="Chase a robot at street level (Esc or a tap to stop)" onClick={follow.toggle}>

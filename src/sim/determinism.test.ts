@@ -6,12 +6,15 @@ import { REGISTRY, S } from './layers.ts';
 import { fnv1a } from './hash.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
 import { runScripted, runTicks, scriptedCity } from './testkit.ts';
+import { gridCity } from './traffic/testkit.ts';
 
 interface Golden {
   seed: number;
   scripted: { ticks: number; hash: number };
   /** Seed 42, no commands, 200 ticks: what `?seed=42&haltAt=200` must report in the browser worker. */
   idle: { ticks: number; hash: number };
+  /** A completed 6x6 block street grid on flat land (traffic/testkit.ts gridCity) with traffic running: the scripted city builds no completed buildings in 2000 ticks, so this is the golden that covers vehicles. */
+  traffic: { ticks: number; hash: number };
 }
 
 function compute(): Golden {
@@ -19,7 +22,11 @@ function compute(): Golden {
   runScripted(sim, scriptedCity(sim.world), 2000);
   const idle = createSim(42);
   runTicks(idle, 200);
-  return { seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) } };
+  const town = gridCity({ cols: 6, rows: 6 });
+  runTicks(town, 600);
+  return {
+    seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) }, traffic: { ticks: 600, hash: stateHash(town) },
+  };
 }
 
 describe('determinism', () => {

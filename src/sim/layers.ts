@@ -7,7 +7,12 @@ export const CHUNK = 16;
 export const CHUNKS = MAP / CHUNK;
 export const TILES = MAP * MAP;
 export const BMAX = 8192;
-export const AMAX = 4096;
+/** Robot slots [0, RMAX) and vehicle slots [RMAX, AMAX) share one agent pool; the two systems never touch each other's range. */
+export const RMAX = 4096;
+export const VMAX = 4096;
+export const AMAX = RMAX + VMAX;
+/** Longest trip a vehicle stores, in tiles; a longer route counts as a failed trip (sim/traffic). */
+export const PATH_CAP = 160;
 export const UMAX = 16;
 export const UCELLS = 4096;
 export const MAX_LOANS = 3;
@@ -46,6 +51,14 @@ export const SPEC = {
   covPolice: L(Uint8Array, TILES, true, 'overlay'),
   covHealth: L(Uint8Array, TILES, true, 'overlay'),
   covEdu: L(Uint8Array, TILES, true, 'overlay'),
+  // Smoothed traffic load per tile, 0..255 (max over the four directions of vehicles / lane capacity). Display data for the traffic overlay.
+  traffic: L(Uint8Array, TILES, true, 'overlay'),
+  // Memory of failed commutes around a home, 0..255; lowers land value (economy/overlays.ts commutePenalty) and decays.
+  cFail: L(Uint8Array, TILES, false, 'none'),
+  // Road tile-direction cells (index tile * 4 + direction N, E, S, W): vehicles whose front is in the cell, and the lane-slot
+  // occupancy mask (lane * LANE_SLOTS + slot). Both are derived from the vehicles, rebuilt when the road graph changes.
+  tLoad: L(Uint8Array, TILES * 4, false, 'none'),
+  tLane: L(Uint32Array, TILES * 4, false, 'none'),
 
   // Building table (SoA pool). Slot is free when bArch = 0. Sent as slot deltas, not chunk slices.
   bArch: L(Uint8Array, BMAX, true, 'geometry'),
@@ -89,6 +102,12 @@ export const SPEC = {
   aSrc: L(Uint32Array, AMAX, false, 'none'),
   aWait: L(Uint16Array, AMAX, false, 'none'),
   aTry: L(Uint8Array, AMAX, false, 'none'),
+  // Vehicles (sim/traffic), indexed by slot - RMAX. The route is a tile list (road tile index fits Uint16) whose length is vLen;
+  // the position along it is aStep (segment) + aFrac (k / 1024). aSrc / aTarget hold the origin and destination building refs,
+  // aCarry lane | purpose << 2, aWait ticks without moving, aEpoch the graphEpoch the route was last validated at.
+  vPath: L(Uint16Array, VMAX * PATH_CAP, false, 'none'),
+  vLen: L(Uint8Array, VMAX, false, 'none'),
+  vDeadline: L(Uint32Array, VMAX, false, 'none'),
 
   // Construction jobs live on the building slot they build (robots/jobs.ts). jKind 0 none, 1 build, 2 level up, 3 demolish.
   // jProg is 0..65535 (bProg is its top byte); jHave is material delivered, jInbound material on its way, jNeed the total.
@@ -126,7 +145,7 @@ export const SPEC = {
   jPrevZone: L(Uint8Array, UMAX * UCELLS, false, 'none'),
   jPostZone: L(Uint8Array, UMAX * UCELLS, false, 'none'),
 
-  scalars: L(Float64Array, 32, false, 'none'),
+  scalars: L(Float64Array, 48, false, 'none'),
   rng: L(Uint32Array, 4, false, 'none'),
 } as const;
 
@@ -179,6 +198,12 @@ export const S = {
   jobsC: 22, jobsI: 23, employed: 24, unemployment: 25,
   // Budget months completed so far, consecutive months ending with a negative treasury, and the pollution sum of the last pass.
   month: 26, lowMonths: 27, pollTotal: 28,
+  // Traffic (sim/traffic): vehicles on the road, trips finished and failed, smoothed congestion 0..1 (1 - mean speed / free-flow
+  // speed), the commute outcome counters (halved every COMMUTE_WINDOW ticks), per-purpose fractional trip accumulators, and spawns deferred for want of a free lane slot.
+  vehicles: 29, tripsDone: 30, tripsFailed: 31, congestion: 32, commuteOk: 33, commuteFailed: 34,
+  tripAccOut: 35, tripAccBack: 36, tripAccShop: 37, tripAccFreight: 38, spawnBlocked: 39,
+  // graphEpoch the lane occupancy was last rebuilt from the vehicles at (a road change can change a tile's class, hence its lanes).
+  occEpoch: 40,
 } as const;
 
 export const WEATHER = { CLEAR: 0, RAIN: 1, SNOW: 2, STORM: 3 } as const;

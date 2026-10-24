@@ -2,7 +2,7 @@ import { expect } from 'vitest';
 import { ARCH, BFLAG, isRci } from '../catalog.ts';
 import { execute, type Command, type CommandBody } from '../commands.ts';
 import { createSim, step } from '../engine.ts';
-import { AMAX, BMAX, S, TERRAIN } from '../layers.ts';
+import { BMAX, RMAX, S, TERRAIN } from '../layers.ts';
 import type { Sim } from '../world.ts';
 import { AST } from './constants.ts';
 
@@ -60,7 +60,7 @@ export const finished = (sim: Sim): number[] => grown(sim).filter((s) => (sim.wo
 export const depots = (sim: Sim): number[] => slotsOf(sim, (s) => sim.world.bArch[s] === ARCH.DEPOT);
 export const agents = (sim: Sim, kind?: number): number[] => {
   const out: number[] = [];
-  for (let a = 0; a < AMAX; a++) if (sim.world.aKind[a] !== 0 && (kind === undefined || sim.world.aKind[a] === kind)) out.push(a);
+  for (let a = 0; a < RMAX; a++) if (sim.world.aKind[a] !== 0 && (kind === undefined || sim.world.aKind[a] === kind)) out.push(a);
   return out;
 };
 export const active = (sim: Sim): number[] => agents(sim).filter((a) => sim.world.aState[a] !== AST.IDLE);

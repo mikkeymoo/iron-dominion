@@ -5,6 +5,7 @@ import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
+import { trafficStats } from './traffic/index.ts';
 import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
 import type { Sim } from './world.ts';
 
@@ -39,6 +40,8 @@ let wantHash = false;
 let tickMs = 0;
 let skippedSends = 0;
 let lastAgentCount = 0;
+let lastAgentTick = -1;
+let viewDirty = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
 const freeAgentBufs: AgentBuf[] = [0, 1].map(() => ({ pos: new Float32Array(AMAX * 3), ids: new Uint32Array(AMAX * 2) }));
 
@@ -62,15 +65,20 @@ function flush(now: number, force = false): void {
   if (overlay) lastOverlay = now;
   for (const m of collectOutgoing(sim, { overlay })) post(m, transferablesOf(m));
 
-  const buf = freeAgentBufs.length > 0 ? freeAgentBufs.pop() : undefined;
-  if (buf) {
-    const count = packAgents(sim, buf.pos, buf.ids, view);
-    if (count > 0 || lastAgentCount > 0) {
-      const msg: AgentsMsg = { type: 'agents', tick: tickOf(sim), count, pos: buf.pos, ids: buf.ids };
-      post(msg, [buf.pos.buffer, buf.ids.buffer]);
-    } else freeAgentBufs.push(buf);
-    lastAgentCount = count;
-  } else if (lastAgentCount > 0) skippedSends++;
+  // M1 coalescing: agents go out when the sim ticked or the view rect moved, not on every frame (thousands of vehicles per message).
+  if (force || viewDirty || tickOf(sim) !== lastAgentTick) {
+    const buf = freeAgentBufs.length > 0 ? freeAgentBufs.pop() : undefined;
+    if (buf) {
+      const count = packAgents(sim, buf.pos, buf.ids, view);
+      if (count > 0 || lastAgentCount > 0) {
+        const msg: AgentsMsg = { type: 'agents', tick: tickOf(sim), count, pos: buf.pos, ids: buf.ids };
+        post(msg, [buf.pos.buffer, buf.ids.buffer]);
+      } else freeAgentBufs.push(buf);
+      lastAgentCount = count;
+      lastAgentTick = tickOf(sim);
+      viewDirty = false;
+    } else if (lastAgentCount > 0) skippedSends++;
+  }
 
   const hashDue = wantHash || (hashEvery > 0 && tickOf(sim) - lastHashTick >= hashEvery);
   if (force || hashDue || now - lastStats >= STATS_MS) {
@@ -81,6 +89,7 @@ function flush(now: number, force = false): void {
       treasury: s[S.treasury]!, population: s[S.population]!, dayFrac: s[S.dayFrac]!, day: s[S.day]!,
       weather: s[S.weather]!, weatherIntensity: s[S.weatherIntensity]!, graphEpoch: s[S.graphEpoch]!,
       workforce: workforceOf(sim.world),
+      traffic: trafficStats(sim.world),
       ...econStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
@@ -156,7 +165,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
         break;
       case 'requestResync': sim.resync = true; break;
       case 'agentsReturn': freeAgentBufs.push({ pos: m.pos, ids: m.ids }); break;
-      case 'viewRect': view = { x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1 }; break;
+      case 'viewRect': view = { x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1 }; viewDirty = true; break;
       case 'setSpeed': speed = m.speed; acc = 0; break;
       case 'pause': paused = true; break;
       case 'resume': if (!halted) { paused = false; last = performance.now(); } break;
@@ -180,6 +189,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
           halted = false;
           acc = 0;
           lastAgentCount = 0;
+          lastAgentTick = -1;
           flush(performance.now(), true);
         } catch (err) {
           fail(`snapshot rejected: ${err instanceof Error ? err.message : String(err)}`);

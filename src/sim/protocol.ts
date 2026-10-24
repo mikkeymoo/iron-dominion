@@ -2,7 +2,7 @@ import type { Command } from './commands.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export type Speed = 0 | 1 | 2 | 4 | 'max';
 export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float32Array | Float64Array | Int8Array | Int32Array;
@@ -55,7 +55,7 @@ export interface AgentsMsg {
   count: number;
   /** x, y, heading per agent. */
   pos: Float32Array;
-  /** Per agent two words: slot | generation << 16, and kind | state << 8 | carrying << 16 (see AKIND and AST in sim/robots/constants.ts). */
+  /** Per agent two words: slot | generation << 16, and kind | state << 8 | carrying << 16 (AKIND and AST in sim/robots/constants.ts, VKIND and VST in sim/traffic/constants.ts). */
   ids: Uint32Array;
 }
 export interface AgentsReturn { type: 'agentsReturn'; pos: Float32Array; ids: Uint32Array }
@@ -98,9 +98,12 @@ export interface Workforce {
   /** Material units held by depots and industry. */
   stock: number;
 }
+/** Traffic numbers for the HUD: vehicles on the road, smoothed congestion 0..1 (1 - mean speed / free-flow speed), percent of recent commutes that failed, and trip totals. */
+export interface TrafficStats { vehicles: number; congestion: number; failedPct: number; trips: number; failedTrips: number }
 export interface Stats {
   type: 'stats';
   workforce: Workforce;
+  traffic: TrafficStats;
   tick: number;
   hash?: number;
   tickMs: number;
