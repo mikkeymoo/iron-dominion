@@ -46,13 +46,31 @@ describe('streetlight placement', () => {
 
 describe('camera-driven post strengths', () => {
   it('grows tilt-shift as the camera gets closer and lower, within 0..1', () => {
-    expect(tiltStrength(30, 0.3)).toBeGreaterThan(tiltStrength(250, 1.4));
-    expect(tiltStrength(30, 1.0)).toBeGreaterThan(tiltStrength(200, 1.0));
-    expect(tiltStrength(100, 0.3)).toBeGreaterThan(tiltStrength(100, 1.4));
+    expect(tiltStrength(20, 0.3)).toBeGreaterThan(tiltStrength(250, 1.4));
+    expect(tiltStrength(20, 1.0)).toBeGreaterThan(tiltStrength(50, 1.0));
+    expect(tiltStrength(35, 0.3)).toBeGreaterThan(tiltStrength(35, 1.4));
     for (const d of [3, 30, 110, 300]) for (const p of [0.15, 0.8, 1.45]) {
       const t = tiltStrength(d, p);
-      expect(t).toBeGreaterThan(0.3);
+      expect(t).toBeGreaterThanOrEqual(0);
       expect(t).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('is exactly zero at satellite and far zoom, whatever the pitch, and nearly so at the new-city start distance', () => {
+    for (const p of [0.15, 0.62, 0.9, 1.45]) {
+      expect(tiltStrength(60, p)).toBe(0);
+      expect(tiltStrength(110, p)).toBe(0);
+      expect(tiltStrength(300, p)).toBe(0);
+      expect(tiltStrength(55, p)).toBeLessThan(0.1);
+    }
+  });
+
+  it('falls monotonically with distance', () => {
+    let prev = Infinity;
+    for (let d = 3; d <= 80; d += 1) {
+      const t = tiltStrength(d, 0.6);
+      expect(t).toBeLessThanOrEqual(prev + 1e-12);
+      prev = t;
     }
   });
 

@@ -126,6 +126,10 @@ async function renderChecks(page, backend, opts) {
   add('top band is sky-like (blue channel highest)', px.top.b > px.top.r && px.top.b > px.top.g ? null : `top mean rgb ${px.top.r.toFixed(0)},${px.top.g.toFixed(0)},${px.top.b.toFixed(0)} in ${px.size}`);
   add('centre region is not uniform (luma stddev > 8)', px.centre.sd > 8 ? null : `stddev ${px.centre.sd.toFixed(2)}`);
 
+  const hiddenOnPhone = opts.phone ? !(await visible(page, '[data-testid="perf"]')) : null;
+  if (opts.phone) add('the performance panel is hidden by default on a phone', hiddenOnPhone ? null : 'perf panel visible without opting in');
+  await showPerfPanel(page);
+  await page.locator('[data-testid="perf"]').waitFor({ timeout: 5000 }).catch(() => {});
   const perf = await page.locator('[data-testid="perf"]').innerText().catch(() => '');
   add('perf panel shows backend, fps, draw calls, triangles, sim tick', new RegExp(`backend\\s+${backend}`, 'i').test(perf.replace(/\n/g, ' ')) && /draw calls/.test(perf) && /triangles/.test(perf) && /sim tick/.test(perf) ? null : JSON.stringify(perf));
 
@@ -332,6 +336,41 @@ const BUILD_QUERY = '?autostart=1&seed=42&backend=webgl2&tier=low&governor=off';
 const DEPOT_COST = 500, STREET_COST = 10, ZONE_COST = 2;
 const until = (page, fn, arg, timeout = 20000) => page.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
 const camOf = (page) => page.evaluate(() => ({ ...window.__iron.render.camera }));
+const visible = (page, selector) => page.locator(selector).first().isVisible().catch(() => false);
+// The HUD differs by width: desktop shows one button per speed, a phone shows a play/pause toggle and a speed-cycle button.
+async function setSpeedUi(page, label) {
+  const cycle = page.locator('[data-testid="speed-cycle"]');
+  if (await cycle.count()) {
+    for (let i = 0; i < 5 && (await cycle.first().textContent()) !== label; i++) await cycle.first().click();
+    return (await cycle.first().textContent()) === label;
+  }
+  await page.locator('.speeds button', { hasText: label }).click();
+  return true;
+}
+// A phone's top bar starts folded to a strip; the chevron opens the menu and status buttons.
+async function expandTop(page) {
+  if (!(await visible(page, '[data-testid="menu-button"]')) && (await page.locator('[data-testid="topbar-chevron"]').count())) {
+    await page.locator('[data-testid="topbar-chevron"]').click();
+    await page.locator('[data-testid="menu-button"]').waitFor({ timeout: 5000 });
+  }
+}
+async function openMenu(page) {
+  await expandTop(page);
+  if (!(await visible(page, '[data-testid="menu"]'))) await page.locator('[data-testid="menu-button"]').click();
+}
+async function clickFollow(page) {
+  if (!(await visible(page, 'button:has-text("Follow a robot")'))) await openMenu(page);
+  await page.getByRole('button', { name: 'Follow a robot' }).click();
+}
+async function openViews(page) {
+  if (!(await visible(page, '[data-testid="overlay-none"]'))) await page.locator('[data-testid="views-toggle"]').click();
+}
+async function showPerfPanel(page) {
+  if (await visible(page, '[data-testid="perf"]')) return;
+  await openMenu(page);
+  await page.locator('[data-testid="perf-toggle"]').check();
+  await page.locator('[data-testid="menu"] button', { hasText: 'Close' }).click();
+}
 // A page can report the renderer ready a moment before the first terrain resync reaches the mirror; until then findSite sees only water.
 const siteWhenReady = async (page, size) => {
   await until(page, (n) => window.__iron.tools.findSite(n) !== null, size, 20000);
@@ -729,6 +768,7 @@ async function utilitiesChecks(open) {
   await until(page, () => (window.__iron.economy.stats?.tick ?? 0) > 400, null, 60000);
   const sums = {};
   let modeProblem = null;
+  await openViews(page);
   for (const m of ['none', 'power', 'water', 'landValue', 'pollution']) {
     await page.click(`[data-testid="overlay-${m}"]`);
     const ok = await until(page, (mm) => window.__iron.render.overlay.mode === mm, m, 10000);
@@ -805,7 +845,7 @@ async function workforceChecks(open, phone) {
   add('depot, roads and R/C/I zones sent through tools.dragTiles', laid.every((id) => id > 0) ? null : `command ids ${JSON.stringify(laid)}`);
   if (!laid.every((id) => id > 0)) { await page.close(); return out; }
 
-  await page.getByRole('button', { name: 'Max' }).click();
+  await setSpeedUi(page, 'Max');
   const t0 = Date.now();
   const sawRobots = await until(page, () => { const w = window.__iron.sim.workforce; return !!w && w.builders > 0 && w.haulers > 0; }, null, ROBOT_LIMIT_MS);
   const w1 = await page.evaluate(() => ({ ...window.__iron.sim.workforce }));
@@ -814,15 +854,17 @@ async function workforceChecks(open, phone) {
   add('robots are drawn (__iron.render.robots.visible > 0)', drawn ? null : JSON.stringify(await page.evaluate(() => ({ ...window.__iron.render.robots }))));
   const job = await until(page, () => window.__iron.sim.workforce?.jobs > 0 && window.__iron.render.buildings.sites > 0, null, ROBOT_LIMIT_MS);
   add('a construction job starts and its site (foundation, scaffold) is instanced', job ? null : JSON.stringify(await page.evaluate(() => ({ w: window.__iron.sim.workforce, b: { ...window.__iron.render.buildings } }))));
-  const hud = (await page.locator('[data-testid="workforce"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  if (phone) { await expandTop(page); await page.locator('[data-testid="status-chip"]').click(); }
+  const hud =(await page.locator('[data-testid="workforce"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  if (phone) await page.locator('[data-testid="status-chip"]').click();
   add('the HUD shows the workforce readout', /Builders \d+\/\d+/.test(hud) && /Haulers \d+\/\d+/.test(hud) && /Jobs \d+/.test(hud) && /Material \d+/.test(hud) ? null : JSON.stringify(hud));
 
   // Follow a robot: the button toggles the chase camera, the camera moves with the robot, Escape (desktop) or a tap (phone) ends it.
   const active = await until(page, () => window.__iron.render.robots.visible > 0, null, ROBOT_LIMIT_MS);
   if (active) {
     // At Max the whole district finishes in a moment; 2x keeps robots working while the camera follows one.
-    await page.getByRole('button', { name: '2x' }).click();
-    await page.getByRole('button', { name: 'Follow a robot' }).click();
+    await setSpeedUi(page, '2x');
+    await clickFollow(page);
     const on = await until(page, () => window.__iron.render.following === true, null, 5000);
     add('Follow a robot starts the chase camera', on ? null : 'render.following never became true');
     if (on) {
@@ -847,7 +889,7 @@ async function workforceChecks(open, phone) {
   const sites = await until(page, () => window.__iron.render.buildings.instances + window.__iron.render.buildings.farInstances >= 2, null, 30000);
   add('finished buildings are instanced beside the depot', sites ? null : JSON.stringify(end.b));
   if (!phone) {
-    await page.getByRole('button', { name: '1x' }).click();
+    await setSpeedUi(page, '1x');
     const sparks = await page.evaluate(() => window.__iron.render.robots.sparks);
     add('welding sparks were emitted at active sites', sparks > 0 ? null : `sparks ${sparks}`);
   }
@@ -920,7 +962,13 @@ async function trafficChecks(open, phone) {
   add('sampled vehicle positions are all over road tiles (mirror road layer)', checked >= 20 && bad.length === 0 ? null : `${checked} sampled, ${bad.length} bad: ${JSON.stringify(bad.slice(0, 3))}`);
   add('cars appear (kind 3) and every sampled kind is a vehicle kind', kinds.has(3) ? null : `kinds ${JSON.stringify([...kinds])}`);
 
+  if (phone) {
+    if (!(await page.locator('[data-testid="status-chip"]').count())) await page.locator('[data-testid="topbar-chevron"]').click();
+    await page.locator('[data-testid="status-chip"]').click();
+    await until(page, () => !!document.querySelector('[data-testid="traffic"]'), null, 5000);
+  }
   const hud = (await page.locator('[data-testid="traffic"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  if (phone) await page.locator('[data-testid="status-chip"]').click();
   add('the HUD shows vehicles, congestion and failed commutes', /Vehicles \d+/.test(hud) && /Congestion \d+%/.test(hud) && /Failed commutes [\d.]+%/.test(hud) ? null : JSON.stringify(hud));
   const r = await page.evaluate(() => ({ ...window.__iron.render.traffic, sample: undefined, drawCalls: window.__iron.render.drawCalls, budget: window.__iron.render.drawCallBudget }));
   add('visible vehicles never exceed the tier cap (300 on low) and draw calls stay in budget', r.visible <= 300 && r.visible <= r.active && r.drawCalls <= r.budget ? null : JSON.stringify(r));
@@ -943,7 +991,10 @@ async function trafficChecks(open, phone) {
   const picked = await page.evaluate(() => window.__iron.render.setOverlay('traffic'));
   const shown = await until(page, (c) => window.__iron.render.overlay.mode === 'traffic' && window.__iron.render.overlay.checksum !== c, none, 20000);
   add('the Views control can show the traffic overlay (texture painted, checksum changes)', picked && shown ? null : `setOverlay ${picked}, ${JSON.stringify(await page.evaluate(() => ({ ...window.__iron.render.overlay })))}`);
+  if (phone && !(await page.locator('[data-testid="toolbar"]').count())) await page.locator('[data-testid="build-fab"]').click();
+  await page.locator('[data-testid="views-toggle"]').click();
   add('the Views control has a Traffic button', (await page.getByTestId('overlay-traffic').count()) === 1 ? null : 'no overlay-traffic button');
+  await page.locator('[data-testid="views-toggle"]').click();
   const off = await page.evaluate(() => { const t = window.__iron.tools; let n = 0; for (let i = 0; i < 65536; i++) if (t.peek('traffic', i & 255, i >> 8) > 0 && (t.peek('road', i & 255, i >> 8) & 7) === 0) n++; return n; });
   add('no overlay load sits on a tile without a road', off === 0 ? null : `${off} tiles`);
   if (!phone) {
@@ -982,6 +1033,171 @@ async function trafficQuickChecks(open) {
 }
 // ---- end U10 block ----
 
+// ---- U14a phone UX and visual clarity checks (webgl2 low; desktop and phone viewports) ----
+const MIN_TARGET = 43.5;
+async function hudChecks(open, vp) {
+  const out = [];
+  const phone = vp === 'phone';
+  const add = (name, problem) => out.push([`hud: ${phone ? 'phone ' : ''}${name}`, problem]);
+  const page = await open(BUILD_QUERY);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && window.__iron.tools); }, null, 120000);
+  if (!up) { add('city boots with the HUD', 'renderer or __iron.tools never ready'); await page.close(); return out; }
+  const site = await siteWhenReady(page, 14);
+  if (!site) { add('a flat 14x14 land site exists', 'findSite returned null'); await page.close(); return out; }
+  await waitFrames(page, (await frames(page)) + 8, 20000);
+
+  // A new city starts at neighbourhood zoom, not satellite.
+  const start = await camOf(page);
+  add('a new city starts at neighbourhood zoom (camera dist <= 70)', start.dist <= 70 ? null : JSON.stringify(start));
+  const ratio = await page.evaluate(() => window.__iron.render.pixelRatio);
+  console.log(`         ${vp} hud: start camera ${JSON.stringify(start)}, pixel ratio ${ratio}`);
+  if (phone) {
+    // SwiftShader is a software adapter and gets 0.75x of the tier's ratio; a real GPU phone gets the full min(dpr, 2) * 0.8 = 1.6.
+    const software = await page.evaluate(() => window.__iron.render.software);
+    const want = Math.min(3, 2) * 0.8 * (software ? 0.75 : 1);
+    add('a high-DPR phone renders at min(dpr, cap) x scale device pixels per CSS pixel (>= 1.5 on a GPU)', Math.abs(ratio - want) < 0.01 && (software || ratio >= 1.5) ? null : `pixel ratio ${ratio}, want ${want}, software ${software}`);
+  }
+
+  // Tilt-shift is zero at satellite zoom and ramps in only close to the ground.
+  await page.evaluate(() => window.__iron.render.resetCamera({ dist: 250, pitch: 1.0 }));
+  await waitFrames(page, (await frames(page)) + 4, 8000);
+  const far = await page.evaluate(() => window.__iron.render.fx.tilt);
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 10, pitch: 0.4 }), site);
+  await waitFrames(page, (await frames(page)) + 4, 8000);
+  const near = await page.evaluate(() => window.__iron.render.fx.tilt);
+  add('tilt-shift strength is 0 at far zoom and > 0 at street zoom', far === 0 && near > 0 ? null : `far ${far}, near ${near}`);
+  const fog = await page.evaluate(() => window.__iron.render.fx.fogDensity);
+  add('clear-sky fog is light enough to leave the whole map visible (density <= 0.001)', fog <= 0.001 ? null : `fog density ${fog}`);
+
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
+  await waitFrames(page, (await frames(page)) + 4, 8000);
+
+  const tapCanvas = async () => { const b = await page.locator('canvas').boundingBox(); await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); };
+  if (phone) {
+    // A phone starts folded: a minimal top strip, a single build button and the checklist as a chip.
+    const strip = await page.locator('[data-testid="topbar"]').boundingBox();
+    add('the top bar starts as a minimal strip <= 56 CSS px tall', strip.height <= 56 ? null : JSON.stringify(strip));
+    add('the collapsed strip holds only pause, speed, money and the chevron', (await page.locator('[data-testid="menu-button"]').count()) === 0 && (await page.locator('[data-testid="population"]').count()) === 0 && (await page.locator('[data-testid="status-chip"]').count()) === 0 && (await visible(page, '[data-testid="topbar-chevron"]')) ? null : 'extra controls in the strip');
+    add('the bottom shows only the build button', (await visible(page, '[data-testid="build-fab"]')) && (await page.locator('[data-testid="toolbar"]').count()) === 0 ? null : 'tool bar showing');
+    const fab = await page.locator('[data-testid="build-fab"]').boundingBox();
+    add('the build button is a 44px target in the bottom-right corner', fab.width >= 44 && fab.height >= 44 && fab.x + fab.width > (await page.evaluate(() => window.innerWidth)) * 0.7 ? null : JSON.stringify(fab));
+    add('the checklist starts as a chip', (await visible(page, '[data-testid="checklist-chip"]')) && (await page.locator('[data-testid="checklist"]').count()) === 0 ? null : 'card open on load');
+    await page.locator('[data-testid="topbar-chevron"]').click();
+    add('the chevron expands the rest of the top bar', await until(page, () => !!document.querySelector('[data-testid="menu-button"]') && !!document.querySelector('[data-testid="population"]'), null, 5000) ? null : 'top bar did not expand');
+    await page.locator('[data-testid="build-fab"]').click();
+    add('the build button expands the icon row', await until(page, () => !!document.querySelector('[data-testid="toolbar"]') && !document.querySelector('[data-testid="build-fab"]'), null, 5000) ? null : 'tool bar did not open');
+  }
+
+  // Enter animations scale the panels from 0.85; measure them once they have finished (a software-rendered page is slow to tick them).
+  await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => undefined))));
+  await page.waitForTimeout(100);
+  // Bars: one row each, within the height budget, every control a 44px target.
+  const topBox = await page.locator('[data-testid="topbar"]').boundingBox();
+  const barBox = await page.locator('[data-testid="toolbar"]').boundingBox();
+  const vw = await page.evaluate(() => window.innerWidth);
+  console.log(`         ${vp} hud: top bar ${Math.round(topBox.width)}x${Math.round(topBox.height)}, bottom bar ${Math.round(barBox.width)}x${Math.round(barBox.height)} CSS px (viewport width ${vw})`);
+  if (phone) {
+    add('the top bar is one row, <= 72 CSS px tall', topBox.height <= 72 ? null : JSON.stringify(topBox));
+    add('the bottom bar is one row, <= 80 CSS px tall', barBox.height <= 80 ? null : JSON.stringify(barBox));
+    add('both bars stay inside the viewport width', topBox.x >= 0 && topBox.x + topBox.width <= vw + 0.5 && barBox.x >= 0 && barBox.x + barBox.width <= vw + 0.5 ? null : JSON.stringify({ topBox, barBox, vw }));
+    const rows = await page.evaluate(() => {
+      const top = document.querySelector('[data-testid="topbar"]').getBoundingClientRect();
+      return [...document.querySelectorAll('[data-testid="topbar"] > :not(.notice)')].filter((e) => e.getBoundingClientRect().height > 0).map((e) => { const r = e.getBoundingClientRect(); return r.bottom <= top.bottom + 0.5 && r.top >= top.top - 0.5; });
+    });
+    add('every top bar control sits inside the single row', rows.length > 0 && rows.every(Boolean) ? null : JSON.stringify(rows));
+  } else {
+    add('the desktop top bar is at most two rows', topBox.height <= 130 ? null : JSON.stringify(topBox));
+  }
+  const targets = await page.evaluate(() => [...document.querySelectorAll('[data-testid="topbar"] button, [data-testid="toolbar"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.getAttribute('aria-label') || b.textContent, w: r.width, h: r.height }; }));
+  const small = targets.filter((t) => t.w < MIN_TARGET || t.h < MIN_TARGET);
+  add('every top and bottom bar button is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
+  const names = await page.evaluate(() => [...document.querySelectorAll('[data-testid="topbar"] button, [data-testid="toolbar"] button')].filter((b) => !(b.getAttribute('aria-label') || b.textContent || '').trim()).length);
+  add('every bar button has an accessible name', names === 0 ? null : `${names} unnamed`);
+  const toolNames = await page.evaluate(() => [...document.querySelectorAll('[data-testid="toolbar"] button')].map((b) => b.getAttribute('aria-label')));
+  add('the bottom row holds Bulldoze, Road, Zone, Services, Utilities, Terraform, Undo and Views', JSON.stringify(toolNames) === JSON.stringify(['Bulldoze', 'Road', 'Zone', 'Services', 'Utilities', 'Terraform', 'Undo', 'Views']) ? null : JSON.stringify(toolNames));
+  add('Cancel is absent until a tool is active', (await page.locator('[data-testid="cancel-tool"]').count()) === 0 ? null : 'Cancel visible with no tool');
+  if (phone) add('Save, Budget and Follow are not in the phone top bar', (await page.locator('[data-testid="topbar"] button', { hasText: /^(Save|Follow a robot)$/ }).count()) === 0 && (await page.locator('[data-testid="topbar"] button[aria-label="Budget"]').count()) === 0 ? null : 'a moved control is still in the bar');
+
+  if (phone) {
+    // Panels fold on an outside tap and on Escape, and only one is open at a time.
+    await tapCanvas();
+    add('an outside tap folds the open tool bar back into the build button', await until(page, () => !document.querySelector('[data-testid="toolbar"]') && !!document.querySelector('[data-testid="build-fab"]'), null, 5000) ? null : 'tool bar stayed open');
+    await page.locator('[data-testid="menu-button"]').click();
+    add('the menu button opens the menu drawer', await visible(page, '[data-testid="menu"]') ? null : 'no menu');
+    await page.locator('[data-testid="status-chip"]').click();
+    add('opening the status chip closes the menu (one panel at a time)', await until(page, () => !document.querySelector('[data-testid="menu"]') && !!document.querySelector('[data-testid="status-pop"]'), null, 5000) ? null : 'both open');
+    await tapCanvas();
+    add('an outside tap closes the status panel', await until(page, () => !document.querySelector('[data-testid="status-pop"]'), null, 5000) ? null : 'status stayed open');
+    await page.locator('[data-testid="menu-button"]').click();
+    await page.keyboard.press('Escape');
+    add('Escape closes the menu drawer', await until(page, () => !document.querySelector('[data-testid="menu"]'), null, 5000) ? null : 'menu stayed open');
+    await page.locator('[data-testid="topbar-chevron"]').click();
+    await until(page, () => !document.querySelector('[data-testid="menu-button"]'), null, 5000);
+    await page.locator('[data-testid="topbar-chevron"]').click();
+    await until(page, () => !!document.querySelector('[data-testid="menu-button"]'), null, 5000);
+    await page.locator('[data-testid="build-fab"]').click();
+    await until(page, () => !!document.querySelector('[data-testid="toolbar"]'), null, 5000);
+  }
+
+  // Starter checklist: renders on a new city, step 1 is open, a hint nudges road drawing before any depot, then the depot ticks step 1.
+  // Depot costs are exact below, so the sim waits (commands still run at once while paused).
+  await page.locator('button[title="Pause (0)"]').click();
+  if (phone) await page.locator('[data-testid="checklist-chip"]').click();
+  const list = await visible(page, '[data-testid="checklist"]');
+  add('the starter checklist renders on a new city', list ? null : 'no checklist');
+  const step1 = await page.locator('[data-testid="checklist-step-depot"]').getAttribute('data-done');
+  add('step 1 (Robot Depot) starts unticked', step1 === 'false' ? null : `data-done ${step1}`);
+  const steps = await page.locator('[data-testid^="checklist-step-"]').count();
+  add('the checklist has six steps', steps === 6 ? null : `${steps} steps`);
+  if (phone) {
+    await page.locator('[data-testid="status-chip"]').click();
+    add('the workforce chip warns "No depot" before a depot exists', await visible(page, '[data-testid="no-depot"]') ? null : 'no warning');
+    await page.locator('[data-testid="status-chip"]').click();
+  } else add('the workforce readout warns "No depot" before a depot exists', await visible(page, '[data-testid="no-depot"]') ? null : 'no warning');
+
+  await page.evaluate((s) => { const t = window.__iron.tools; t.select('road', { cls: 1 }); return t.dragTiles({ x: s.x + 1, y: s.y + 6 }, { x: s.x + 8, y: s.y + 6 }); }, site);
+  const hinted = await page.locator('[data-testid="hint-toast"]').first().waitFor({ timeout: 8000 }).then(() => true, () => false);
+  const hintText = hinted ? await page.locator('[data-testid="hint-toast"]').first().innerText() : '';
+  add('drawing a road before any depot shows "Robots build your city. Place a Robot Depot first."', hinted && /Robots build your city\. Place a Robot Depot first\./.test(hintText) ? null : `hint "${hintText}"`);
+  await page.evaluate(() => window.__iron.tools.cancel());
+
+  // The checklist button for step 1 jumps to Services, Depot.
+  if (phone && !(await visible(page, '[data-testid="checklist"]'))) await page.locator('[data-testid="checklist-chip"]').click();
+  await page.locator('[data-testid="checklist-go-depot"]').click();
+  const picked = await page.evaluate(() => window.__iron.tools.selected);
+  add('the step 1 button selects the Services > Depot tool', picked && picked.tool === 'service' && picked.arch === 1 ? null : JSON.stringify(picked));
+  add('Cancel appears while a tool is active', await visible(page, '[data-testid="cancel-tool"]') ? null : 'no Cancel');
+  const strip = await page.locator('[data-testid="optstrip"]').boundingBox();
+  add('the tool options are one scrollable row (<= 72 CSS px tall)', strip && strip.height <= 72 ? null : JSON.stringify(strip));
+  if (phone) add('picking the step collapses the checklist to a chip', await visible(page, '[data-testid="checklist-chip"]') ? null : 'checklist still open');
+  await page.evaluate(() => window.__iron.tools.cancel());
+
+  await placeDepot(page, site, add, 'hud ');
+  const ticked = await until(page, () => document.querySelector('[data-testid="checklist-step-depot"]')?.getAttribute('data-done') === 'true' || (!document.querySelector('[data-testid="checklist-step-depot"]') && !!document.querySelector('[data-testid="checklist-chip"]')), null, 10000);
+  if (phone) await page.locator('[data-testid="checklist-chip"]').click();
+  const done1 = await until(page, () => document.querySelector('[data-testid="checklist-step-depot"]')?.getAttribute('data-done') === 'true', null, 10000);
+  add('step 1 ticks after a depot is placed through __iron.tools', ticked && done1 ? null : `ticked ${ticked}, done ${done1}`);
+  const noDepot = phone ? null : await visible(page, '[data-testid="no-depot"]');
+  if (!phone) add('the "No depot" warning clears once a depot exists', noDepot ? 'still shown' : null);
+
+  // Collapse persists as a chip; the Views popover holds the overlay controls.
+  if (!phone) {
+    await page.locator('[data-testid="checklist-collapse"]').click();
+    add('the checklist collapses to a chip', await visible(page, '[data-testid="checklist-chip"]') ? null : 'no chip');
+  }
+  if (phone && !(await visible(page, '[data-testid="toolbar"]'))) await page.locator('[data-testid="build-fab"]').click();
+  await page.locator('[data-testid="views-toggle"]').click();
+  add('the Views button opens a popover with the overlay and underground controls', (await visible(page, '[data-testid="overlay-power"]')) && (await visible(page, '[data-testid="underground"]')) ? null : 'popover controls missing');
+  await page.locator('[data-testid="views-toggle"]').click();
+
+  await page.waitForTimeout(100);
+  const shot = process.env.SMOKE_SHOTS;
+  if (shot) await import('node:fs/promises').then((fs) => page.screenshot().then((png) => fs.writeFile(`${shot}-${vp}-hud.png`, png)));
+  await page.close();
+  return out;
+}
+// ---- end U14a block ----
+
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true, fx: true, rain: true }, { backend: 'webgpu', showcaseTier: 'high', fx: true }],
   phone: [{ backend: 'webgl2' }],
@@ -1016,7 +1232,7 @@ try {
     const legs = only ? [] : quick ? [{ backend: 'webgl2' }] : RENDER_LEGS[vp.name] ?? [];
     for (const leg of legs) {
       const p = await open(RENDER_QUERY(leg.backend));
-      for (const [name, problem] of await renderChecks(p, leg.backend, { ...leg, shots: process.env.SMOKE_SHOTS ? `${process.env.SMOKE_SHOTS}-${vp.name}` : undefined })) {
+      for (const [name, problem] of await renderChecks(p, leg.backend, { ...leg, phone: vp.name === 'phone', shots: process.env.SMOKE_SHOTS ? `${process.env.SMOKE_SHOTS}-${vp.name}` : undefined })) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
@@ -1047,6 +1263,7 @@ try {
     if (vp.name === 'desktop' && full) buildChecks.push(...await roadGraphChecks(open));
     if (vp.name === 'desktop' && full) buildChecks.push(...await economyChecks(open));
     if (vp.name === 'desktop' && full) buildChecks.push(...await utilitiesChecks(open));
+    if (full) buildChecks.push(...await hudChecks(open, vp.name));
     if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     if (onlyBlock === 'traffic' || full) buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
     if (quick && vp.name === 'desktop') buildChecks.push(...await trafficQuickChecks(open));
@@ -1056,6 +1273,25 @@ try {
     }
     if (errors.length) { failed++; console.log(`${vp.name.padEnd(8)} FAIL console errors:\n  ${errors.join('\n  ')}`); }
     else console.log(`${vp.name.padEnd(8)} ok   no console errors`);
+    await ctx.close();
+  }
+  if (quick) {
+    // One phone page: the compact, collapsed HUD, the checklist and the first-run camera.
+    const vp = VIEWPORTS.find((v) => v.name === 'phone');
+    const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
+    const errors = [];
+    const open = async (query) => {
+      const p = await ctx.newPage();
+      p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+      p.on('pageerror', (e) => errors.push(String(e)));
+      await p.goto(url + query, { waitUntil: 'load' });
+      return p;
+    };
+    for (const [name, problem] of await hudChecks(open, 'phone')) {
+      console.log(`phone    ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
+      if (problem) failed++;
+    }
+    if (errors.length) { failed++; console.log(`phone    FAIL console errors:\n  ${errors.join('\n  ')}`); }
     await ctx.close();
   }
 } finally {

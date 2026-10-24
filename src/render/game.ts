@@ -11,7 +11,9 @@ import { pickPoint, pickTile } from './picking.ts';
 import { computeViewRect } from './viewrect.ts';
 import { WorldScene } from './scene.ts';
 import { planShowcase } from './kit/showcase.ts';
-import { TIER_TABLE, createGovernor, readStoredTier, resolveTier, type Governor, type Tier } from './tier.ts';
+import { tileReadOf } from '../sim/estimate.ts';
+import { startCameraFor } from './startCamera.ts';
+import { AUTO_STORAGE_KEY, TIER_TABLE, createGovernor, readStoredTier, resolveTier, tierCap, type Governor, type Tier } from './tier.ts';
 import type { ToolController } from './tools/controller.ts';
 import { GhostView } from './tools/ghostView.ts';
 import { createToolInput } from './tools/pointer.ts';
@@ -30,6 +32,16 @@ export interface GameDeps {
   agents: AgentStore;
   /** Called when the renderer cannot be recovered after a device loss. */
   onFatal: (message: string) => void;
+  /** Called when the auto governor moves the tier (down or up), so the app can persist the settled tier. */
+  onTier?: (tier: Tier) => void;
+}
+
+/** Phone-class device: a coarse pointer on a small screen, or any window 600 CSS px wide or less. */
+function isPhoneDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const small = Math.min(window.innerWidth, window.innerHeight);
+  const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  return small <= 600 || (coarse && small <= 820);
 }
 
 export interface PerfSnapshot {
@@ -71,6 +83,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   const unblock = blockGestureZoom();
 
   let tier: Tier = 'low';
+  let phone = false;
+  let software = false;
   let disposed = false;
   let recovering = false;
   let deviceLosses = 0;
@@ -79,6 +93,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   let lastNow = 0, lastRectAt = 0, lastRectKey = '';
   let sawTerrain = false;
   let showcaseDone = false;
+  let startDone = false;
+  let appliedFactor = 1;
   let showcaseCamera: { x: number; z: number; yaw: number; pitch: number; dist: number } | undefined;
   const wantShowcase = q.get('showcase') === '1';
   let governor: Governor = createGovernor({ tier, enabled: false });
@@ -107,17 +123,25 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   };
   let resolved!: ReturnType<typeof resolveTier>;
   const parts = await createParts((c) => {
+    const store = typeof localStorage === 'undefined' ? undefined : localStorage;
+    phone = isPhoneDevice();
     resolved = resolveTier(
-      { backend: c.backend, software: c.software }, q.get('tier'),
-      readStoredTier(typeof localStorage === 'undefined' ? undefined : localStorage),
+      { backend: c.backend, software: c.software, phone }, q.get('tier'),
+      readStoredTier(store), readStoredTier(store, AUTO_STORAGE_KEY),
     );
     tier = resolved.tier;
+    software = c.software;
   });
   ctx = parts.ctx;
   world = parts.world;
   ghost = parts.ghost;
   sawTerrain = false;
-  governor = createGovernor({ tier, enabled: governorOn && resolved.source !== 'query' });
+  const newGovernor = (): Governor => {
+    // A tier the player pinned (query or Settings) may exceed the automatic cap; auto and settled tiers may not.
+    const chosen = resolved.source === 'query' || resolved.source === 'stored' ? resolved.tier : null;
+    return createGovernor({ tier, cap: tierCap({ software, phone }, chosen), enabled: governorOn && resolved.source !== 'query' });
+  };
+  governor = newGovernor();
   ctx.setTier(tier);
 
   const groundAt = (px: number, py: number): { x: number; z: number } | null => {
@@ -188,6 +212,11 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       world.terrain.update(rig.state.x, rig.state.z, TIER_TABLE[tier].fullDetailChunks);
       if (!sawTerrain && world.terrain.builds > 0) { sawTerrain = true; governor.noteWarmup(now); }
     }
+    if (!startDone && mirror.hasResync) {
+      startDone = true;
+      const s = startCameraFor(tileReadOf(mirror.layers));
+      rig.reset(s.x, s.z, s.yaw, s.pitch, s.dist);
+    }
     if (wantShowcase && !showcaseDone && mirror.hasResync) {
       showcaseDone = true;
       const plan = planShowcase({ terrain: mirror.layers.terrain!, height: mirror.layers.height!, waterDepth: mirror.layers.waterDepth! });
@@ -210,11 +239,17 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     fpsFrames++;
     if (now - fpsT0 >= 500) { fps = (fpsFrames * 1000) / (now - fpsT0); fpsFrames = 0; fpsT0 = now; }
 
-    const dropped = governor.frame(dtMs, now);
-    if (dropped) {
-      tier = dropped;
+    const moved = governor.frame(dtMs, now);
+    if (moved) {
+      tier = moved;
       ctx.setTier(tier);
       world.applyTier(tier);
+      governor.noteWarmup(now);
+      deps.onTier?.(tier);
+    }
+    if (governor.factor !== appliedFactor) {
+      appliedFactor = governor.factor;
+      ctx.setResolutionFactor(appliedFactor);
     }
     sendViewRect(now);
   };
@@ -245,7 +280,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       world = parts.world;
       ghost = parts.ghost;
       sawTerrain = false;
-      governor = createGovernor({ tier, enabled: governorOn && resolved.source !== 'query' });
+      governor = newGovernor();
       ctx.setTier(tier);
       lastRectKey = '';
       recovering = false;
@@ -275,6 +310,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     get triangles() { return triangles; },
     get drawCallBudget() { return TIER_TABLE[tier].drawCallBudget; },
     get deviceLosses() { return deviceLosses; },
+    get pixelRatio() { return ctx.renderer.getPixelRatio(); },
     get showcaseCamera() { return showcaseCamera; },
     get buildings() {
       const b = world.buildings.stats;
@@ -304,7 +340,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     get following() { return rig.following; },
     follow,
     pickTile: pickAt,
-    resetCamera(pose) { rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
+    resetCamera(pose) { startDone = true; rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
     loseDevice() {
       const gl = (ctx.renderer.backend as unknown as { gl?: WebGL2RenderingContext }).gl;
       const ext = gl?.getExtension('WEBGL_lose_context');

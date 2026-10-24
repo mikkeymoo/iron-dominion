@@ -11,11 +11,16 @@ export interface RenderContext {
   software: boolean;
   adapterLabel: string;
   setTier(tier: Tier): void;
+  /** Extra resolution factor from the governor (1 = the tier's own pixel ratio). */
+  setResolutionFactor(factor: number): void;
   resize(): void;
   dispose(): void;
 }
 
 export class RenderInitError extends Error {}
+
+/** Extra pixel-ratio factor for software adapters. */
+export const SOFTWARE_SCALE = 0.75;
 
 export interface ContextOptions {
   container: HTMLElement;
@@ -79,15 +84,22 @@ async function attempt(opt: ContextOptions, want: Backend, probe: { fallback: bo
   const software = isGpu ? (devInfo?.isFallbackAdapter ?? probe?.fallback ?? false) : SOFTWARE_GL.test(glName);
   const adapterLabel = isGpu ? ([devInfo?.vendor, devInfo?.description].filter(Boolean).join(' ') || probe?.label || 'webgpu') : glName || 'webgl2';
 
+  let factor = 1;
+  // A CPU-rendered page (SwiftShader, llvmpipe) cannot afford the sharper tier scale; real GPUs, phones included, get it in full.
+  const softwareScale = software ? SOFTWARE_SCALE : 1;
   const ctx: RenderContext = {
     renderer: r, canvas, backend, software, adapterLabel,
     setTier(tier) {
-      r.setPixelRatio(pixelRatio(window.devicePixelRatio || 1, tier));
+      r.setPixelRatio(pixelRatio(window.devicePixelRatio || 1, tier, factor * softwareScale));
+      ctx.resize();
+    },
+    setResolutionFactor(f) {
+      factor = f;
       ctx.resize();
     },
     resize() {
       const w = Math.max(1, opt.container.clientWidth), h = Math.max(1, opt.container.clientHeight);
-      r.setPixelRatio(pixelRatio(window.devicePixelRatio || 1, opt.tier()));
+      r.setPixelRatio(pixelRatio(window.devicePixelRatio || 1, opt.tier(), factor * softwareScale));
       r.setSize(w, h, false);
     },
     dispose() {

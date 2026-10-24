@@ -29,13 +29,13 @@ const srgb = (hex: number): [number, number, number] => {
 
 // Stylized-realistic palette, authored in sRGB and stored linear.
 export const PALETTE: Record<number, [number, number, number]> = {
-  [TERRAIN.WATER]: srgb(0x3b6c74),
-  [TERRAIN.SAND]: srgb(0xd6c28c),
-  [TERRAIN.GRASS]: srgb(0x6e9a46),
+  [TERRAIN.WATER]: srgb(0x1f5a9c),
+  [TERRAIN.SAND]: srgb(0xe2c885),
+  [TERRAIN.GRASS]: srgb(0x679c3e),
   [TERRAIN.ROCK]: srgb(0x8c8a82),
-  [TERRAIN.FOREST]: srgb(0x3e6a35),
-  [TERRAIN.ORE]: srgb(0xa86f45),
-  [TERRAIN.RIVER]: srgb(0x4a7b80),
+  [TERRAIN.FOREST]: srgb(0x2f6b2c),
+  [TERRAIN.ORE]: srgb(0xb4703f),
+  [TERRAIN.RIVER]: srgb(0x2a6aa8),
 };
 const ROCK_COLOR = PALETTE[TERRAIN.ROCK]!;
 const FALLBACK = PALETTE[TERRAIN.GRASS]!;

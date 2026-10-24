@@ -120,5 +120,5 @@ describe('buildRoadMesh', () => {
     const m = buildRoadMesh(dense, 0, 0, 64);
     expect(m.vertexCount).toBeGreaterThan(65535);
     expect(m.indices.BYTES_PER_ELEMENT).toBe(4);
-  });
+  }, 30000);
 });

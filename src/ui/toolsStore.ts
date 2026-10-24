@@ -1,4 +1,5 @@
-import { archetype, BFLAG } from '../sim/catalog.ts';
+import { ARCH, archetype, BFLAG } from '../sim/catalog.ts';
+import { countBuildings } from './progress.ts';
 import type { CommandBody } from '../sim/commands.ts';
 import { tileReadOf } from '../sim/estimate.ts';
 import { BMAX, S } from '../sim/layers.ts';
@@ -35,7 +36,11 @@ const REASONS: Record<string, string> = {
 /** Plain-words text for a sim or estimate rejection reason. */
 export const reasonText = (reason: string): string => REASONS[reason] ?? 'That could not be done.';
 
-export interface Toast { id: number; text: string }
+export interface Toast { id: number; text: string; /** 'hint' is advice, not an error. */ tone?: 'hint' }
+
+/** The nudge a player gets when drawing roads or zones before any Robot Depot exists. */
+export const NO_DEPOT_HINT = 'Robots build your city. Place a Robot Depot first.';
+const HINT_GAP_MS = 20000;
 export interface FloatText { id: number; text: string; x: number; y: number; gain: boolean }
 
 interface Pending {
@@ -75,6 +80,7 @@ export class ToolsRuntime {
   private readonly listeners = new Set<() => void>();
   private readonly eventListeners = new Set<(e: SimEvent) => void>();
   private seq = 1;
+  private lastHintAt = -Infinity;
   private unsubscribeView: (() => void) | undefined;
 
   constructor(private readonly deps: ToolsRuntimeDeps) {
@@ -93,9 +99,9 @@ export class ToolsRuntime {
     this.timers.add(t);
   }
 
-  toast(text: string): void {
+  toast(text: string, tone?: 'hint'): void {
     const id = this.seq++;
-    this.toasts = [...this.toasts.slice(-2), { id, text }];
+    this.toasts = [...this.toasts.slice(-2), tone ? { id, text, tone } : { id, text }];
     this.later(TOAST_MS, () => { this.toasts = this.toasts.filter((t) => t.id !== id); });
     this.notify();
   }
@@ -109,6 +115,11 @@ export class ToolsRuntime {
   private onAction(a: ToolAction): void {
     if (a.kind === 'refused') { this.toast(reasonText(a.reason)); return; }
     this.pending.set(a.id, { kind: 'build', cost: a.cost, label: labelOf(a.cmd), at: a.at });
+    const t = a.cmd.type;
+    if ((t === 'placeRoad' || t === 'zone') && countBuildings(this.deps.world.layers, ARCH.DEPOT) === 0) {
+      const now = Date.now();
+      if (now - this.lastHintAt >= HINT_GAP_MS) { this.lastHintAt = now; this.toast(NO_DEPOT_HINT, 'hint'); }
+    }
   }
 
   /** Feed the sim's events; only those for commands this runtime sent are used. */

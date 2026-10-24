@@ -61,7 +61,7 @@ export interface TierSpec {
 // cranes do not cast shadows so each cascade costs only the near building batches.
 export const TIER_TABLE: Record<Tier, TierSpec> = {
   low: {
-    renderScale: 0.6, dprCap: 1.5, shadows: 'blob', shadowMapSize: 0, ao: 'off', water: 'flat',
+    renderScale: 0.8, dprCap: 2, shadows: 'blob', shadowMapSize: 0, ao: 'off', water: 'flat',
     post: { bloom: true, grade: true, tiltShift: false, ao: false, godRays: false, dof: false, lens: false, aa: 'none' },
     fx: {
       clouds: 0, stars: true, gerstner: false, foam: true, reflectionScale: 0, streetlights: 200, weatherDrops: 700, lightningBolt: true,
@@ -70,7 +70,7 @@ export const TIER_TABLE: Record<Tier, TierSpec> = {
     particleBudget: 2000, visibleAgents: 300, fullDetailChunks: 9, drawCallBudget: 130, variants: 2, maxTextureSize: 1024, frameBudgetMs: 33.3,
   },
   mid: {
-    renderScale: 0.8, dprCap: 2, shadows: 'csm1', shadowMapSize: 1024, ao: 'off', water: 'sky',
+    renderScale: 0.9, dprCap: 2, shadows: 'csm1', shadowMapSize: 1024, ao: 'off', water: 'sky',
     post: { bloom: true, grade: true, tiltShift: true, ao: false, godRays: false, dof: false, lens: false, aa: 'none' },
     fx: {
       clouds: 2, stars: true, gerstner: true, foam: true, reflectionScale: 0, streetlights: 500, weatherDrops: 2500, lightningBolt: true,
@@ -101,11 +101,23 @@ export const TIER_TABLE: Record<Tier, TierSpec> = {
 export const isTier = (v: unknown): v is Tier => typeof v === 'string' && (TIERS as readonly string[]).includes(v);
 export const tierIndex = (t: Tier): number => TIERS.indexOf(t);
 export const tierBelow = (t: Tier): Tier | null => TIERS[tierIndex(t) - 1] ?? null;
+export const tierAbove = (t: Tier): Tier | null => TIERS[tierIndex(t) + 1] ?? null;
+
+/**
+ * Highest tier the auto governor may climb to. Software or fallback adapters stay at low and phones stop at high, unless the
+ * player pinned a higher tier themselves (`chosen`: the ?tier= query or the Settings override).
+ */
+export function tierCap(a: { software: boolean; phone: boolean }, chosen: Tier | null): Tier {
+  const base: Tier = a.software ? 'low' : a.phone ? 'high' : 'ultra';
+  return chosen !== null && tierIndex(chosen) > tierIndex(base) ? chosen : base;
+}
 
 export interface AdapterInfo {
   backend: Backend;
   /** isFallbackAdapter on WebGPU, a software renderer string (SwiftShader, llvmpipe) on WebGL2. */
   software: boolean;
+  /** A phone-class device (coarse pointer or small screen): automatic tiers stop at high. */
+  phone?: boolean;
 }
 
 /** Tier from the adapter actually obtained after init(). */
@@ -115,23 +127,38 @@ export function detectTier(a: AdapterInfo): Tier {
 }
 
 export const STORAGE_KEY = 'iron.tier';
+/** The tier the auto governor last settled on for this device; the next launch starts there. */
+export const AUTO_STORAGE_KEY = 'iron.autotier';
 
-export interface ResolvedTier { tier: Tier; source: 'query' | 'stored' | 'detected' }
+export interface ResolvedTier { tier: Tier; source: 'query' | 'stored' | 'settled' | 'detected' }
 
-/** `?tier=` pins; else the persisted override; else detection. */
-export function resolveTier(a: AdapterInfo, query: string | null, stored: string | null): ResolvedTier {
+/**
+ * `?tier=` pins; else the persisted override; else the tier the governor settled on last time (clamped to what this device may
+ * run automatically); else detection.
+ */
+export function resolveTier(a: AdapterInfo, query: string | null, stored: string | null, settled: string | null = null): ResolvedTier {
   if (isTier(query)) return { tier: query, source: 'query' };
   if (isTier(stored)) return { tier: stored, source: 'stored' };
+  if (isTier(settled)) {
+    const cap = tierCap({ software: a.software, phone: a.phone ?? false }, null);
+    return { tier: tierIndex(settled) > tierIndex(cap) ? cap : settled, source: 'settled' };
+  }
   return { tier: detectTier(a), source: 'detected' };
 }
 
-export function readStoredTier(storage: Pick<Storage, 'getItem'> | undefined): string | null {
-  try { return storage?.getItem(STORAGE_KEY) ?? null; } catch { return null; }
+export function readStoredTier(storage: Pick<Storage, 'getItem'> | undefined, key: string = STORAGE_KEY): string | null {
+  try { return storage?.getItem(key) ?? null; } catch { return null; }
 }
 
-export function pixelRatio(dpr: number, tier: Tier): number {
+/** Smallest resolution factor the governor applies on top of the tier's own scale. */
+export const MIN_RESOLUTION_FACTOR = 0.6;
+/** Each governor step multiplies the resolution factor by this until MIN_RESOLUTION_FACTOR. */
+export const RESOLUTION_STEP = 0.8;
+
+/** Device pixels per CSS pixel: min(dpr, tier cap) * tier scale * the governor's extra factor (1 = untouched). */
+export function pixelRatio(dpr: number, tier: Tier, factor = 1): number {
   const t = TIER_TABLE[tier];
-  return Math.min(dpr, t.dprCap) * t.renderScale;
+  return Math.min(dpr, t.dprCap) * t.renderScale * factor;
 }
 
 export interface GovernorOptions {
@@ -147,10 +174,19 @@ export interface GovernorOptions {
   /** Over-budget factor to enter / recover; the gap is the hysteresis. */
   enter?: number;
   exit?: number;
+  /** Highest tier the governor may climb to (default: the starting tier, so it never raises). */
+  cap?: Tier;
+  /** p75 must stay under this share of the current tier's budget before a step up (default 0.55). */
+  upHeadroom?: number;
+  /** ...for this long (default 8 s), or upAfterDropMs (default 30 s) once the governor has dropped a tier this session. */
+  upSustainMs?: number;
+  upAfterDropMs?: number;
 }
 
 export interface Governor {
   readonly tier: Tier;
+  /** Extra resolution factor (1 = full). At the lowest tier, sustained slow frames shrink it instead of dropping a tier. */
+  readonly factor: number;
   /** Ignore frames for `warmupMs` and clear history: call after creating materials or compiling shaders. */
   noteWarmup(nowMs: number): void;
   /** Feed one frame. Returns the new tier when the governor drops one, else null. */
@@ -167,12 +203,19 @@ export function createGovernor(opt: GovernorOptions): Governor {
   const exit = opt.exit ?? 0.95;
   const enabled = opt.enabled ?? true;
   let tier = opt.tier;
+  let factor = 1;
   const ring = new Float64Array(size);
   let count = 0, head = 0;
   let warmUntil = -Infinity;
   let overSince = -1;
+  let underSince = -1;
+  let raised = false, dropped = false, locked = false;
+  const cap = opt.cap ?? opt.tier;
+  const upHeadroom = opt.upHeadroom ?? 0.55;
+  const upSustainMs = opt.upSustainMs ?? 8000;
+  const upAfterDropMs = opt.upAfterDropMs ?? 30000;
 
-  const reset = (): void => { count = 0; head = 0; overSince = -1; };
+  const reset = (): void => { count = 0; head = 0; overSince = -1; underSince = -1; };
   const percentile = (): number => {
     if (count === 0) return 0;
     const a = Array.from(ring.subarray(0, count)).sort((x, y) => x - y);
@@ -181,6 +224,7 @@ export function createGovernor(opt: GovernorOptions): Governor {
 
   return {
     get tier() { return tier; },
+    get factor() { return factor; },
     noteWarmup(nowMs) { warmUntil = Math.max(warmUntil, nowMs + warmupMs); reset(); },
     p75: percentile,
     frame(dtMs, nowMs) {
@@ -195,15 +239,34 @@ export function createGovernor(opt: GovernorOptions): Governor {
       const budget = TIER_TABLE[tier].frameBudgetMs;
       const p = percentile();
       if (p > budget * enter) {
+        underSince = -1;
         if (overSince < 0) overSince = nowMs;
         if (nowMs - overSince >= sustainMs) {
           const next = tierBelow(tier);
           reset();
           warmUntil = nowMs + warmupMs;
+          // A drop right after a raise means the raise was wrong for this device: never try again this session.
+          if (raised) locked = true;
+          dropped = true;
           if (next) { tier = next; return next; }
+          factor = Math.max(MIN_RESOLUTION_FACTOR, factor * RESOLUTION_STEP);
         }
-      } else if (p < budget * exit) overSince = -1;
-      return null;
+        return null;
+      }
+      if (p < budget * exit) overSince = -1;
+
+      const upTo = tierAbove(tier);
+      if (locked || !upTo || tierIndex(tier) >= tierIndex(cap)) return null;
+      if (p >= budget * upHeadroom) { underSince = -1; return null; }
+      if (underSince < 0) underSince = nowMs;
+      if (nowMs - underSince < (dropped ? upAfterDropMs : upSustainMs)) return null;
+      reset();
+      warmUntil = nowMs + warmupMs;
+      // Resolution comes back before a richer tier is tried.
+      if (factor < 1) { factor = 1; return null; }
+      tier = upTo;
+      raised = true;
+      return upTo;
     },
   };
 }
