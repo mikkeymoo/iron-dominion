@@ -5,7 +5,7 @@ import { S, TERRAIN } from '../sim/layers.ts';
 import { tileIdx } from '../sim/tiles.ts';
 import { allocWorld } from '../sim/world.ts';
 import type { ToolWorld } from '../render/tools/controller.ts';
-import { reasonText, ToolsRuntime } from './toolsStore.ts';
+import { NO_DEPOT_HINT, reasonText, ToolsRuntime } from './toolsStore.ts';
 
 afterEach(() => vi.useRealTimers());
 
@@ -18,8 +18,39 @@ function setup() {
   const world: ToolWorld = { layers: w as unknown as Record<string, ArrayLike<number>>, scalars: w.scalars, tick: 0 };
   const sent: CommandBody[] = [];
   const rt = new ToolsRuntime({ world, submit: (b) => { sent.push(b); return sent.length + 100; } });
-  return { rt, sent };
+  return { rt, sent, w };
 }
+
+describe('no-depot nudge', () => {
+  it('toasts a hint when a road or zone is drawn before any depot, once per burst', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100000);
+    const { rt } = setup();
+    rt.controller.select({ tool: 'road', cls: 1 });
+    rt.controller.dragTiles({ x: 20, y: 20 }, { x: 28, y: 20 });
+    expect(rt.toasts.map((t) => [t.text, t.tone])).toEqual([[NO_DEPOT_HINT, 'hint']]);
+    expect(NO_DEPOT_HINT).toBe('Robots build your city. Place a Robot Depot first.');
+    rt.controller.dragTiles({ x: 20, y: 22 }, { x: 28, y: 22 });
+    expect(rt.toasts).toHaveLength(1);
+    vi.advanceTimersByTime(21000);
+    rt.controller.select({ tool: 'zone', zone: 1, density: 0 });
+    rt.controller.dragTiles({ x: 20, y: 24 }, { x: 24, y: 26 });
+    expect(rt.toasts.filter((t) => t.tone === 'hint')).toHaveLength(1);
+  });
+
+  it('stays quiet once a depot stands, and for tools that need none', () => {
+    vi.useFakeTimers();
+    const { rt, w } = setup();
+    w.bArch[0] = ARCH.DEPOT;
+    rt.controller.select({ tool: 'road', cls: 1 });
+    rt.controller.dragTiles({ x: 20, y: 20 }, { x: 28, y: 20 });
+    expect(rt.toasts).toEqual([]);
+    w.bArch[0] = 0;
+    rt.controller.select({ tool: 'service', arch: ARCH.DEPOT });
+    rt.controller.dragTiles({ x: 40, y: 40 }, { x: 40, y: 40 });
+    expect(rt.toasts).toEqual([]);
+  });
+});
 
 describe('tools runtime events', () => {
   it('pushes the journal id on accepted, floats the cost, and keeps lastEvent', () => {
@@ -75,7 +106,7 @@ describe('tools runtime events', () => {
     rt.handleEvents([{ type: 'rejected', cmd: u, tick: 2, reason: 'consumed' }]);
     expect(rt.canUndo).toBe(false);
     expect(rt.undo.size).toBe(0);
-    expect(rt.toasts.map((t) => t.text)).toEqual([reasonText('consumed')]);
+    expect(rt.toasts.filter((t) => t.tone !== 'hint').map((t) => t.text)).toEqual([reasonText('consumed')]);
     expect(rt.undoLast()).toBe(0);
   });
 

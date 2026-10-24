@@ -3,9 +3,13 @@ import type { LoanInfo, Speed, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
-import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
+import { DEFAULT_SETTINGS, TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
 import { isEditableTarget } from '../render/editable.ts';
+import { IconChevron, IconMenu, IconPause, IconPlay, IconRobot } from './icons';
+import { nextSpeed, speedLabel, topBarControls, useLayout, type Layout, type TopControl } from './layout';
+import { PANEL_ATTR, useSwipeDown, usePresence, type PanelId } from './panels';
+import { NO_FACTS, type CityFacts } from './progress';
 
 export const SPEEDS: { speed: Speed; label: string; key: string }[] = [
   { speed: 0, label: 'Pause', key: '0' },
@@ -66,6 +70,21 @@ interface Props {
   onQuitSaveAs(name: string): void;
   onQuitDiscard(): void;
   onQuitCancel(): void;
+  /** What the player has built; drives the "No depot" warning. */
+  facts?: CityFacts;
+  /** Performance panel visibility and its setter (the menu holds the toggle). */
+  perfOn?: boolean;
+  onPerf?(on: boolean): void;
+  /** Force a layout instead of reading the window width. */
+  layout?: Layout;
+  /** The graphics tier the renderer is running now. */
+  activeTier?: string;
+  /** The floating panel that is open (menu and status are drawn here), and the setter that keeps it to one at a time. */
+  panel?: PanelId | null;
+  onPanel?(p: PanelId | null): void;
+  /** A phone's top bar: expanded (true) or the minimal strip. Ignored on desktop. */
+  topOpen?: boolean;
+  onTopOpen?(open: boolean): void;
 }
 
 const clock = (f: number): string => {
@@ -73,11 +92,43 @@ const clock = (f: number): string => {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 };
 
+const usd = (n: number): string => `$${Math.round(n).toLocaleString('en-US')}`;
 
-export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
+function WorkforceReadout({ w, depots }: { w: Workforce; depots: number }) {
+  return (
+    <div className={`workforce${depots === 0 ? ' warn' : ''}`} data-testid="workforce" title="Builder bots and hauler drones: working now / total, jobs in progress, material in stock">
+      {depots === 0 && <span className="no-depot" role="status" data-testid="no-depot">No depot</span>}
+      <span>Builders {w.activeBuilders}/{w.builders}</span>
+      <span>Haulers {w.activeHaulers}/{w.haulers}</span>
+      <span>Jobs {w.jobs}</span>
+      <span>Material {w.stock}</span>
+    </div>
+  );
+}
+
+export function Hud({
+  lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
+  facts = NO_FACTS, perfOn = false, onPerf, layout: forced, activeTier, panel: panelProp, onPanel, topOpen: topOpenProp, onTopOpen,
+}: Props) {
+  const detected = useLayout();
+  const layout = forced ?? detected;
+  const phone = layout === 'phone';
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
-  const [menu, setMenu] = useState(false);
-  const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings'>('main');
+  const [localPanel, setLocalPanel] = useState<PanelId | null>(null);
+  const [localTop, setLocalTop] = useState(topOpenProp ?? true);
+  const openPanel = panelProp !== undefined ? panelProp : localPanel;
+  const setOpenPanel = onPanel ?? setLocalPanel;
+  const topOpen = !phone || (onTopOpen ? (topOpenProp ?? true) : localTop);
+  const setTopOpen = (open: boolean): void => {
+    if (onTopOpen) onTopOpen(open); else setLocalTop(open);
+    if (!open && (openPanel === 'menu' || openPanel === 'status')) setOpenPanel(null);
+  };
+  const menu = openPanel === 'menu';
+  const status = openPanel === 'status';
+  const menuPresence = usePresence(menu);
+  const statusPresence = usePresence(phone && status);
+  const extraPresence = usePresence(phone && topOpen);
+  const [mode, setMode] = useState<'main' | 'saveAs' | 'settings'>('main');
   const [name, setName] = useState('');
   const [quitName, setQuitName] = useState('');
   const lastRunning = useRef<Speed>(1);
@@ -103,70 +154,141 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
     return () => window.removeEventListener('keydown', onKey);
   }, [lifecycle]);
 
-  const closeMenu = (): void => { setMenu(false); setPanel('main'); };
+  useEffect(() => { if (!menu) setMode('main'); }, [menu]);
+  const closeMenu = (): void => setOpenPanel(null);
+  const swipeMenu = useSwipeDown(closeMenu);
+  const bar = topBarControls(layout, topOpen);
+  const has = (c: TopControl): boolean => bar.includes(c);
+  const paused = lc.speed === 0;
+  const alert = facts.depots === 0 || stats.unpowered > 0 || stats.unwatered > 0;
+  const noticeText = notice || (lc.lastError ? failText(lc.lastError) : '');
+
+  const rciEl = <DemandBars demand={stats.rciDemand} />;
+  const statusEl = (
+    <button
+      type="button" className={`tb icon status-chip${alert ? ' alert' : ''}`} data-testid="status-chip" aria-expanded={status} aria-haspopup="dialog"
+      aria-label={alert ? 'City status, needs attention' : 'City status'} title="City status" onClick={() => setOpenPanel(status ? null : 'status')}
+    ><IconRobot /></button>
+  );
+  const menuEl = (
+    <button
+      type="button" className={`tb${phone ? ' icon' : ' wide'}`} data-testid="menu-button" aria-label="Menu" aria-expanded={menu} aria-haspopup="dialog"
+      onClick={() => setOpenPanel(menu ? null : 'menu')}
+    >{phone ? <IconMenu /> : 'Menu'}</button>
+  );
 
   return (
     <>
-      <div className="topbar" role="toolbar" aria-label="Game controls">
-        <div className="speeds" role="group" aria-label="Game speed">
-          {SPEEDS.map((s) => (
-            <button key={s.label} type="button" className="tb" aria-pressed={lc.speed === s.speed} title={`${s.label} (${s.key})`} onClick={() => lifecycle.setSpeed(s.speed)}>{s.label === 'Pause' ? '⏸' : s.label}</button>
-          ))}
-        </div>
+      <div className="topbar" data-layout={layout} data-open={topOpen} {...{ [PANEL_ATTR]: 'top' }} data-testid="topbar" role="toolbar" aria-label="Game controls">
+        {has('playPause') && (
+          <button
+            type="button" className="tb icon" data-testid="playpause" aria-pressed={paused} aria-label={paused ? 'Play' : 'Pause'}
+            title={paused ? 'Play' : 'Pause (0)'}
+            onClick={() => lifecycle.setSpeed(paused ? lastRunning.current : 0)}
+          >{paused ? <IconPlay /> : <IconPause />}</button>
+        )}
+        {has('speedCycle') && (
+          <button
+            type="button" className="tb speed-cycle" data-testid="speed-cycle" aria-label={`Speed ${speedLabel(paused ? lastRunning.current : lc.speed)}. Tap to change.`}
+            title="Change speed" onClick={() => lifecycle.setSpeed(nextSpeed(paused ? lastRunning.current : lc.speed))}
+          >{speedLabel(paused ? lastRunning.current : lc.speed)}</button>
+        )}
+        {has('speeds') && (
+          <div className="speeds" role="group" aria-label="Game speed">
+            {SPEEDS.map((s) => (
+              <button key={s.label} type="button" className="tb" aria-pressed={lc.speed === s.speed} title={`${s.label} (${s.key})`} onClick={() => lifecycle.setSpeed(s.speed)}>{s.label === 'Pause' ? '⏸' : s.label}</button>
+            ))}
+          </div>
+        )}
         <div className="readouts" data-testid="readouts">
-          <span>Day {stats.day} {clock(stats.dayFrac)}</span>
-          <span>${Math.round(stats.treasury).toLocaleString('en-US')}</span>
-          <span>Pop {Math.round(stats.population).toLocaleString('en-US')}</span>
-          <span className={stats.lastNet < 0 ? 'net neg' : 'net'} data-testid="monthly-net" title="Net of the last budget month">
-            {stats.lastNet < 0 ? '-' : '+'}${Math.abs(Math.round(stats.lastNet)).toLocaleString('en-US')}/mo
-          </span>
+          {has('clock') && <span>Day {stats.day} {clock(stats.dayFrac)}</span>}
+          {has('money') && <span className="money" data-testid="money">{usd(stats.treasury)}</span>}
+          {has('population') && <span className="pop" data-testid="population">Pop {Math.round(stats.population).toLocaleString('en-US')}</span>}
+          {has('net') && (
+            <span className={stats.lastNet < 0 ? 'net neg' : 'net'} data-testid="monthly-net" title="Net of the last budget month">
+              {stats.lastNet < 0 ? '-' : '+'}${Math.abs(Math.round(stats.lastNet)).toLocaleString('en-US')}/mo
+            </span>
+          )}
         </div>
-        <div className="workforce" data-testid="workforce" title="Builder bots and hauler drones: working now / total, jobs in progress, material in stock">
-          <span>Builders {stats.workforce.activeBuilders}/{stats.workforce.builders}</span>
-          <span>Haulers {stats.workforce.activeHaulers}/{stats.workforce.haulers}</span>
-          <span>Jobs {stats.workforce.jobs}</span>
-          <span>Material {stats.workforce.stock}</span>
-        </div>
-        <DemandBars demand={stats.rciDemand} />
-        <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} modelled={stats.modelled} />
-        {follow && (
+        {has('workforce') && <WorkforceReadout w={stats.workforce} depots={facts.depots} />}
+        {!phone && has('rci') && rciEl}
+        {has('utilities') && <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} modelled={stats.modelled} />}
+        {has('follow') && follow && (
           <button type="button" className="tb wide" aria-pressed={follow.active} title="Chase a robot at street level (Esc or a tap to stop)" onClick={follow.toggle}>
             {follow.active ? 'Stop following' : 'Follow a robot'}
           </button>
         )}
-        <button type="button" className="tb coin" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" title="Budget" onClick={onBudget}>$</button>
-        <button type="button" className="tb wide" onClick={onSave} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>
-        <button type="button" className="tb wide" aria-expanded={menu} aria-haspopup="dialog" onClick={() => (menu ? closeMenu() : setMenu(true))}>Menu</button>
-        <span className="notice" role="status" aria-live="polite" data-testid="notice">{notice || (lc.lastError ? failText(lc.lastError) : '')}</span>
+        {has('budget') && <button type="button" className="tb coin" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" title="Budget" onClick={onBudget}>$</button>}
+        {has('save') && <button type="button" className="tb wide" onClick={onSave} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
+        {!phone && has('menu') && menuEl}
+        {phone && extraPresence.mounted && (
+          <div className="top-extra" data-state={extraPresence.state}>
+            {rciEl}
+            {statusEl}
+            {menuEl}
+          </div>
+        )}
+        {phone && (
+          <button
+            type="button" className="tb icon chevron" data-testid="topbar-chevron" data-open={topOpen} aria-expanded={topOpen}
+            aria-label={topOpen ? 'Collapse top bar' : 'Expand top bar'} title={topOpen ? 'Collapse' : 'More'} onClick={() => setTopOpen(!topOpen)}
+          ><IconChevron /></button>
+        )}
+        <span className="notice" role="status" aria-live="polite" data-testid="notice">{noticeText}</span>
       </div>
 
-      {menu && (
-        <div className="menu" role="dialog" aria-label="Menu">
-          {panel === 'main' && (
+      {phone && statusPresence.mounted && (
+        <div className="menu status-pop" data-state={statusPresence.state} {...{ [PANEL_ATTR]: 'status' }} {...swipeMenu} role="dialog" aria-label="City status" data-testid="status-pop">
+          <div className="status-line"><span>Day {stats.day} {clock(stats.dayFrac)}</span><span className={stats.lastNet < 0 ? 'net neg' : 'net'} data-testid="monthly-net" title="Net of the last budget month">{stats.lastNet < 0 ? '-' : '+'}${Math.abs(Math.round(stats.lastNet)).toLocaleString('en-US')}/mo</span></div>
+          <WorkforceReadout w={stats.workforce} depots={facts.depots} />
+          <UtilityBars power={stats.power} water={stats.water} unpowered={stats.unpowered} unwatered={stats.unwatered} modelled={stats.modelled} />
+        </div>
+      )}
+
+      {menuPresence.mounted && (
+        <div className={`menu${phone ? ' menu-phone' : ''}`} data-state={menuPresence.state} {...{ [PANEL_ATTR]: 'menu' }} {...swipeMenu} role="dialog" aria-label="Menu" data-testid="menu">
+          {mode === 'main' && (
             <>
-              <button type="button" className="tb row" onClick={() => { setName(''); setPanel('saveAs'); }}>Save as...</button>
+              {phone && <button type="button" className="tb row" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" onClick={() => { closeMenu(); onBudget(); }}>Budget</button>}
+              {phone && follow && (
+                <button type="button" className="tb row" aria-pressed={follow.active} onClick={() => { closeMenu(); follow.toggle(); }}>{follow.active ? 'Stop following' : 'Follow a robot'}</button>
+              )}
+              {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
+              <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
-              <button type="button" className="tb row" onClick={() => setPanel('settings')}>Settings</button>
+              <label className="check">
+                <input type="checkbox" data-testid="perf-toggle" checked={perfOn} onChange={(e) => onPerf?.(e.target.checked)} />
+                Performance panel
+              </label>
+              {phone && (
+                <label className="check">
+                  <input type="checkbox" data-testid="autocollapse-toggle" checked={settings.panels.autoCollapse} onChange={(e) => onSetting('panels', { ...settings.panels, autoCollapse: e.target.checked })} />
+                  Auto-collapse the tool bar
+                </label>
+              )}
+              <button type="button" className="tb row" onClick={() => { onSetting('onboarding', { ...DEFAULT_SETTINGS.onboarding }); closeMenu(); }}>Show tips again</button>
+              <button type="button" className="tb row" onClick={() => setMode('settings')}>Settings</button>
               <button type="button" className="tb row" onClick={() => { closeMenu(); onQuit(); }}>Quit to title (saves)</button>
               <button type="button" className="tb row" onClick={closeMenu}>Close</button>
             </>
           )}
-          {panel === 'saveAs' && (
+          {mode === 'saveAs' && (
             <form onSubmit={(e) => { e.preventDefault(); onSaveAs(name); closeMenu(); }}>
               <label>Slot name<input value={name} maxLength={40} autoFocus onChange={(e) => setName(e.target.value)} /></label>
               <button type="submit" className="tb row">Save</button>
-              <button type="button" className="tb row" onClick={() => setPanel('main')}>Back</button>
+              <button type="button" className="tb row" onClick={() => setMode('main')}>Back</button>
             </form>
           )}
-          {panel === 'settings' && (
+          {mode === 'settings' && (
             <div className="settings">
               <label>Graphics tier
-                <select value={settings.tier} onChange={(e) => onSetting('tier', e.target.value as TierOverride)}>
-                  {TIER_OVERRIDES.map((t) => <option key={t} value={t}>{t}</option>)}
+                <select value={settings.tier} data-testid="tier-select" onChange={(e) => onSetting('tier', e.target.value as TierOverride)}>
+                  {TIER_OVERRIDES.map((t) => <option key={t} value={t}>{t === 'auto' ? `Auto${activeTier ? ` (${activeTier})` : ''}` : t}</option>)}
                 </select>
               </label>
-              <p className="hint">Takes effect the next time a city starts.</p>
-              <button type="button" className="tb row" onClick={() => setPanel('main')}>Back</button>
+              {activeTier && <p className="hint" data-testid="tier-now">Running at {activeTier}{settings.tier === 'auto' ? ' (auto: the game raises or lowers it to keep the frame rate up)' : ' (pinned)'}.</p>}
+              <p className="hint">A pinned tier takes effect the next time a city starts.</p>
+              <button type="button" className="tb row" onClick={() => setMode('main')}>Back</button>
             </div>
           )}
         </div>

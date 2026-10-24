@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SHADOW_CASCADES, TIERS, TIER_TABLE, createGovernor, detectTier, pixelRatio, readStoredTier, resolveTier, tierBelow, type Governor, type Tier,
+  SHADOW_CASCADES, TIERS, TIER_TABLE, createGovernor, detectTier, pixelRatio, readStoredTier, resolveTier, tierBelow, tierCap, type Governor, type Tier,
 } from './tier.ts';
 
 describe('tier table', () => {
@@ -82,10 +82,32 @@ describe('tier selection', () => {
   });
 
   it('computes pixel ratio as min(dpr, cap) * render scale', () => {
-    expect(pixelRatio(3, 'low')).toBeCloseTo(1.5 * 0.6);
-    expect(pixelRatio(1, 'low')).toBeCloseTo(0.6);
+    expect(pixelRatio(3, 'low')).toBeCloseTo(2 * 0.8);
+    expect(pixelRatio(1, 'low')).toBeCloseTo(0.8);
     expect(pixelRatio(2, 'high')).toBeCloseTo(2);
     expect(pixelRatio(3, 'ultra')).toBeCloseTo(3);
+    expect(pixelRatio(2, 'mid', 0.5)).toBeCloseTo(2 * 0.9 * 0.5);
+  });
+
+  it('keeps a high-DPR phone at least 1.5 device pixels per CSS pixel on every tier', () => {
+    for (const dpr of [2, 2.625, 3]) for (const tier of TIERS) expect(pixelRatio(dpr, tier)).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it('shrinks the resolution factor, not the tier, once the lowest tier is still too slow', () => {
+    const g = createGovernor({ tier: 'low', warmupMs: 0, sustainMs: 1000 });
+    expect(g.factor).toBe(1);
+    let t = 0;
+    const seen: number[] = [];
+    for (let i = 0; i < 4000; i++) {
+      t += 100;
+      const drop = g.frame(100, t);
+      expect(drop).toBeNull();
+      if (seen[seen.length - 1] !== g.factor) seen.push(g.factor);
+    }
+    expect(g.tier).toBe('low');
+    expect(seen[1]).toBeCloseTo(0.8);
+    expect(g.factor).toBeCloseTo(0.6);
+    expect(g.factor).toBeGreaterThanOrEqual(0.6);
   });
 
   it('steps down one tier at a time', () => {
@@ -178,5 +200,125 @@ describe('governor', () => {
     const second = run(g, first.end, 10000, 50);
     expect(second.drop).toBe('mid');
     expect(second.at - first.end).toBeGreaterThanOrEqual(5000);
+  });
+});
+
+describe('governor tier-up', () => {
+  const FAST = 8;
+
+  it('steps up one tier after 8 s of frames well inside the budget', () => {
+    const g = createGovernor({ tier: 'mid', cap: 'high' });
+    const r = run(g, 0, 20000, FAST);
+    expect(r.drop).toBe('high');
+    expect(r.at).toBeGreaterThanOrEqual(8000);
+    expect(r.at).toBeLessThan(10500);
+    expect(g.tier).toBe('high');
+  });
+
+  it('climbs one tier at a time, with a fresh warmup and 8 s between steps', () => {
+    const g = createGovernor({ tier: 'low', cap: 'high' });
+    const a = run(g, 0, 20000, FAST);
+    const b = run(g, a.end, 30000, FAST);
+    expect([a.drop, b.drop]).toEqual(['mid', 'high']);
+    expect(b.at - a.end).toBeGreaterThanOrEqual(8000);
+  });
+
+  it('never goes above the cap', () => {
+    const g = createGovernor({ tier: 'high', cap: 'high' });
+    expect(run(g, 0, 60000, FAST).drop).toBeNull();
+    const m = createGovernor({ tier: 'mid', cap: 'high' });
+    const up = run(m, 0, 20000, FAST);
+    expect(up.drop).toBe('high');
+    expect(run(m, up.end, 60000, FAST).drop).toBeNull();
+    expect(m.tier).toBe('high');
+  });
+
+  it('does not step up while the frame time is only just inside the budget', () => {
+    const g = createGovernor({ tier: 'mid', cap: 'high' });
+    expect(run(g, 0, 40000, 25).drop).toBeNull();
+    expect(g.tier).toBe('mid');
+  });
+
+  it('restarts the 8 s clock when headroom is lost in between', () => {
+    const g = createGovernor({ tier: 'mid', cap: 'high' });
+    expect(run(g, 0, 6000, FAST).drop).toBeNull();
+    const mid = run(g, 6000, 2500, 25);
+    expect(mid.drop).toBeNull();
+    const again = run(g, mid.end, 20000, FAST);
+    expect(again.drop).toBe('high');
+    expect(again.at - mid.end).toBeGreaterThanOrEqual(8000);
+  });
+
+  it('needs 30 s of headroom after the governor has dropped a tier this session', () => {
+    const g = createGovernor({ tier: 'high', cap: 'ultra' });
+    const down = run(g, 0, 8000, 40);
+    expect(down.drop).toBe('mid');
+    expect(run(g, down.end, 25000, FAST).drop).toBeNull();
+    const up = run(g, down.end + 25000, 20000, FAST);
+    expect(up.drop).toBe('high');
+    expect(up.at - (down.end + 25000)).toBeLessThan(10000);
+  });
+
+  it('locks the tier for the session once a raise is followed by a drop, so it cannot oscillate', () => {
+    const g = createGovernor({ tier: 'mid', cap: 'high' });
+    const up = run(g, 0, 20000, FAST);
+    expect(up.drop).toBe('high');
+    const down = run(g, up.end, 12000, 40);
+    expect(down.drop).toBe('mid');
+    expect(run(g, down.end, 600000, FAST).drop).toBeNull();
+    expect(g.tier).toBe('mid');
+  });
+
+  it('gives resolution back before it tries a richer tier', () => {
+    const g = createGovernor({ tier: 'low', cap: 'mid' });
+    let t = 0;
+    for (let i = 0; i < 400; i++) { t += 100; g.frame(100, t); }
+    expect(g.factor).toBeLessThan(1);
+    const seen: [number, string][] = [];
+    for (let i = 0; i < 20000 && g.tier === 'low'; i++) {
+      t += FAST;
+      const moved = g.frame(FAST, t);
+      if (moved || (seen.length === 0 && g.factor === 1)) seen.push([g.factor, g.tier]);
+    }
+    expect(seen[0]).toEqual([1, 'low']);
+    expect(seen[1]).toEqual([1, 'mid']);
+  });
+
+  it('stays inert when disabled', () => {
+    const g = createGovernor({ tier: 'mid', cap: 'ultra', enabled: false });
+    expect(run(g, 0, 60000, FAST).drop).toBeNull();
+  });
+});
+
+describe('automatic tier choice', () => {
+  const phoneGpu = { backend: 'webgl2' as const, software: false, phone: true };
+
+  it('starts hardware adapters at mid (WebGL2) or high (WebGPU) and software ones at low, phone or not', () => {
+    expect(detectTier(phoneGpu)).toBe('mid');
+    expect(detectTier({ backend: 'webgpu', software: false, phone: true })).toBe('high');
+    expect(detectTier({ backend: 'webgl2', software: true, phone: true })).toBe('low');
+    expect(detectTier({ backend: 'webgpu', software: true })).toBe('low');
+  });
+
+  it('caps automatic tiers at high on a phone, ultra elsewhere, and low on software', () => {
+    expect(tierCap({ software: false, phone: true }, null)).toBe('high');
+    expect(tierCap({ software: false, phone: false }, null)).toBe('ultra');
+    expect(tierCap({ software: true, phone: false }, null)).toBe('low');
+  });
+
+  it('lets a tier the player pinned lift the cap, but never lowers it', () => {
+    expect(tierCap({ software: false, phone: true }, 'ultra')).toBe('ultra');
+    expect(tierCap({ software: false, phone: true }, 'low')).toBe('high');
+    expect(tierCap({ software: true, phone: false }, 'high')).toBe('high');
+  });
+
+  it('starts at the tier settled last time, clamped to the device cap, behind a query pin and a Settings override', () => {
+    expect(resolveTier(phoneGpu, null, null, 'high')).toEqual({ tier: 'high', source: 'settled' });
+    expect(resolveTier(phoneGpu, null, null, 'ultra')).toEqual({ tier: 'high', source: 'settled' });
+    expect(resolveTier({ backend: 'webgl2', software: true, phone: false }, null, null, 'high')).toEqual({ tier: 'low', source: 'settled' });
+    expect(resolveTier(phoneGpu, null, 'low', 'high')).toEqual({ tier: 'low', source: 'stored' });
+    expect(resolveTier(phoneGpu, 'ultra', 'low', 'high')).toEqual({ tier: 'ultra', source: 'query' });
+    expect(resolveTier(phoneGpu, null, null, 'bogus')).toEqual({ tier: 'mid', source: 'detected' });
+    expect(resolveTier(phoneGpu, null, null, null)).toEqual({ tier: 'mid', source: 'detected' });
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SimClient } from '../sim/client.ts';
 import { startGame, type Game, type PerfSnapshot } from '../render/game.ts';
 import type { AgentStore } from '../render/agentStore.ts';
@@ -9,7 +9,11 @@ import { bindLifecycleDom } from '../platform/lifecycle.ts';
 import type { Settings } from '../platform/settings.ts';
 import { Budget } from './Budget';
 import { Hud, type HudStats } from './Hud';
-import { Tools } from './Tools';
+import { Checklist } from './Checklist';
+import { useLayout } from './layout';
+import { useOutsideDismiss, type PanelId } from './panels';
+import { factsFromLayers, type CityFacts } from './progress';
+import { Tools, type ToolHints } from './Tools';
 import type { ToolsRuntime } from './toolsStore.ts';
 
 interface Props {
@@ -42,8 +46,11 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
   const [phase, setPhase] = useState<Phase>('starting');
   const [error, setError] = useState('');
   const [perf, setPerf] = useState<PerfSnapshot | null>(null);
-  const [panel, setPanel] = useState(true);
-  const [budgetOpen, setBudgetOpen] = useState(false);
+  const layout = useLayout();
+  const [facts, setFacts] = useState<CityFacts | null>(null);
+  const [panel, setPanel] = useState<PanelId | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const budgetOpen = panel === 'budget';
   const [following, setFollowing] = useState(false);
   const game = useRef<Game | null>(null);
 
@@ -52,7 +59,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
     const el = host.current;
     if (!el) return;
     const fail = (message: string): void => { setError(message); setPhase('failed'); };
-    startGame({ host: el, mirror, client, agents, tools: tools.controller, view, search: window.location.search, onFatal: fail })
+    startGame({ host: el, mirror, client, agents, tools: tools.controller, view, search: window.location.search, onFatal: fail, onTier: (t) => onSetting('autoTier', t) })
       .then((g) => {
         if (cancelled) { g.dispose(); return; }
         game.current = g;
@@ -76,11 +83,42 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
 
   useEffect(() => bindLifecycleDom(lifecycle, document, window), [lifecycle]);
 
+  const perfOn = settings.showPerf ?? layout === 'desktop';
+  const perfRef = useRef(perfOn);
+  perfRef.current = perfOn;
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === '`') setPanel((p) => !p); };
+    const onKey = (e: KeyboardEvent): void => { if (e.key === '`') onSetting('showPerf', !perfRef.current); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [onSetting]);
+
+  useEffect(() => {
+    const read = (): void => { if (mirror.hasResync) setFacts(factsFromLayers(mirror.layers)); };
+    read();
+    const id = window.setInterval(read, 500);
+    return () => window.clearInterval(id);
+  }, [mirror]);
+
+  const onboarding = settings.onboarding;
+  const setOnboarding = useCallback((next: typeof onboarding): void => onSetting('onboarding', next), [onSetting]);
+  const phone = layout === 'phone';
+  // A phone folds the checklist to its chip until the player opens it; the persisted state is what a desktop keeps.
+  const listState = phone ? { ...onboarding, collapsed: !listOpen } : onboarding;
+  const onList = (next: typeof onboarding): void => {
+    if (!phone) { setOnboarding(next); return; }
+    setListOpen(!next.collapsed);
+    if (next.dismissed !== onboarding.dismissed) setOnboarding({ ...onboarding, dismissed: next.dismissed });
+  };
+  const closeFloating = (): void => {
+    setPanel(null);
+    if (phone) { setListOpen(false); if (perfOn) onSetting('showPerf', false); }
+  };
+  useOutsideDismiss(panel !== null || (phone && (listOpen || perfOn)), closeFloating, closeFloating);
+  const setTopOpen = (open: boolean): void => onSetting('panels', { ...settings.panels, topOpen: open });
+  const hints: ToolHints = {
+    seen: onboarding.hintsSeen,
+    mark: (id) => { if (!onboarding.hintsSeen.includes(id)) onSetting('onboarding', { ...onboarding, hintsSeen: [...onboarding.hintsSeen, id] }); },
+  };
 
   return (
     <div className="game" data-render={phase} data-worker={worker}>
@@ -95,11 +133,11 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
-        {phase === 'running' && <Tools runtime={tools} view={view} />}
-        {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setBudgetOpen(false)} />}
-        <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
-        {panel && perf && (
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
+        {phase === 'running' && facts && <Checklist facts={facts} state={listState} onChange={onList} onPick={(t) => { setPanel(null); tools.controller.select(t); }} collapseOnPick={phone} />}
+        {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} />}
+        {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}
+        {perfOn && perf && (
           <dl className="perf" data-testid="perf">
             <dt>backend</dt><dd>{perf.backend}</dd>
             <dt>tier</dt><dd>{perf.tier}</dd>

@@ -91,8 +91,9 @@ function shaftsNode(depth: N, samples: number, u: { sunUv: N; amount: N; color: 
 function gradeNode(ldr: N, u: { aspect: N; night: N; overcast: N }, vignette: number): N {
   const c = ldr.rgb;
   const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  let g: N = mix(vec3(l, l, l), c, float(1.08).sub(u.overcast.mul(0.34)));
-  g = g.sub(0.5).mul(1.07).add(0.5);
+  // ACES leaves a desaturated, flat picture on a phone screen: push saturation and contrast on every tier.
+  let g: N = mix(vec3(l, l, l), c, float(1.2).sub(u.overcast.mul(0.3)));
+  g = g.sub(0.5).mul(1.1).add(0.5);
   const tone = vec3(-0.012, 0.004, 0.02).mul(float(1).sub(l)).add(vec3(0.022, 0.008, -0.015).mul(l));
   g = g.add(tone.mul(0.9));
   g = mix(g, g.mul(vec3(0.88, 0.96, 1.14)), u.night.mul(0.55));

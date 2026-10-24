@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, useState, type ReactNode } from 'react';
 import { archetype, PIPE_COST, POWER_LINE_COST, ROAD_COST } from '../sim/catalog.ts';
 import { WATER_REACH } from '../sim/utilities/tables.ts';
 import { isEditableTarget } from '../render/editable.ts';
@@ -6,21 +6,25 @@ import {
   DENSITY_LABELS, LINE_NAMES, ROAD_NAMES, SERVICES, TERRAFORM_MODES, UTILITY_BUILDINGS, ZONE_LABELS, keyAction, type LineKind, type ToolId, type ToolSel,
 } from '../render/tools/toolSpec.ts';
 import type { ViewState } from '../render/viewState.ts';
+import { IconBulldoze, IconCancel, IconHammer, IconRoad, IconServices, IconTerraform, IconUndo, IconUtilities, IconViews, IconZone } from './icons';
+import { useLayout, type Layout } from './layout';
+import { AUTO_COLLAPSE_MS, PANEL_ATTR, useIdleTimer, useOutsideDismiss, usePresence, useSwipeDown, type PanelId } from './panels';
+import { TOOL_HINTS } from './progress';
 import { reasonText, type ToolsRuntime } from './toolsStore.ts';
-import { ViewControls } from './ViewControls';
+import { ViewControls, useUndergroundKey } from './ViewControls';
 
 type Group = ToolId | 'utilities';
 
 const isUtilitySel = (s: ToolSel | null): boolean => s?.tool === 'line' || (s?.tool === 'service' && archetype(s.arch)?.utility !== undefined);
-const groupOf = (s: ToolSel | null): Group | null => (s === null ? null : isUtilitySel(s) ? 'utilities' : s.tool);
+export const groupOf = (s: ToolSel | null): Group | null => (s === null ? null : isUtilitySel(s) ? 'utilities' : s.tool);
 
-const CATEGORIES: { id: Group; label: string; key: string; start: ToolSel }[] = [
-  { id: 'bulldoze', label: 'Bulldoze', key: 'B', start: { tool: 'bulldoze' } },
-  { id: 'road', label: 'Road', key: 'R', start: { tool: 'road', cls: 1 } },
-  { id: 'zone', label: 'Zone', key: 'Z', start: { tool: 'zone', zone: 1, density: 0 } },
-  { id: 'service', label: 'Services', key: '', start: { tool: 'service', arch: SERVICES[0]!.id } },
-  { id: 'utilities', label: 'Utilities', key: 'L / P', start: { tool: 'line', kind: 'power' } },
-  { id: 'terraform', label: 'Terraform', key: 'T', start: { tool: 'terraform', mode: 'raise' } },
+const CATEGORIES: { id: Group; label: string; key: string; start: ToolSel; icon: () => ReactNode }[] = [
+  { id: 'bulldoze', label: 'Bulldoze', key: 'B', start: { tool: 'bulldoze' }, icon: IconBulldoze },
+  { id: 'road', label: 'Road', key: 'R', start: { tool: 'road', cls: 1 }, icon: IconRoad },
+  { id: 'zone', label: 'Zone', key: 'Z', start: { tool: 'zone', zone: 1, density: 0 }, icon: IconZone },
+  { id: 'service', label: 'Services', key: '', start: { tool: 'service', arch: SERVICES[0]!.id }, icon: IconServices },
+  { id: 'utilities', label: 'Utilities', key: 'L / P', start: { tool: 'line', kind: 'power' }, icon: IconUtilities },
+  { id: 'terraform', label: 'Terraform', key: 'T', start: { tool: 'terraform', mode: 'raise' }, icon: IconTerraform },
 ];
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -29,13 +33,39 @@ const SERVICE_LABELS: Record<string, string> = {
 };
 const MODE_LABELS = { raise: 'Raise', lower: 'Lower', level: 'Level' } as const;
 const LINE_COST: Record<LineKind, number> = { power: POWER_LINE_COST, water: PIPE_COST };
+const HINT_MS = 5000;
 
 const money = (n: number): string => `$${Math.round(n).toLocaleString('en-US')}`;
 
-export function Tools({ runtime, view }: { runtime: ToolsRuntime; view: ViewState }) {
+export interface ToolHints {
+  /** Hint ids already shown (persisted in settings). */
+  seen: readonly string[];
+  mark(id: string): void;
+}
+
+interface Props {
+  runtime: ToolsRuntime; view: ViewState; hints?: ToolHints; layout?: Layout;
+  /** The floating panel that is open, shared with the HUD so only one is open at a time. */
+  panel?: PanelId | null;
+  onPanel?(p: PanelId | null): void;
+  /** Phones fold the tool bar back into its button after a few idle seconds (default true). */
+  autoCollapse?: boolean;
+}
+
+export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, onPanel, autoCollapse = true }: Props) {
+  const detected = useLayout();
+  const layout = forced ?? detected;
   const [, bump] = useReducer((n: number) => n + 1, 0);
+  const phone = layout === 'phone';
+  const [localPanel, setLocalPanel] = useState<PanelId | null>(null);
+  const openPanel = panelProp !== undefined ? panelProp : localPanel;
+  const setOpenPanel = onPanel ?? setLocalPanel;
+  const viewsOpen = openPanel === 'views';
+  const [toolOpen, setToolOpen] = useState(!phone);
+  const [hint, setHint] = useState<string | null>(null);
   useEffect(() => runtime.subscribe(bump), [runtime]);
   useEffect(() => view.subscribe(bump), [view]);
+  useUndergroundKey(view);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -54,6 +84,27 @@ export function Tools({ runtime, view }: { runtime: ToolsRuntime; view: ViewStat
   const plan = c.plan;
   const pick = (s: ToolSel): void => c.select(s);
   const group = groupOf(sel);
+  const active = sel !== null;
+  const open = !phone || toolOpen;
+  const sheet = usePresence(open);
+  const viewsPresence = usePresence(viewsOpen);
+  const swipeViews = useSwipeDown(() => setOpenPanel(null));
+
+  // A tool picked elsewhere (the checklist button) opens the bar; another panel opening folds an idle bar away.
+  useEffect(() => { if (phone && active) setToolOpen(true); }, [phone, active]);
+  useEffect(() => { if (phone && !active && openPanel !== null && openPanel !== 'views') setToolOpen(false); }, [phone, active, openPanel]);
+  useEffect(() => { if (!phone) setToolOpen(true); }, [phone]);
+  const collapse = (): void => { setOpenPanel(null); setToolOpen(false); };
+  useOutsideDismiss(phone && toolOpen && !active, collapse, collapse);
+  const touch = useIdleTimer(phone && toolOpen && !active && autoCollapse, AUTO_COLLAPSE_MS, collapse);
+
+  useEffect(() => {
+    if (!group || !hints || hints.seen.includes(group) || !TOOL_HINTS[group]) return;
+    setHint(TOOL_HINTS[group]!);
+    hints.mark(group);
+    const t = window.setTimeout(() => setHint(null), HINT_MS);
+    return () => { window.clearTimeout(t); setHint(null); };
+  }, [group]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const label = plan && plan.est.cost > 0 ? money(plan.est.cost) : '';
   const showCost = plan && (c.dragging || sel?.tool === 'service') && (label || plan.est.reason);
@@ -74,12 +125,28 @@ export function Tools({ runtime, view }: { runtime: ToolsRuntime; view: ViewStat
         ))}
       </div>
       <div className="tool-toasts" role="status" aria-live="polite">
-        {runtime.toasts.map((t) => <div key={t.id} className="tool-toast" data-testid="toast">{t.text}</div>)}
+        {runtime.toasts.map((t) => (
+          <div key={t.id} className={`tool-toast${t.tone === 'hint' ? ' hint' : ''}`} data-testid={t.tone === 'hint' ? 'hint-toast' : 'toast'}>{t.text}</div>
+        ))}
       </div>
 
-      <div className="toolsheet" role="toolbar" aria-label="Build tools">
+      {phone && !toolOpen && (
+        <button
+          type="button" className="build-fab" {...{ [PANEL_ATTR]: 'fab' }} data-testid="build-fab" aria-label="Build tools" aria-expanded={false} title="Build tools"
+          onClick={() => { setOpenPanel(null); setToolOpen(true); }}
+        ><IconHammer /></button>
+      )}
+      {sheet.mounted && (
+      <div className="toolsheet" data-layout={layout} data-state={sheet.state} {...{ [PANEL_ATTR]: 'tools' }} onPointerDown={touch}>
+        {hint && <div className="tool-firsthint" role="status" data-testid="tool-hint">{hint}</div>}
+        {viewsPresence.mounted && (
+          <div className="views-pop" data-state={viewsPresence.state} {...swipeViews} role="dialog" aria-label="Views" data-testid="views-pop">
+            <ViewControls view={view} keys={false} />
+          </div>
+        )}
         {sel && (
-          <div className="tool-row tool-options" role="group" aria-label="Tool options">
+          <div className="optstrip" role="group" aria-label="Tool options" data-testid="optstrip">
+            <button type="button" className="tb icon cancel" aria-label="Cancel" title="Cancel (Esc)" data-testid="cancel-tool" onClick={() => c.cancel()}><IconCancel /></button>
             {sel.tool === 'road' && ([1, 2, 3] as const).map((cls) => (
               <button key={cls} type="button" className="tb" aria-pressed={sel.cls === cls} onClick={() => pick({ tool: 'road', cls })}>
                 {ROAD_NAMES[cls]} {money(ROAD_COST[cls]!)}
@@ -139,19 +206,22 @@ export function Tools({ runtime, view }: { runtime: ToolsRuntime; view: ViewStat
             )}
           </div>
         )}
-        <div className="tool-row" role="group" aria-label="Tools">
+        <div className="toolbar" data-testid="toolbar" role="toolbar" aria-label="Build tools">
           {CATEGORIES.map((cat) => (
             <button
-              key={cat.id} type="button" className="tb" aria-pressed={group === cat.id}
+              key={cat.id} type="button" className="tb tool" aria-pressed={group === cat.id} aria-label={cat.label} data-testid={`tool-${cat.id}`}
               title={cat.key ? `${cat.label} (${cat.key})` : cat.label}
               onClick={() => (group === cat.id ? c.cancel() : pick(cat.start))}
-            >{cat.label}</button>
+            >{cat.icon()}<span className="tl" aria-hidden="true">{cat.label}</span></button>
           ))}
-          <button type="button" className="tb" disabled={!runtime.canUndo} title="Undo (Ctrl+Z)" onClick={() => runtime.undoLast()}>Undo</button>
-          <button type="button" className="tb" disabled={!sel} title="Cancel (Esc)" onClick={() => c.cancel()}>Cancel</button>
+          <button type="button" className="tb tool" aria-label="Undo" data-testid="tool-undo" disabled={!runtime.canUndo} title="Undo (Ctrl+Z)" onClick={() => runtime.undoLast()}><IconUndo /><span className="tl" aria-hidden="true">Undo</span></button>
+          <button
+            type="button" className="tb tool" aria-label="Views" aria-pressed={viewsOpen} aria-expanded={viewsOpen} aria-haspopup="dialog" data-testid="views-toggle"
+            title="Views: overlays and underground (U)" onClick={() => setOpenPanel(viewsOpen ? null : 'views')}
+          ><IconViews /><span className="tl" aria-hidden="true">Views</span></button>
         </div>
-        <ViewControls view={view} />
       </div>
+      )}
     </>
   );
 }

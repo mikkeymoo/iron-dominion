@@ -132,7 +132,7 @@ export function Budget({ client, events, stats, onClose }: Props) {
   };
 
   return (
-    <div className="budget" role="dialog" aria-label="Budget" aria-modal="false" data-testid="budget">
+    <div className="budget" data-panel="budget" role="dialog" aria-label="Budget" aria-modal="false" data-testid="budget">
       <div className="budget-head">
         <h2>Budget</h2>
         <button ref={closeRef} type="button" className="tb" onClick={onClose} aria-label="Close budget">Close</button>

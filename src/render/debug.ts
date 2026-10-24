@@ -15,6 +15,8 @@ export interface RenderDebug {
   readonly triangles: number;
   readonly drawCallBudget: number;
   readonly deviceLosses: number;
+  /** Device pixels per CSS pixel the canvas is rendering at (tier cap x scale x governor factor). */
+  readonly pixelRatio: number;
   readonly buildings: BuildingDebug;
   /** Atmosphere state: displayed day fraction, weather, sun direction, post passes, particles. `?time=` and `?weather=` pin the first two. */
   readonly fx: FxDebug;

@@ -44,14 +44,14 @@ export function selectRoadTile(road: number): RoadTile {
 }
 
 // Half width of the asphalt per class, and sidewalk (or shoulder) height above the asphalt.
-const HW = [0, 0.2, 0.27, 0.34] as const;
-const SW_H = [0, 0.03, 0.035, 0.05] as const;
+const HW = [0, 0.27, 0.33, 0.39] as const;
+const SW_H = [0, 0.035, 0.04, 0.05] as const;
 const ASPH = 0.04;
 const BRIDGE_LIFT = 0.15;
 const DECK_THICK = 0.09;
 
 const C = {
-  asphalt: hex(0x34383d), highway: hex(0x2c2f33), walk: hex(0xb4b0a6), curb: hex(0xcfcbc0), white: hex(0xe6e4dc), yellow: hex(0xd9b231),
+  asphalt: hex(0x2a2e33), highway: hex(0x24272b), walk: hex(0xcdc9be), curb: hex(0xe4e1d6), white: hex(0xf2f0e8), yellow: hex(0xe8bd2c),
   deck: hex(0x8d8f8c), rail: hex(0x6e7a82), barrier: hex(0x9a9a96), pillar: hex(0x7d7f7c),
 };
 const mul = (c: RGB, k: number): RGB => [c[0] * k, c[1] * k, c[2] * k];
@@ -233,7 +233,7 @@ function emitFull(k: TileCtx, deckY: number | null): void {
   }
   // Lane markings.
   const mk = (x0: number, z0: number, x1: number, z1: number, c: RGB): void => b.rect(x0, z0, x1, z1, levelA + 0.003, c, 1, flat);
-  const lw = cls === 3 ? 0.008 : 0.007;
+  const lw = cls === 3 ? 0.014 : 0.012;
   const cxm = tx + 0.5, czm = ty + 0.5;
   const center = cls === 1 ? C.white : C.yellow;
   for (let d = 0; d < 4; d++) {
@@ -293,12 +293,14 @@ function emitFull(k: TileCtx, deckY: number | null): void {
   }
 }
 
-const SIMPLE_LIFT = 0.035;
+const SIMPLE_LIFT = 0.05;
+/** Far chunks have no sidewalks, so the bare asphalt strip is drawn wider than the near road to read as a clear dark line. */
+const FAR_WIDEN = 0.09;
 
 function emitSimple(k: TileCtx, deckY: number | null): void {
   const { b, tx, ty, t } = k;
   const cls = Math.min(3, Math.max(1, t.cls));
-  const hw = HW[cls]!;
+  const hw = Math.min(0.49, HW[cls]! + FAR_WIDEN);
   const c = mul(C.asphalt, k.vary);
   const lvl = deckY === null ? SIMPLE_LIFT : 0.02;
   const flat = deckY ?? undefined;

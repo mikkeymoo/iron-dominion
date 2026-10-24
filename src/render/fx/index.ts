@@ -23,8 +23,8 @@ import { WaterSystem } from './water.ts';
 import { WeatherFx } from './weather.ts';
 import { parseWeatherParam, weatherName } from './weatherMap.ts';
 
-/** Clear-sky exp2 fog density: nothing at city distances, full fade into the sky by ~1000 tiles. */
-const BASE_FOG = 0.0015;
+/** Clear-sky exp2 fog density: the whole 256-tile map stays clear (>= 97% visible at 250 tiles) and the haze gathers toward the horizon. */
+const BASE_FOG = 0.0007;
 const MAX_EMIT_PER_FRAME = 240;
 /** A skipped emitter makes up at most this much time when it is next serviced. */
 const MAX_CATCHUP_S = 0.5;
@@ -40,6 +40,10 @@ export interface FxDebug {
   readonly lamps: number;
   readonly lightning: number;
   readonly exposure: number;
+  /** Tilt-shift strength 0..1 the post chain was given this frame (0 at far zoom). */
+  readonly tilt: number;
+  /** Clear-sky exp2 fog density in use. */
+  readonly fogDensity: number;
   readonly overrides: { time: boolean; weather: boolean };
   emit(kind: ParticleKind, x: number, y: number, z: number, count: number): number;
 }
@@ -64,6 +68,7 @@ export class Fx {
   private nowSec = 0;
   private sun: [number, number, number] = [0, 1, 0];
   private exposure = 1;
+  private tilt = 0;
   private emitStart = 0;
   private readonly inRange: EmitterRec[] = [];
   private readonly carry = new WeakMap<EmitterRec, { carry: number; t: number }>();
@@ -229,8 +234,9 @@ export class Fx {
     const fwd = cam.getWorldDirection(this.fwd);
     const facing = fwd.x * sun[0] + fwd.y * sun[1] + fwd.z * sun[2];
     const shafts = smoothstep(0.05, 0.4, facing) * smoothstep(-0.02, 0.2, sun[1]) * (1 - st.overcast) * (1 - flash);
+    this.tilt = tiltStrength(camDist, pitch);
     this.post.setParams({
-      tilt: tiltStrength(camDist, pitch),
+      tilt: this.tilt,
       sunUv: [this.tmp.x * 0.5 + 0.5, this.tmp.y * 0.5 + 0.5],
       shafts,
       sunColor: [look.sunColor[0], look.sunColor[1], look.sunColor[2]],
@@ -300,6 +306,8 @@ export class Fx {
       get lamps() { return self.lamps.count; },
       get lightning() { return self.weather.lightningStrikes; },
       get exposure() { return self.exposure; },
+      get tilt() { return self.tilt; },
+      get fogDensity() { return BASE_FOG; },
       get overrides() { return { time: self.timeOverride !== null, weather: self.weatherOverride !== null }; },
       emit: (kind, x, y, z, count) => self.particles.emit(kind, x, y, z, count),
     };

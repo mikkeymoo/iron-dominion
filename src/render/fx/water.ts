@@ -319,7 +319,7 @@ export class WaterSystem {
     // colour and an alpha that fades out before the tile edge, so a narrow river reads as a soft channel, not pale tile-shaped patches.
     const river = step(open, 0.6);
     const depthMix = float(1).sub(exp(depth.mul(-0.42))).max(river.mul(0.62));
-    const shallowC = vec3(0.07, 0.5, 0.52), deepC = vec3(0.008, 0.062, 0.19);
+    const shallowC = vec3(0.05, 0.4, 0.62), deepC = vec3(0.01, 0.08, 0.34);
     const waterC = mix(shallowC, deepC, depthMix);
 
     const F0 = 0.025;
