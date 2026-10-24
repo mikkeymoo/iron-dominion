@@ -132,15 +132,33 @@ describe('buildTerrainMesh', () => {
 });
 
 describe('buildWaterMesh', () => {
-  it('emits one quad per wet tile at its surface level and nothing for dry land', () => {
+  it('covers wet tiles plus one ring of dry tiles at the surface level, with wetness in the colour attribute, and nothing for dry land', () => {
     expect(buildWaterMesh(layers(), 0, 0, 64).triangleCount).toBe(0);
     const pond = layers((x, y) => (x >= 10 && x < 13 && y >= 20 && y < 22 ? { h: -2, w: 2 * HEIGHT_SCALE, t: TERRAIN.WATER } : {}));
     const m = buildWaterMesh(pond, 0, 0, 64);
-    expect(m.triangleCount).toBe(6 * 2);
-    expect(m.vertexCount).toBe(6 * 4);
+    expect(m.triangleCount).toBe(5 * 4 * 2);
+    expect(m.vertexCount).toBe(6 * 5);
+    const wet = new Map<string, number>();
     for (let v = 0; v < m.vertexCount; v++) {
       expect(m.positions[v * 3 + 1]).toBeCloseTo(0, 5);
       expect(m.normals[v * 3 + 1]).toBe(1);
+      wet.set(`${m.positions[v * 3]},${m.positions[v * 3 + 2]}`, m.colors![v * 3]!);
+    }
+    expect(wet.get('11,21'), 'interior corner').toBe(1);
+    expect(wet.get('10,20'), 'corner of the pond').toBe(0.25);
+    expect(wet.get('9,19'), 'outer ring corner').toBe(0);
+    expect(wet.get('11,20'), 'edge corner').toBe(0.5);
+  });
+
+  it('never emits NaN for a ragged river, a lake and the map edge, and wetness stays within 0..1', () => {
+    const wetAt = (x: number, y: number): boolean => (x * 7 + y * 13) % 5 === 0 || (x > 250 && y > 250) || ((x - 40) ** 2 + (y - 40) ** 2 < 90);
+    const l = layers((x, y) => (wetAt(x, y) ? { h: ((x ^ y) & 3) - 1, w: 24, t: (x + y) & 1 ? TERRAIN.RIVER : TERRAIN.WATER } : { h: 3 }));
+    for (const [x0, y0, size] of [[0, 0, 64], [32, 16, 64], [192, 192, 64]] as const) {
+      const m = buildWaterMesh(l, x0, y0, size);
+      expect(m.triangleCount).toBeGreaterThan(0);
+      expect(m.positions.every(Number.isFinite)).toBe(true);
+      expect(m.colors!.every((v) => v >= 0 && v <= 1)).toBe(true);
+      expect(m.indices.every((i) => i < m.vertexCount)).toBe(true);
     }
   });
 
