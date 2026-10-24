@@ -2,6 +2,7 @@ import { fnv1a, hashWorld } from '../sim/hash.ts';
 import { S } from '../sim/layers.ts';
 import { PROTOCOL_VERSION } from '../sim/protocol.ts';
 import { decodeSnapshot, snapshotProtocol } from '../sim/snapshot.ts';
+import { parseJournal, type JournalData } from './journal.ts';
 
 // Container (little endian):
 //   magic 'IDSV' | containerVersion u16 | created f64 (ms since epoch) | metaLen u32 | meta JSON utf8
@@ -25,6 +26,8 @@ export interface SaveMeta {
   thumbnail?: string;
   /** Sim protocol version the snapshot was made with; absent in saves from before it was recorded. */
   protocol?: number;
+  /** The event journal (platform/journal.ts) at the time of the save; absent in saves from before it existed. Not part of the sim state or its hash. */
+  journal?: JournalData;
 }
 
 export interface Codec {
@@ -99,6 +102,8 @@ function readMeta(v: unknown): SaveMeta | undefined {
   const meta: SaveMeta = { name: m.name.slice(0, 80), population: m.population, treasury: m.treasury, day: m.day };
   if (typeof m.thumbnail === 'string') meta.thumbnail = m.thumbnail;
   if (typeof m.protocol === 'number') meta.protocol = m.protocol;
+  const journal = parseJournal(m.journal);
+  if (journal) meta.journal = journal;
   return meta;
 }
 

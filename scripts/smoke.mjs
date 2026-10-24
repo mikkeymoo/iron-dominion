@@ -1119,6 +1119,83 @@ async function starterChecks(open) {
   return out;
 }
 // ---- end starter block ----
+
+// ---- Session pacing and named bots: save, reload with &slot=, the "while you were away" card, Hall of Bots, depot paint, return after a long absence (webgl2 low; desktop) ----
+async function awayChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`away: ${name}`, problem]);
+  const a = await open(BUILD_QUERY);
+  const reached = await until(a, () => (window.__iron?.sim?.tick ?? 0) >= 50 && !!window.__iron?.platform, null, 60000);
+  if (!reached) { add('sim reaches tick 50', `tick ${await tickOf(a)}`); await a.close(); return out; }
+  const saved = await a.evaluate(async () => {
+    const r = await window.__iron.platform.save();
+    return r.ok ? { ok: true, id: r.value.slot.id, tick: r.value.tick } : r;
+  });
+  add('save() stores the running city', saved.ok ? null : JSON.stringify(saved));
+  await a.close();
+  if (!saved.ok) return out;
+
+  const b = await open(`${BUILD_QUERY}&slot=${saved.id}`);
+  const card = await until(b, () => !!document.querySelector('[data-testid="away-card"]'), null, 90000);
+  add('reloading with &slot= shows the "while you were away" card', card ? null : 'no away card');
+  if (!card) { await b.close(); return out; }
+  add('it opened for a resumed save', (await b.locator('[data-testid="away-card"]').getAttribute('data-reason')) === 'resume' ? null : 'reason is not resume');
+  const heading = (await b.locator('[data-testid="away-panel"] .pnl-title').first().textContent().catch(() => '')) ?? '';
+  add('the card is titled "While you were away" and recaps the last minutes of play', heading === 'While you were away' && /Last \d+ minutes? of play/.test(await b.locator('[data-testid="away-card"]').innerText()) ? null : `title "${heading}"`);
+  const next = await until(b, () => !!document.querySelector('[data-testid="away-next"] [data-testid="away-directive-show"]'), null, 20000);
+  add('it names the next UNIT-0 directive with a Show me', next ? null : 'no directive row');
+  const small = await b.evaluate(() => [...document.querySelectorAll('[data-testid="away-card"] button')].map((x) => { const r = x.getBoundingClientRect(); return { name: x.textContent || x.getAttribute('aria-label'), w: r.width, h: r.height }; }).filter((t) => t.w < 43.5 || t.h < 43.5));
+  add('every button on the card is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
+  const clear = (await b.getByRole('button', { name: 'Resume' }).count()) === 1;
+  add('the Resume overlay is still there under the card', clear ? null : 'no Resume button');
+  if (next) {
+    await b.locator('[data-testid="away-directive-show"]').click();
+    add('Show me picks the directive\'s tool', (await until(b, () => window.__iron.tools.selected !== null, null, 5000)) ? null : 'no tool selected');
+    await b.evaluate(() => window.__iron.tools.cancel());
+  }
+  await b.getByRole('button', { name: 'Resume' }).click();
+  await b.locator('[data-testid="away-panel"] button[aria-label="Close"]').click();
+  add('the card closes from its header', (await until(b, () => !document.querySelector('[data-testid="away-card"]'), null, 5000)) ? null : 'card still open');
+
+  await b.locator('[data-testid="menu-button"]').click();
+  await b.locator('[data-testid="bots-menu"]').click();
+  add('the menu opens the Hall of Bots, empty until a bot reaches 100 jobs', (await until(b, () => /100 jobs/.test(document.querySelector('[data-testid="hall-empty"]')?.textContent ?? ''), null, 5000)) ? null : 'no hall');
+  await b.keyboard.press('Escape');
+  await until(b, () => !document.querySelector('[data-testid="hall-of-bots"]'), null, 3000);
+
+  await until(b, () => window.__iron.tools.buildings().some((x) => x.arch === 1), null, 20000);
+  const depot = await b.evaluate(() => window.__iron.tools.buildings().find((x) => x.arch === 1));
+  if (!depot) { add('the reloaded city has its depot', 'no depot'); await b.close(); return out; }
+  await b.evaluate((d) => { window.__iron.tools.cancel(); window.__iron.render.jumpTo(d.x + 1, d.y + 1); }, depot);
+  await until(b, ({ x, y }) => Math.hypot(window.__iron.render.camera.x - x, window.__iron.render.camera.z - y) < 3 && !window.__iron.render.cinematic.active, { x: depot.x + 1, y: depot.y + 1 }, 10000);
+  // Idle bots stand round the depot and win a headless tap on it, so open its card through the same store the tap uses.
+  await b.evaluate((d) => window.__iron.openCard(d.slot), depot);
+  const paint = await until(b, () => !!document.querySelector('[data-testid="info-card"][data-kind="building"] [data-testid="depot-paint"]'), null, 10000);
+  add('tapping the depot opens its card with the paint picker', paint ? null : `no depot-paint section; card "${await b.locator('[data-testid="info-card"]').first().innerText().catch(() => 'none')}", depot ${JSON.stringify(depot)}`);
+  if (paint) {
+    add('the picker offers six schemes, the factory orange selected', (await b.locator('[data-testid^="paint-"][aria-pressed]').count()) === 6 && (await b.locator('[data-testid="paint-0"]').getAttribute('aria-pressed')) === 'true' ? null : 'wrong swatches');
+    const before = await b.evaluate(() => window.__iron.render.robots.painted);
+    await b.locator('[data-testid="paint-3"]').click();
+    const worn = await until(b, () => window.__iron.render.robots.painted >= 1, null, 15000);
+    add('painting the depot repaints the bots drawn at it', worn && before === 0 ? null : `painted ${before} before, ${await b.evaluate(() => window.__iron.render.robots.painted)} after`);
+    add('the picker shows the new scheme selected', (await until(b, () => document.querySelector('[data-testid="paint-3"]')?.getAttribute('aria-pressed') === 'true', null, 8000)) ? null : 'paint-3 not pressed');
+  }
+
+  await b.evaluate(() => { const real = Date.now.bind(Date); window.__skew = 0; Date.now = () => real() + window.__skew; });
+  const setVisibility = (state) => b.evaluate((st) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => st });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
+  await setVisibility('hidden');
+  await b.waitForTimeout(300);
+  await b.evaluate(() => { window.__skew = 150000; });
+  await setVisibility('visible');
+  const back = await until(b, () => document.querySelector('[data-testid="away-card"]')?.getAttribute('data-reason') === 'return', null, 8000);
+  add('coming back after more than 2 minutes opens the card again', back ? null : 'no card after the long absence');
+  await b.close();
+  return out;
+}
+// ---- end away block ----
 // ---- Firmware and edicts: the Research and Edicts panels, a node bought with debug RP, an edict enacted (webgl2 low; desktop) ----
 // Seasons and the hazard forecast: debug-advance to a forecast, the chip shows it, and the drawn season flags change with the calendar.
 async function hazardChecks(open) {
@@ -1776,6 +1853,7 @@ try {
     if (quick && vp.name === 'desktop') buildChecks.push(...await trafficQuickChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await advisorChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await starterChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await awayChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await firmwareChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await chainChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await hazardChecks(open));

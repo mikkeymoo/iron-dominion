@@ -5,7 +5,10 @@ import type { ScenarioChoice } from '../sim/scenarios.ts';
 import { AgentStore } from '../render/agentStore.ts';
 import { RenderMirror } from '../render/mirror.ts';
 import { ViewState } from '../render/viewState.ts';
+import { Journal, awaySummary, type JournalData } from '../platform/journal.ts';
 import { createLifecycle, type Lifecycle } from '../platform/lifecycle.ts';
+import { AwayStore } from './away.ts';
+import { PacingStore } from './pacing.ts';
 import { createPlatformService, type PlatformService, type SaveInfo } from '../platform/service.ts';
 import { fail, ok, type Outcome, type PlatformDb } from '../platform/db.ts';
 import { ToolsRuntime } from './toolsStore.ts';
@@ -28,6 +31,12 @@ export interface Session {
   view: ViewState;
   service: PlatformService;
   lifecycle: Lifecycle;
+  /** What happened in this city, from the sim's events and stats; saved in the slot's header and read back by the "while you were away" card. */
+  journal: Journal;
+  /** Safe stopping points and crisis auto-pause (ui/pacing.ts). */
+  pacing: PacingStore;
+  /** The recap behind the "while you were away" card (ui/AwayCard.tsx). */
+  away: AwayStore;
   seed: number;
   dispose(): void;
 }
@@ -41,6 +50,8 @@ export interface SessionOptions {
   disasters?: number;
   /** Open this scenario or challenge instead of a sandbox city. */
   scenario?: ScenarioChoice;
+  /** The "Pause on crises" setting, read when a crisis arrives. A halting debug run (haltAt) never auto-pauses. */
+  pauseOnCrises?(): boolean;
   getDb(): PlatformDb | undefined;
   onState(state: ClientState): void;
   onStats(s: Stats): void;
@@ -66,16 +77,19 @@ export function openSession(o: SessionOptions): Session {
     // The store copies what it needs, so the client hands the ping-pong buffers straight back to the worker.
     onAgents: (m) => { agents.ingest(m, performance.now()); return false; },
     // The mirror queues lightning strikes for the renderer; the tools runtime tracks command outcomes.
-    onEvents: (m) => { mirror.apply(m); tools.handleEvents(m.events); sound.events(m.events); },
+    onEvents: (m) => { mirror.apply(m); tools.handleEvents(m.events); sound.events(m.events); journal.record(m.events); pacing.events(m.events); },
     onStats: (s) => {
       mirror.apply(s);
       why.stats(s);
       sound.stats(s);
+      journal.observe({ tick: s.tick, treasury: s.treasury, approval: s.council.approval, population: s.population });
+      pacing.council(s.council);
       o.onStats(s);
     },
   });
   if (o.haltAt !== undefined) client.setSpeed('max');
-  const service = createPlatformService({ getDb: () => o.getDb(), sim: client });
+  const journal = new Journal();
+  const service = createPlatformService({ getDb: () => o.getDb(), sim: client, journal: () => journal.data() });
   const lifecycle = createLifecycle({
     now: () => Date.now(),
     pauseSim: () => client.pause(),
@@ -85,8 +99,31 @@ export function openSession(o: SessionOptions): Session {
     hasSlot: () => service.current !== null,
     write: (data, _why, opt) => service.writeSnapshot(data, opt),
   }, { initialSpeed: o.haltAt !== undefined ? 'max' : 1 });
+  const pacing = new PacingStore({
+    speed: () => lifecycle.state.speed,
+    pause: () => lifecycle.setSpeed(0),
+    enabled: () => o.haltAt === undefined && (o.pauseOnCrises?.() ?? true),
+    safeStop: () => { lifecycle.safeStop(); },
+  });
+  const away = new AwayStore();
+  // The sim is paused while the page is hidden, so a long absence has nothing newer than the last moments of play: the card recaps those.
+  let seenReturn = 0;
+  const unsubReturn = lifecycle.subscribe((st) => {
+    if (!st.returned || st.returned.n === seenReturn) return;
+    seenReturn = st.returned.n;
+    away.open(awaySummary(journal.data()), 'return');
+  });
   const sound = attachSessionAudio({ mirror, agents, tools, lifecycle });
-  return { client, mirror, agents, tools, why, view, service, lifecycle, seed: o.seed, dispose: () => { sound.dispose(); why.dispose(); tools.dispose(); client.terminate(); } };
+  return {
+    client, mirror, agents, tools, why, view, service, lifecycle, journal, pacing, away, seed: o.seed,
+    dispose: () => { unsubReturn(); sound.dispose(); why.dispose(); tools.dispose(); pacing.dispose(); away.dispose(); client.terminate(); },
+  };
+}
+
+/** A saved city was loaded into this session: take its journal and open the "while you were away" card on the last stretch of that play. */
+export function noteResumed(s: Session, journal: JournalData | undefined): void {
+  s.journal.load(journal);
+  s.away.open(awaySummary(s.journal.data()), 'resume');
 }
 
 /** Manual Save (or Save as, with a name) through the lifecycle's single write queue. */

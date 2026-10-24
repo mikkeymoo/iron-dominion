@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CouncilStats, DirectiveStats, FirmwareStats, HazardStats, LoanInfo, MilestoneStats, ScenarioStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { CouncilStats, DirectiveStats, FirmwareStats, HazardStats, LoanInfo, MilestoneStats, NamedBot, ScenarioStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { ApprovalChip } from './Council';
 import { DemandBars } from './DemandBars';
@@ -78,6 +78,8 @@ export interface HudStats {
   council?: CouncilStats;
   /** Goal progress of a scenario or challenge city; null or absent in the sandbox. */
   scenario?: ScenarioStats | null;
+  /** Bots that earned a name (100 jobs), busiest first, for the Hall of Bots. */
+  bots?: NamedBot[];
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0, alloy: 0, parts: 0 };
@@ -326,6 +328,7 @@ export function Hud({
                 {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
                 <button type="button" className="tb row" data-testid="services-menu" onClick={() => { onServices(); }}>City services</button>
                 {stats.council && <button type="button" className="tb row" data-testid="council-menu" onClick={() => setOpenPanel('council')}>Council ({stats.council.approval}% approval)</button>}
+                {onProjects && <button type="button" className="tb row" data-testid="bots-menu" onClick={() => setOpenPanel('bots')}>Hall of Bots ({stats.bots?.length ?? 0})</button>}
                 {onProjects && <button type="button" className="tb row" data-testid="projects-menu" onClick={() => { onProjects(); }}>Milestones and projects ({TIERS[stats.milestone?.tier ?? 0]!.name})</button>}
                 {onProjects && <FirmwareMenuRows stats={stats.firmware} onPanel={(p) => setOpenPanel(p)} />}
                 <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>
@@ -382,6 +385,11 @@ export function Hud({
                   </select>
                 </label>
                 <p className="hint" data-testid="disasters-hint">{DISASTER_HINTS[settings.disasters]}</p>
+                <label className="check">
+                  <input type="checkbox" data-testid="crisis-pause-setting" checked={settings.pauseOnCrises} onChange={(e) => onSetting('pauseOnCrises', e.target.checked)} />
+                  Pause on crises
+                </label>
+                <p className="hint">At 4x or Max, a hazard starting, a council request about to expire or approval under 15 pauses the game and tells you why.</p>
               </Panel>
               <Panel id="settings-controls" kind="section" title="Controls">
                 <label>Handedness

@@ -5,8 +5,10 @@ import { Geo, SLOT, hex, shade, type RGB } from './geo.ts';
 import { mergeParts, type MergedGeometry } from './generate.ts';
 
 /** Animation part ids. Kind 1 swings about X, 2 swings the opposite way, 3 spins about Y, 4 is the cargo crate (scaled by carrying). */
-export const PART = { BODY: 0, LEG_L: 1, LEG_R: 2, ARM_L: 3, ARM_R: 4, ROTOR_A: 5, ROTOR_B: 6, ROTOR_C: 7, ROTOR_D: 8, CRATE: 9 } as const;
-export const PART_COUNT = 10;
+export const PART = { BODY: 0, LEG_L: 1, LEG_R: 2, ARM_L: 3, ARM_R: 4, ROTOR_A: 5, ROTOR_B: 6, ROTOR_C: 7, ROTOR_D: 8, CRATE: 9, HAT_ANTENNA: 10, HAT_CAP: 11, HAT_EARS: 12 } as const;
+export const PART_COUNT = 13;
+/** First of the hat parts. Part FIRST_HAT_PART + n - 1 is hat variant n (1..3) of a named bot (sim/robots/names.ts); every robot carries all three and the shader shows the one its instance asks for. */
+export const FIRST_HAT_PART = PART.HAT_ANTENNA;
 /** Per part: pivot x, y, z and animation kind (0 none, 1 swing, 2 counter-swing, 3 spin, 4 crate). */
 export const PIVOTS: readonly (readonly [number, number, number, number])[] = [
   [0, 0, 0, 0],
@@ -19,6 +21,9 @@ export const PIVOTS: readonly (readonly [number, number, number, number])[] = [
   [0.1, 0.07, -0.1, 3],
   [-0.1, 0.07, -0.1, 3],
   [0, 0, 0, 4],
+  [0, 0, 0, 0],
+  [0, 0, 0, 0],
+  [0, 0, 0, 0],
 ];
 
 const ORANGE = hex(0xff8a1c), YELLOW = hex(0xffd23c), DARK = hex(0x2d3238), STEEL = hex(0x9ba5ac), VISOR = hex(0x66e6ff);
@@ -36,9 +41,34 @@ function part(g: Geo, id: number, fn: () => void): void {
   g.parts.forEach((p, s) => { for (let i = from[s]!; i < p.wid.length; i++) p.wid[i] = id; });
 }
 
-function finish(g: Geo): RobotModel {
+function finish(g: Geo, height: number = g.maxY): RobotModel {
   const merged = mergeParts(g.finalize());
-  return { ...merged, triangles: merged.indices.length / 3, height: g.maxY };
+  return { ...merged, triangles: merged.indices.length / 3, height };
+}
+
+const HAT_TIP = hex(0x7be8df), HAT_PINK = hex(0xff6ad5), HAT_CREAM = hex(0xf4efe0);
+
+/**
+ * The three hats a named bot can wear, standing on a head whose top is at height `y` and centre at depth `z`: an antenna with a beacon,
+ * a flat crown cap, and a pair of ears. They are always in the mesh and the shader shrinks the two it was not asked for to nothing, so
+ * the model stays one draw call. `height` of the model does not include them.
+ */
+function hats(g: Geo, y: number, z: number): void {
+  part(g, PART.HAT_ANTENNA, () => {
+    g.tube(SLOT.METAL, [0, y, z], [0, y + 0.06, z], 0.004, 4, STEEL);
+    g.dome(SLOT.ACCENT, 0, y + 0.058, z, 0.014, 6, 2, HAT_TIP);
+  });
+  part(g, PART.HAT_CAP, () => {
+    g.cyl(SLOT.CONCRETE, 0, y - 0.004, z, 0.052, 0.014, 10, HAT_CREAM, { rTop: 0.04, capTop: shade(HAT_CREAM, 1.05) });
+    g.cyl(SLOT.METAL, 0, y + 0.01, z, 0.012, 0.014, 6, DARK);
+    g.box(SLOT.ACCENT, -0.01, y + 0.024, z - 0.008, 0.01, y + 0.03, z + 0.008, HAT_PINK, { noBottom: true });
+  });
+  part(g, PART.HAT_EARS, () => {
+    for (const s of [-1, 1] as const) {
+      g.tube(SLOT.METAL, [s * 0.032, y, z], [s * 0.05, y + 0.05, z], 0.004, 4, DARK);
+      g.box(SLOT.ACCENT, s * 0.05 - 0.009, y + 0.05, z - 0.009, s * 0.05 + 0.009, y + 0.07, z + 0.009, HAT_PINK, { noBottom: true });
+    }
+  });
 }
 
 const leg = (g: Geo, side: -1 | 1): void => {
@@ -75,7 +105,9 @@ export function generateBuilder(): RobotModel {
     g.tube(SLOT.METAL, [0.083, 0.07, 0.016], [0.083, 0.07, 0.07], 0.007, 5, STEEL);
     g.box(SLOT.ACCENT, 0.078, 0.065, 0.07, 0.088, 0.075, 0.08, hex(0xfff2b0), { noBottom: true });
   });
-  return finish(g);
+  const height = g.maxY;
+  hats(g, 0.222, 0.002);
+  return finish(g, height);
 }
 
 export function generateHauler(): RobotModel {
@@ -110,7 +142,9 @@ export function generateHauler(): RobotModel {
     g.box(SLOT.CONCRETE, -0.045, -0.115, -0.045, 0.045, -0.035, 0.045, CRATE, { top: shade(CRATE, 1.1), aoBase: -0.115, aoRange: 0.08, aoMin: 0.6 });
     g.box(SLOT.METAL, -0.047, -0.088, -0.047, 0.047, -0.078, 0.047, STRAP, { noTop: true, noBottom: true, aoBase: -0.115, aoRange: 0.08, aoMin: 0.9 });
   });
-  return finish(g);
+  const height = g.maxY;
+  hats(g, 0.078, -0.01);
+  return finish(g, height);
 }
 
 export const ROBOT_BUDGET = { builder: 600, hauler: 700 } as const;

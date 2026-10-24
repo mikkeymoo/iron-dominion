@@ -10,6 +10,8 @@ import type { Lifecycle } from '../platform/lifecycle.ts';
 import { bindLifecycleDom } from '../platform/lifecycle.ts';
 import type { Settings } from '../platform/settings.ts';
 import { AudioSync } from '../audio/ui.tsx';
+import { AwayCard } from './AwayCard';
+import type { AwayStore } from './away.ts';
 import { Budget } from './Budget';
 import { CouncilPanel } from './Council';
 import { Hud, type HudStats } from './Hud';
@@ -17,6 +19,9 @@ import { DirectiveCard } from './DirectiveCard';
 import { EdictsPanel, ResearchPanel } from './FirmwarePanels';
 import { ForecastUi } from './Forecast';
 import { GoalChip } from './GoalChip';
+import { HallOfBots } from './HallOfBots';
+import { PacingUi } from './PacingUi';
+import type { PacingStore } from './pacing.ts';
 import { Results } from './Results';
 import type { ScoreUpdate } from '../platform/scores.ts';
 import { useLayout } from './layout';
@@ -41,6 +46,8 @@ interface Props {
   why: WhyStore;
   view: ViewState;
   lifecycle: Lifecycle;
+  away: AwayStore;
+  pacing: PacingStore;
   stats: HudStats;
   settings: Settings;
   notice: string;
@@ -61,7 +68,7 @@ interface Props {
 
 type Phase = 'starting' | 'running' | 'failed';
 
-export function GameView({ client, mirror, agents, tools, why, view, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting, scenario }: Props) {
+export function GameView({ client, mirror, agents, tools, why, view, lifecycle, away, pacing, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting, scenario }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [resultsHidden, setResultsHidden] = useState(false);
   const [phase, setPhase] = useState<Phase>('starting');
@@ -228,7 +235,10 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
         <Hud photo={phase === 'running' ? { enter: () => game.current?.photo.enter(), tour: () => { game.current?.tour(); } } : undefined} photoActive={photoOn} lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onTrigger={phase === 'running' ? trigger : undefined} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={setPerf2} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
         {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} onJump={jump} handedness={settings.handedness} focus={focus} onFocus={(on) => onSetting('focus', on)} />}
         {phase === 'running' && !focus && <ForecastUi hazards={stats.hazards} tier={stats.milestone?.tier ?? 0} treasury={stats.treasury} onBuild={(arch) => tools.controller.select({ tool: 'service', arch })} onRebuildAll={() => tools.rebuildAll()} />}
-        {phase === 'running' && <WhyUi why={why} onJump={jump} onBudget={() => setPanel('budget')} onFollow={followOne} modules={{ treasury: stats.treasury, set: (slot, index, module) => client.command({ type: 'setDepotModule', slot, index, module }) }} />}
+        {phase === 'running' && <WhyUi why={why} onJump={jump} onBudget={() => setPanel('budget')} onFollow={followOne} modules={{ treasury: stats.treasury, set: (slot, index, module) => client.command({ type: 'setDepotModule', slot, index, module }) }} paint={{ set: (slot, livery) => client.command({ type: 'setDepotLivery', slot, livery }) }} />}
+        {phase === 'running' && <AwayCard away={away} why={why} directives={stats.directives} council={stats.council} population={stats.population} treasury={stats.treasury} client={client} tools={tools} mirror={mirror} glide={(x, y) => game.current?.glideTo(x, y)} onProjects={() => setPanel('projects')} onBudget={() => setPanel('budget')} />}
+        {phase === 'running' && <PacingUi pacing={pacing} onSave={onSave} onResume={() => lifecycle.setSpeed(1)} />}
+        {panel === 'bots' && <HallOfBots bots={stats.bots} onFollow={followOne} onClose={() => setPanel(null)} />}
         <RadialMenu controller={radial as RadialController} />
         {panel === 'research' && <ResearchPanel stats={stats.firmware} client={client} onClose={() => setPanel(null)} />}
         {panel === 'edicts' && <EdictsPanel stats={stats.firmware} tier={stats.milestone?.tier ?? 0} client={client} onClose={() => setPanel(null)} />}

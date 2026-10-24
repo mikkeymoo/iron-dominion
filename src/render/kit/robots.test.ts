@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SLOT } from './geo.ts';
-import { PART, PART_COUNT, PIVOTS, ROBOT_BUDGET, generateBuilder, generateHauler } from './robots.ts';
+import { FIRST_HAT_PART, PART, PART_COUNT, PIVOTS, ROBOT_BUDGET, generateBuilder, generateHauler } from './robots.ts';
 
 describe('robot kit', () => {
   it('is deterministic', () => {
@@ -40,5 +40,18 @@ describe('robot kit', () => {
     expect(b.height).toBeGreaterThan(0.18);
     expect(b.height).toBeLessThan(0.34);
     expect(h.height).toBeLessThan(0.12);
+  });
+
+  it('carries the three hats of a named bot as parts of their own, above the head, without changing the model height', () => {
+    for (const [m, head] of [[generateBuilder(), 0.222], [generateHauler(), 0.078]] as const) {
+      expect(FIRST_HAT_PART).toBe(PART.HAT_ANTENNA);
+      for (const hat of [PART.HAT_ANTENNA, PART.HAT_CAP, PART.HAT_EARS]) {
+        const verts = [...m.wid].map((p, i) => [p, m.positions[i * 3 + 1]!] as const).filter(([p]) => p === hat);
+        expect(verts.length, `hat part ${hat}`).toBeGreaterThan(8);
+        for (const [, y] of verts) expect(y).toBeGreaterThanOrEqual(head - 0.01);
+      }
+    }
+    expect(generateBuilder().height).toBeLessThan(0.34);
+    expect(generateHauler().height).toBeLessThan(0.12);
   });
 });

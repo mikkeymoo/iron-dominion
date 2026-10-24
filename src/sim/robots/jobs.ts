@@ -6,19 +6,20 @@ import {
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
 import { mods } from '../firmware.ts';
 import { bytesOf, fnv1a } from '../hash.ts';
-import { BMAX, C, MAP, ROAD, S, TERRAIN, ZONE, isWaterTerrain, type World } from '../layers.ts';
+import { BMAX, C, MAP, RMAX, ROAD, S, TERRAIN, ZONE, isWaterTerrain, type World } from '../layers.ts';
 import { isMega, megaBit, megaStageNeed, megaStages } from '../megaprojects.ts';
 import { roadsOf } from '../roads/index.ts';
 import type { RoadNet } from '../roads/graph.ts';
 import type { Sim } from '../world.ts';
 import { markDirty } from '../world.ts';
+import { creditJob } from './names.ts';
 import {
-  CANDIDATES, DEPOT_START_STOCK, REBUILD_EXTRA_DEMOLITIONS, DEPOT_STOCK_CAP, DEPOT_TRICKLE_CAP, GROWTH_MIN_DEMAND, GROWTH_PERIOD, IMPORT_COST, IMPORT_PERIOD,
+  AKIND, AST, CANDIDATES, DEPOT_START_STOCK, REBUILD_EXTRA_DEMOLITIONS, DEPOT_STOCK_CAP, DEPOT_TRICKLE_CAP, GROWTH_MIN_DEMAND, GROWTH_PERIOD, IMPORT_COST, IMPORT_PERIOD,
   IMPORT_UNITS, INDUSTRY_STOCK_CAP, JOB, JOB_MAX, JOB_PENALTY, JOB_STUCK_TICKS, MAX_DEMOLITIONS, MAX_JOBS, PRODUCE_PERIOD, CHAIN_JOBS_FREE, RES, materialFor,
   resOfLevel, resUnits,
 } from './constants.ts';
 import { liveChainJobs, outstandingNeed } from './chain.ts';
-import { SPEND, available, clearJob } from './pool.ts';
+import { SPEND, available, clearJob, refOf } from './pool.ts';
 import { made, reachableStock } from './stock.ts';
 
 /** Drop job rows whose building was freed or reused since the job began. */
@@ -201,6 +202,12 @@ function finishDemolition(sim: Sim, s: number): void {
   }
 }
 
+/** Every builder working on the job at `slot` gets one finished job on its count (named bots, robots/names.ts). */
+function creditCrew(sim: Sim, slot: number): void {
+  const w = sim.world, ref = refOf(w, slot);
+  for (let a = 0; a < RMAX; a++) if (w.aKind[a] === AKIND.BUILDER && w.aState[a] === AST.WORK && w.aTarget[a] === ref) creditJob(sim, a);
+}
+
 /** Mirror job progress into the building table and finish what is done. Runs after the robots have worked this tick. */
 export function settleJobs(sim: Sim): void {
   const w = sim.world;
@@ -209,9 +216,10 @@ export function settleJobs(sim: Sim): void {
     if (kind === 0) continue;
     const top = w.jProg[s]! >> 8;
     if (kind === JOB.DEMOLISH) {
-      if (w.jProg[s] === 0) { finishDemolition(sim, s); continue; }
+      if (w.jProg[s] === 0) { creditCrew(sim, s); finishDemolition(sim, s); continue; }
     } else if (w.jProg[s]! >= JOB_MAX) {
       if ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0) { clearJob(w, s); continue; }
+      creditCrew(sim, s);
       if (kind === JOB.BUILD && isMega(w.bArch[s]!) && advanceMega(sim, s)) continue;
       // A service rebuilt after a disaster was built as level 1 for its material and work; services have no levels, so it finishes at 0.
       if (kind === JOB.BUILD && zoneOfArch(w.bArch[s]!) === 0 && !isMega(w.bArch[s]!)) w.bLevel[s] = 0;
@@ -219,6 +227,7 @@ export function settleJobs(sim: Sim): void {
       w.bProg[s] = 255;
       clearJob(w, s);
       w.council[C.BUILT]!++;
+      if (kind === JOB.BUILD) sim.events.push({ type: 'buildingDone', tick: w.scalars[S.tick]!, arch: w.bArch[s]!, x: w.bX[s]!, y: w.bY[s]! });
       sim.dirty.buildings.add(s);
       continue;
     }

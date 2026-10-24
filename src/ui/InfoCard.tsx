@@ -4,6 +4,8 @@ import { isEditableTarget } from '../render/editable.ts';
 import { Panel } from './Panel';
 import { BuildingChain } from './ChainUi';
 import { DepotModules, type DepotModuleControls } from './DepotModules';
+import { DepotPaint, type DepotPaintControls } from './DepotPaint';
+import { NAMED_JOBS } from '../sim/robots/names.ts';
 import { PANEL_ATTR } from './panels';
 import type { WhyStore } from './whyStore.ts';
 import './why.css';
@@ -15,6 +17,8 @@ interface Props {
   onFollow?(key: number): boolean;
   /** Depot module picker (firmware): the treasury and the setter. Absent hides the section. */
   modules?: DepotModuleControls;
+  /** Depot paint picker. Absent hides the section. */
+  paint?: DepotPaintControls;
 }
 
 const STATUS_WORD: Record<BuildingInfo['status'], string> = { constructing: 'Under construction', working: 'Working', idle: 'Not working', burning: 'On fire' };
@@ -32,7 +36,7 @@ function Thoughts({ list, why }: { list: readonly Thought[]; why: WhyStore }) {
   );
 }
 
-function BuildingBody({ info, why, onJump, modules }: { info: BuildingInfo; why: WhyStore; onJump: Props['onJump']; modules?: DepotModuleControls }) {
+function BuildingBody({ info, why, onJump, modules, paint }: { info: BuildingInfo; why: WhyStore; onJump: Props['onJump']; modules?: DepotModuleControls; paint?: DepotPaintControls }) {
   return (
     <>
       <header>
@@ -50,6 +54,7 @@ function BuildingBody({ info, why, onJump, modules }: { info: BuildingInfo; why:
       <Thoughts list={info.thoughts} why={why} />
       <BuildingChain info={info} />
       {info.depot && modules && info.status !== 'constructing' && <DepotModules slot={info.slot} depot={info.depot} controls={modules} />}
+      {info.depot && paint && info.status !== 'constructing' && <DepotPaint slot={info.slot} livery={info.depot.livery} controls={paint} />}
       <div className="info-actions">
         <button type="button" className="tb" data-testid="info-look" onClick={() => onJump(info.x + (info.w >> 1), info.y + (info.h >> 1))}>Look</button>
         <button type="button" className="tb danger" data-testid="info-bulldoze" onClick={() => why.bulldoze()}>Bulldoze</button>
@@ -68,6 +73,13 @@ function AgentBody({ info, why, gone, onFollow, onJump }: { info: AgentInfo; why
       </header>
       <p className={`agent-job${info.waiting ? ' waiting' : ''}`} data-testid="agent-job">{gone ? 'Gone: it finished or went back into its depot.' : info.job}</p>
       {info.detail && !gone && <p className="info-facts" data-testid="agent-detail"><span>{info.detail}</span></p>}
+      {info.jobs !== undefined && (
+        <p className="info-facts" data-testid="agent-jobs" data-named={info.named === true}>
+          {info.named && info.role && <span>{info.role}</span>}
+          <span>{info.jobs.toLocaleString('en-US')} {info.jobs === 1 ? 'job' : 'jobs'} done</span>
+          {!info.named && <span>Earns a name at {NAMED_JOBS}</span>}
+        </p>
+      )}
       <div className="info-actions">
         {onFollow && <button type="button" className="tb" data-testid="info-follow" disabled={gone} onClick={() => onFollow(info.key)}>Follow</button>}
         <button type="button" className="tb" data-testid="info-look" onClick={() => onJump(Math.floor(info.x), Math.floor(info.y))}>Look</button>
@@ -76,7 +88,7 @@ function AgentBody({ info, why, gone, onFollow, onJump }: { info: AgentInfo; why
   );
 }
 
-export function InfoCard({ why, onJump, onFollow, modules }: Props) {
+export function InfoCard({ why, onJump, onFollow, modules, paint }: Props) {
   const [, bump] = useReducer((n: number) => n + 1, 0);
   useEffect(() => why.subscribe(bump), [why]);
   const open = why.selection !== null;
@@ -93,7 +105,7 @@ export function InfoCard({ why, onJump, onFollow, modules }: Props) {
     <aside className="info-card" {...{ [PANEL_ATTR]: 'info' }} data-testid="info-card" data-kind={sel.kind} aria-label="Details">
       <Panel id="info" kind="section" title="Details" remember={false}>
         {!info && <p className="info-loading">Asking the sim...</p>}
-        {info && info.kind === 'building' && <BuildingBody info={info} why={why} onJump={onJump} modules={modules} />}
+        {info && info.kind === 'building' && <BuildingBody info={info} why={why} onJump={onJump} modules={modules} paint={paint} />}
         {info && info.kind === 'agent' && <AgentBody info={info} why={why} gone={why.gone} onFollow={onFollow} onJump={onJump} />}
       </Panel>
     </aside>

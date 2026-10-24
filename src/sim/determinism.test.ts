@@ -24,8 +24,8 @@ interface Golden {
   traffic: { ticks: number; hash: number };
 }
 
-/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain) and the hazard scheduler's two (hazard, hrng). */
-const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain', 'hazard', 'hrng']);
+/** The layers added after the first golden: firmware's two (bMod, firmware), the scenario layer and the council's (approval, requests, festivals), the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain), the hazard scheduler's two (hazard, hrng) and the named-bot and depot-paint pair (aJobs, bLivery). */
+const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'scenario', 'council', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain', 'hazard', 'hrng', 'aJobs', 'bLivery']);
 // The year-position scalar (S.season) did not exist either, so it is zeroed for the legacy hash.
 const legacyHash = (sim: Sim): number => {
   const s = sim.world.scalars, kept = s[S.season]!;
@@ -61,6 +61,8 @@ describe('determinism', () => {
   // Seasons and hazards moved every hash again: spring rolls its own weather odds (rainier than the old table) and the random quake and
   // meteor rolls became forecast hazards, so `legacy.scripted` and `legacy.idle` were re-baselined. `legacy.traffic` is unchanged: a
   // city that builds no firmware, scenario, hazard layer or season scalar still plays that traffic run exactly as before.
+  // Named bots and depot paint added two layers (aJobs, bLivery), so the three main golden hashes were re-baselined on purpose; every `legacy`
+  // hash (which leaves both layers out) is unchanged: counting jobs and painting depots moved no other state.
   // The firmware, scenario and council units added layers (bMod, firmware, scenario, council), so the golden hashes moved. `legacy` holds the
   // hashes from before them, over every other layer: they must still match, which shows a city that buys no firmware, fits no module, enacts no
   // edict, opens no scenario and keeps neutral approval (the golden runs end before the first budget month closes) plays exactly as it did.

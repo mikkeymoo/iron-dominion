@@ -13,6 +13,7 @@ import {
   AKIND, AST, BUILDER_SPEED, DEPOT_STOCK_CAP, FACTORY_BUFFER, FACTORY_IN, FIREFIGHTER_SPEED, HAULER_SPEED, JOB, JOB_MAX, OUTPUT_CAP, RES, RES_COUNT, RES_NAMES,
   SMELTER_BUFFER, SMELT_IN, TRANSFER_BIT,
 } from './robots/constants.ts';
+import { NAMED_JOBS, botName, canBeNamed } from './robots/names.ts';
 import { chainRunning, isChainArch, reachableStock, stockLayer } from './robots/stock.ts';
 import { depotCaps, mods, moduleAt } from './firmware.ts';
 import { pathOf } from './robots/move.ts';
@@ -295,7 +296,7 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
     }
     const caps = depotCaps(w, slot);
     info.depot = {
-      radius: mods(w).workRadius, builders, haulers, stock: w.bStock[slot]!, builderCap: caps.builders, haulerCap: caps.haulers, droneCap: caps.drones,
+      radius: mods(w).workRadius, builders, haulers, stock: w.bStock[slot]!, builderCap: caps.builders, haulerCap: caps.haulers, droneCap: caps.drones, livery: w.bLivery[slot]!,
       modules: [moduleAt(w, slot, 0), moduleAt(w, slot, 1)],
     };
   }
@@ -405,9 +406,13 @@ function agentInfo(sim: Sim, key: number): AgentInfo | null {
   if (a >= AMAX || w.aKind[a] === 0 || w.aGen[a] !== gen) return null;
   const k = w.aKind[a]!;
   const robot = a < RMAX;
-  const name = robot ? `${ROBOT_ROLE[k] ?? 'Robot'} #${a + 1}` : `${VEHICLE_ROLE[k] ?? 'Vehicle'} #${a - RMAX + 1}`;
+  const role = robot ? `${ROBOT_ROLE[k] ?? 'Robot'} #${a + 1}` : `${VEHICLE_ROLE[k] ?? 'Vehicle'} #${a - RMAX + 1}`;
   const body = robot ? robotInfo(sim, a) : vehicleInfo(sim, a);
-  return { kind: 'agent', key, akind: k, name, x: w.aX[a]!, y: w.aY[a]!, ...body };
+  if (canBeNamed(w, a)) {
+    const jobs = w.aJobs[a]!, named = jobs >= NAMED_JOBS;
+    return { kind: 'agent', key, akind: k, name: named ? botName(a, gen) : role, x: w.aX[a]!, y: w.aY[a]!, ...body, jobs, named, role };
+  }
+  return { kind: 'agent', key, akind: k, name: role, x: w.aX[a]!, y: w.aY[a]!, ...body };
 }
 
 /** Answer a RequestInfo: `ok: false` with a reason when the building is gone or the agent has left (or gone back into its depot). */

@@ -69,6 +69,13 @@ describe('onboarding and performance panel settings', () => {
     expect(s.showPerf).toBe(true);
   });
 
+  it('keep "Pause on crises" on by default and honour what the player chose', async () => {
+    expect(DEFAULT_SETTINGS.pauseOnCrises).toBe(true);
+    expect((await loadSettings(dbWith({}), undefined)).pauseOnCrises).toBe(true);
+    expect((await loadSettings(dbWith({ pauseOnCrises: false }), undefined)).pauseOnCrises).toBe(false);
+    expect((await loadSettings(dbWith({ pauseOnCrises: 'no' }), undefined)).pauseOnCrises).toBe(true);
+  });
+
   it('fall back to the defaults for damaged values', async () => {
     const s = await loadSettings(dbWith({ onboarding: { dismissed: 'yes', collapsed: 3, hintsSeen: ['road', 7, null] }, showPerf: 'on' }), undefined);
     expect(s.onboarding).toEqual({ dismissed: false, collapsed: false, hintsSeen: ['road'] });

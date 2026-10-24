@@ -5,6 +5,10 @@ export const AUTOSAVE_MS = 60_000;
 export const TICK_MS = 1000;
 /** Longest gap a single tick() may credit as play time, so a throttled timer cannot fake a minute of play. */
 const MAX_CREDIT_MS = 5000;
+/** A page hidden at least this long counts as the player having been away: coming back shows the "while you were away" card. */
+export const AWAY_MS = 120_000;
+/** A safe stopping point autosaves only when there is at least this much unsaved play behind it. */
+export const SAFE_STOP_MIN_MS = 15_000;
 
 export type WriteWhy = 'autosave' | 'hide' | 'manual';
 export interface WriteOptions { asName?: string; create?: boolean }
@@ -33,6 +37,8 @@ export interface LifecycleState {
   saving: boolean;
   lastSavedAt: number | null;
   lastError: FailReason | null;
+  /** Set (with a rising `n`) each time the page comes back after AWAY_MS or more hidden; `ms` is how long it was hidden. */
+  returned: { ms: number; n: number } | null;
 }
 
 export interface Lifecycle {
@@ -49,6 +55,11 @@ export interface Lifecycle {
   holdForResume(): void;
   /** Every manual, Save as and autosave write goes through here, one at a time; a missing slot is created. */
   saveNow(why?: WriteWhy, asName?: string): Promise<WriteOutcome>;
+  /**
+   * A safe stopping point (a directive, megaproject stage or council request just finished): autosaves now when the city has a slot,
+   * the page is live and at least SAFE_STOP_MIN_MS of play is unsaved. Returns whether a save started.
+   */
+  safeStop(): boolean;
   subscribe(fn: (s: Readonly<LifecycleState>) => void): () => void;
 }
 
@@ -56,8 +67,9 @@ export interface Lifecycle {
 export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number; initialSpeed?: Speed } = {}): Lifecycle {
   const autosaveMs = opt.autosaveMs ?? AUTOSAVE_MS;
   const s: LifecycleState = {
-    speed: opt.initialSpeed ?? 1, visible: true, awaitingResume: false, activeMs: 0, saving: false, lastSavedAt: null, lastError: null,
+    speed: opt.initialSpeed ?? 1, visible: true, awaitingResume: false, activeMs: 0, saving: false, lastSavedAt: null, lastError: null, returned: null,
   };
+  let hiddenAt: number | null = null;
   let cached: Uint8Array | null = null;
   let lastTick = deps.now();
   let tail: Promise<unknown> | null = null;
@@ -123,6 +135,7 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
     hide() {
       if (!s.visible) return;
       s.visible = false;
+      hiddenAt = deps.now();
       s.awaitingResume = true;
       deps.pauseSim();
       if (cached && deps.hasSlot()) {
@@ -137,6 +150,11 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
       if (s.visible) return;
       s.visible = true;
       lastTick = deps.now();
+      if (hiddenAt !== null) {
+        const away = lastTick - hiddenAt;
+        if (away >= AWAY_MS) s.returned = { ms: away, n: (s.returned?.n ?? 0) + 1 };
+        hiddenAt = null;
+      }
       emit();
     },
     resume() {
@@ -158,6 +176,12 @@ export function createLifecycle(deps: LifecycleDeps, opt: { autosaveMs?: number;
       emit();
     },
     saveNow: (why = 'manual', asName) => writeFresh(why, asName),
+    safeStop() {
+      if (!deps.hasSlot() || !active() || pending > 0 || s.activeMs < SAFE_STOP_MIN_MS) return false;
+      s.activeMs = 0;
+      void writeFresh('autosave');
+      return true;
+    },
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
   };
 }

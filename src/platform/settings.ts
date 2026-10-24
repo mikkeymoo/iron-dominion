@@ -47,6 +47,8 @@ export interface Settings {
   focus: boolean;
   /** Collapsed flag per panel id (see ui/Panel.tsx); a missing id uses the panel's own default. */
   panelStates: Record<string, boolean>;
+  /** Pause a fast-forwarded game (4x or Max) when a hazard starts, a council request is about to expire or approval drops under 15 (ui/pacing.ts). */
+  pauseOnCrises: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -62,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   handedness: 'right',
   focus: false,
   panelStates: {},
+  pauseOnCrises: true,
 };
 
 export const isTierOverride = (v: unknown): v is TierOverride => v === 'auto' || isTier(v);
@@ -84,6 +87,7 @@ function sanitize(raw: Record<string, unknown>): Settings {
     panels: { topOpen: bool(obj(raw.panels).topOpen, d.panels.topOpen), autoCollapse: bool(obj(raw.panels).autoCollapse, d.panels.autoCollapse) },
     handedness: isHandedness(raw.handedness) ? raw.handedness : d.handedness,
     focus: bool(raw.focus, d.focus),
+    pauseOnCrises: bool(raw.pauseOnCrises, d.pauseOnCrises),
     panelStates: Object.fromEntries(
       Object.entries(obj(raw.panelStates)).filter((e): e is [string, boolean] => typeof e[1] === 'boolean' && e[0].length <= 48).slice(0, PANEL_STATE_CAP),
     ),

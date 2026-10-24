@@ -7,16 +7,19 @@ import {
 import { attribute, cameraPosition, cos, cross, float, mix, normalize, positionGeometry, positionLocal, sin, smoothstep, step, uniform, uniformArray, vec3, vec4, vertexColor } from 'three/tsl';
 import { ARCH } from '../sim/catalog.ts';
 import { RMAX } from '../sim/layers.ts';
+import { LIVERIES } from '../sim/robots/livery.ts';
 import { AGENT_KIND, AGENT_STATE, makeSample, type AgentSample, type AgentStore } from './agentStore.ts';
 import type { ParadePose } from './festival.ts';
 import { surfaceHeight } from './heightfield.ts';
 import { cachedModel, composeMatrix } from './instances.ts';
 import { fxU } from './fx/uniforms.ts';
-import { PIVOTS, generateBuilder, generateHauler, type RobotModel } from './kit/robots.ts';
+import { hex } from './kit/geo.ts';
+import { FIRST_HAT_PART, PIVOTS, generateBuilder, generateHauler, type RobotModel } from './kit/robots.ts';
 import type { RenderMirror } from './mirror.ts';
 import { TIER_TABLE, type Tier } from './tier.ts';
 
-export interface RobotStats { visible: number; builders: number; haulers: number; fighters: number; beams: number; sparks: number; sprays: number }
+/** `painted` and `hatted` count the builders and hauler drones drawn this frame in a depot paint scheme and in a named bot's hat. */
+export interface RobotStats { visible: number; builders: number; haulers: number; fighters: number; beams: number; sparks: number; sprays: number; painted: number; hatted: number }
 
 /** What the robots view emits into the particle system: welding sparks, and the fire hose as a directed jet of water. */
 export interface RobotEmit {
@@ -51,6 +54,10 @@ function geometryOf(m: RobotModel): BufferGeometry {
 }
 
 const botClock = uniform(0);
+/** An instance in the factory paint with no hat. */
+const NO_LOOK = [0, 0, 0, 0] as const;
+/** Luminance of the factory orange (linear), the brightness the body panels of any paint scheme are scaled against. */
+const PANEL_LUM = 0.395;
 
 /**
  * One material for both robots. Animation runs in the vertex stage from `time` and a per-instance phase: legs and arms swing about
@@ -59,8 +66,10 @@ const botClock = uniform(0);
  */
 function robotMaterial(kind: 'builder' | 'hauler', livery = false): MeshStandardNodeMaterial {
   const piv: any = uniformArray(PIVOTS.map((p) => new Vector4(p[0], p[1], p[2], p[3])), 'vec4');
+  const paints: any = uniformArray(LIVERIES.map((l) => { const [r, g, b] = hex(l.hex); return new Vector4(r, g, b, 0); }), 'vec4');
   const rb = attribute('rb', 'vec2');
   const iBot = attribute('iBot', 'vec4');
+  const iLook: any = attribute('iLook', 'vec4');
   const part: any = rb.x, slot: any = rb.y;
   const P: any = piv.element(part.toInt());
   const kindN: any = P.w;
@@ -92,12 +101,22 @@ function robotMaterial(kind: 'builder' | 'hauler', livery = false): MeshStandard
   const cyaw: any = cos(yaw), syaw: any = sin(yaw);
   const world: any = vec3(delta.x.mul(cyaw).add(delta.z.mul(syaw)), delta.y, delta.z.mul(cyaw).sub(delta.x.mul(syaw))).mul(ROBOT_SCALE);
 
+  // A named bot wears hat n (iLook.y, 1..3): the vertices of the other two hats collapse onto the origin, which leaves them with no area.
+  const isHat: any = step(FIRST_HAT_PART - 0.5, part);
+  const wantsHat: any = step(iLook.y.sub(part.sub(FIRST_HAT_PART - 1)).abs(), 0.5);
+  const shown: any = float(1).sub(isHat).add(isHat.mul(wantsHat));
+
   const m = new MeshStandardNodeMaterial();
-  m.positionNode = positionLocal.add(world);
+  m.positionNode = positionLocal.add(world).mul(shown);
   const ao: any = vertexColor().a;
-  const base: any = vertexColor().rgb;
+  const vcolor: any = vertexColor().rgb;
   const isGlass: any = step(0.5, slot).mul(step(slot, 1.5));
   const isAccent: any = step(3.5, slot).mul(step(slot, 4.5));
+  // Depot paint (iLook.x, 1..5; 0 keeps the factory colours): the body panels take the scheme's colour, the brighter trim keeps its relative brightness.
+  const isPanel: any = step(slot, 0.5).mul(step(0.5, iLook.x));
+  const lum: any = vcolor.x.mul(0.2126).add(vcolor.y.mul(0.7152)).add(vcolor.z.mul(0.0722));
+  const scheme: any = paints.element(iLook.x.toInt()).xyz;
+  const base: any = mix(vcolor, scheme.mul(lum.div(PANEL_LUM).clamp(0.3, 1.5)), isPanel);
   // Fire robots wear red: everything but the visor and the lights is pulled toward fire-engine red.
   // A hauler's crate wears the colour of its cargo: `mode` is 0 ore (amber), 1 alloy (cyan), 2 components (magenta).
   const cargo: any = mix(mix(vec3(0.95, 0.62, 0.14), vec3(0.12, 0.85, 0.95), step(0.5, mode)), vec3(0.92, 0.2, 0.78), step(1.5, mode));
@@ -117,6 +136,8 @@ function robotMaterial(kind: 'builder' | 'hauler', livery = false): MeshStandard
 class Fleet {
   readonly mesh: InstancedMesh;
   readonly iBot: Float32Array;
+  /** Per instance: depot paint scheme, hat variant, two spare. */
+  readonly iLook: Float32Array;
   readonly matrix: Float32Array;
   count = 0;
   constructor(readonly geometry: BufferGeometry, material: Material, capacity: number, name: string) {
@@ -124,6 +145,10 @@ class Fleet {
     const attr = new InstancedBufferAttribute(this.iBot, 4);
     attr.setUsage(DynamicDrawUsage);
     geometry.setAttribute('iBot', attr);
+    this.iLook = new Float32Array(capacity * 4);
+    const look = new InstancedBufferAttribute(this.iLook, 4);
+    look.setUsage(DynamicDrawUsage);
+    geometry.setAttribute('iLook', look);
     this.mesh = new InstancedMesh(geometry, material, capacity);
     this.matrix = this.mesh.instanceMatrix.array as Float32Array;
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -138,6 +163,7 @@ class Fleet {
     this.mesh.visible = this.count > 0;
     this.mesh.instanceMatrix.needsUpdate = true;
     (this.geometry.getAttribute('iBot') as BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('iLook') as BufferAttribute).needsUpdate = true;
   }
   dispose(): void {
     this.mesh.dispose();
@@ -201,7 +227,7 @@ export class RobotsView {
   private readonly mats: MeshStandardNodeMaterial[];
   private sample: AgentSample;
   private capacity: number;
-  private stats: RobotStats = { visible: 0, builders: 0, haulers: 0, fighters: 0, beams: 0, sparks: 0, sprays: 0 };
+  private stats: RobotStats = { visible: 0, builders: 0, haulers: 0, fighters: 0, beams: 0, sparks: 0, sprays: 0, painted: 0, hatted: 0 };
   private sparkSpawned = 0;
   private sparkCarry = 0;
   private time = 0;
@@ -246,11 +272,12 @@ export class RobotsView {
     botClock.value = this.time;
     const s = this.store.sample(nowMs, this.sample, this.capacity, focusX, focusZ, 'robots');
     const heights = this.mirror.layers.height!;
-    let nb = 0, nh = 0, nf = 0, beams = 0;
+    let nb = 0, nh = 0, nf = 0, beams = 0, painted = 0, hatted = 0;
     const work: number[] = [], spray: number[] = [];
     for (let i = 0; i < s.count; i++) {
       let x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
       const key = s.key[i]!;
+      if (s.kind[i] !== AGENT_KIND.FIREFIGHTER) { if (s.livery[i]) painted++; if (s.hat[i]) hatted++; }
       const phase = (((key * 2654435761) >>> 0) / 4294967296) * Math.PI * 2;
       const idle = s.state[i] === AGENT_STATE.IDLE;
       if (idle) { this.idleSpot(x, z, phase); x = this.spot[0]!; z = this.spot[1]!; yaw = this.spot[2]!; }
@@ -260,18 +287,21 @@ export class RobotsView {
         this.builders.matrix.set(this.mat, nb * 16);
         const working = s.state[i] === AGENT_STATE.WORK || s.state[i] === AGENT_STATE.REPAIR_WORK ? 1 : 0;
         this.builders.iBot.set([phase, 0, idle ? 2 : working, yaw], nb * 4);
+        this.builders.iLook.set([s.livery[i]!, s.hat[i]!, 0, 0], nb * 4);
         if (working) work.push(i);
         nb++;
       } else if (s.kind[i] === AGENT_KIND.FIREFIGHTER) {
         composeMatrix(this.mat, x, gy + HOVER, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.fighters.matrix.set(this.mat, nf * 16);
         this.fighters.iBot.set([phase, 0, 0, yaw], nf * 4);
+        this.fighters.iLook.set(NO_LOOK, nf * 4);
         if (s.state[i] === AGENT_STATE.FF_SPRAY) spray.push(i);
         nf++;
       } else {
         composeMatrix(this.mat, x, gy + HOVER, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.haulers.matrix.set(this.mat, nh * 16);
         this.haulers.iBot.set([phase, s.carry[i] ? 1 : 0, Math.max(0, s.carry[i]! - 1), yaw], nh * 4);
+        this.haulers.iLook.set([s.livery[i]!, s.hat[i]!, 0, 0], nh * 4);
         nh++;
       }
     }
@@ -283,11 +313,13 @@ export class RobotsView {
         composeMatrix(this.mat, p.x, gy + HOVER, p.z, p.yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.haulers.matrix.set(this.mat, nh * 16);
         this.haulers.iBot.set([phase, 0, 0, p.yaw], nh * 4);
+        this.haulers.iLook.set(NO_LOOK, nh * 4);
         nh++;
       } else {
         composeMatrix(this.mat, p.x, gy, p.z, p.yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.builders.matrix.set(this.mat, nb * 16);
         this.builders.iBot.set([phase, 0, 2, p.yaw], nb * 4);
+        this.builders.iLook.set(NO_LOOK, nb * 4);
         nb++;
       }
     }
@@ -340,7 +372,7 @@ export class RobotsView {
       this.sparkSpawned += sparks;
     } else if (work.length === 0) this.sparkCarry = 0;
     const counts = this.store.counts();
-    this.stats = { visible: nb + nh + nf, builders: counts.builders, haulers: counts.haulers, fighters: counts.fighters, beams, sparks: this.sparkSpawned, sprays: this.sprayed };
+    this.stats = { visible: nb + nh + nf, builders: counts.builders, haulers: counts.haulers, fighters: counts.fighters, beams, sparks: this.sparkSpawned, sprays: this.sprayed, painted, hatted };
   }
 
   dispose(): void {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 /** Panels that float over the map. At most one is open at a time; opening one closes the rest. */
-export type PanelId = 'menu' | 'status' | 'budget' | 'services' | 'projects' | 'views' | 'research' | 'edicts' | 'council';
+export type PanelId = 'menu' | 'status' | 'budget' | 'services' | 'projects' | 'views' | 'research' | 'edicts' | 'council' | 'bots';
 
 /** Marks an element as part of the HUD, so a tap on it is not an "outside tap". */
 export const PANEL_ATTR = 'data-panel';

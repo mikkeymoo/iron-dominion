@@ -50,7 +50,7 @@ export interface RenderDebug {
   /** Simulate a lost device / context to exercise recovery. */
   loseDevice(): void;
   /** Robots in the latest agent message: drawn (visible), and how many are builders and haulers; beams and sparks are what the view has emitted. */
-  readonly robots: { readonly visible: number; readonly builders: number; readonly haulers: number; readonly fighters: number; readonly beams: number; readonly sparks: number; readonly sprays: number };
+  readonly robots: { readonly visible: number; readonly builders: number; readonly haulers: number; readonly fighters: number; readonly beams: number; readonly sparks: number; readonly sprays: number; readonly painted: number; readonly hatted: number };
   /**
    * Vehicles: `visible` drawn this frame (tier cap, view culling), `active` in the latest agent message, `lit` drawn with lights on,
    * `braking` drawn with brake lights; `sample(n)` returns up to n drawn vehicles' tile-space positions, headings, kinds (3 car, 4 taxi, 5 truck, 6 bus) and states.
@@ -84,6 +84,8 @@ export interface IronDebug {
   /** `workforce`, `population` and `jobs` (jobs in finished commercial and industrial buildings) come from the newest Stats message. */
   sim: { tick: number; hash?: number; hashTick?: number; workforce?: Workforce; traffic?: TrafficStats; population?: number; jobs?: number; firmware?: FirmwareStats; hazards?: HazardStats };
   render?: RenderDebug;
+  /** Open the info card of a building slot, as a tap on it does (a tap in a headless browser can land on a bot standing beside it). */
+  openCard?(slot: number): void;
 }
 
 declare global {

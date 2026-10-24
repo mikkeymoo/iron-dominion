@@ -132,7 +132,7 @@ describe('FirmwareMenuRows', () => {
 
 describe('DepotModules', () => {
   const depot = (modules: [number, number], over: Partial<NonNullable<BuildingInfo['depot']>> = {}): NonNullable<BuildingInfo['depot']> =>
-    ({ radius: 40, builders: 4, haulers: 4, stock: 40, builderCap: 4, haulerCap: 4, droneCap: 0, modules, ...over });
+    ({ radius: 40, builders: 4, haulers: 4, stock: 40, builderCap: 4, haulerCap: 4, droneCap: 0, modules, livery: 0, ...over });
 
   it('shows the robot caps and a button per module in each of the two slots', () => {
     render(<DepotModules slot={3} depot={depot([MODULE.BUILDER_BAY, 0], { builderCap: 6, droneCap: 1 })} controls={{ treasury: 5000, set: () => {} }} />);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { packLook } from '../sim/robots/names.ts';
 import { AgentStore, makeSample } from './agentStore.ts';
 
 const msg = (tick: number, agents: { slot: number; gen: number; x: number; z: number; yaw?: number; kind?: number; state?: number; carry?: number }[]) => ({
@@ -122,5 +123,18 @@ describe('AgentStore', () => {
     expect(s.poseOf(key, 0)).toMatchObject({ x: 3, z: 3 });
     s.ingest(msg(2, []), 100);
     expect(s.poseOf(key, 100)).toBeNull();
+  });
+
+  it('hands the renderer the depot paint and the hat from the high bits of the agent word, and keeps carry apart from them', () => {
+    const s = new AgentStore();
+    const m = msg(1, [{ slot: 1, gen: 0, x: 1, z: 1, kind: 2, state: 5, carry: 3 }, { slot: 2, gen: 0, x: 2, z: 2 }]);
+    m.ids[1] = (m.ids[1]! | packLook(4, 2)) >>> 0;
+    s.ingest(m, 0);
+    const out = makeSample(4);
+    s.sample(0, out, 4);
+    expect(Array.from(out.kind.slice(0, 2))).toEqual([2, 1]);
+    expect(Array.from(out.carry.slice(0, 2))).toEqual([3, 0]);
+    expect(Array.from(out.livery.slice(0, 2))).toEqual([4, 0]);
+    expect(Array.from(out.hat.slice(0, 2))).toEqual([2, 0]);
   });
 });
