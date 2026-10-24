@@ -6,6 +6,7 @@ import type { Pose } from '../camera.ts';
 import { surfaceHeight } from '../heightfield.ts';
 import type { BuildingsView } from '../buildings.ts';
 import type { EmitterRec } from '../instances.ts';
+import { postLook, type PhotoLook } from '../photoSettings.ts';
 import type { RenderMirror } from '../mirror.ts';
 import { TIER_TABLE, type Tier } from '../tier.ts';
 import type { TerrainView } from '../terrain.ts';
@@ -76,6 +77,7 @@ export class Fx {
   private readonly tmp = new Vector3();
   private readonly fwd = new Vector3();
   private aspect = 1.6;
+  private look: PhotoLook | null = null;
 
   constructor(
     private readonly renderer: WebGPURenderer, private readonly scene: Scene, private readonly camera: PerspectiveCamera,
@@ -163,6 +165,12 @@ export class Fx {
 
   get dayFrac(): number { return this.clock.value; }
 
+  /** Photo mode's weather, else the `?weather=` pin, else null (the sim's own weather). */
+  private get pinnedWeather(): { kind: number; intensity: number } | null { return this.look?.weather ?? this.weatherOverride; }
+
+  /** Photo mode: time, weather, exposure and post overrides; null hands everything back to the sim and the camera. */
+  setLook(look: PhotoLook | null): void { this.look = look; }
+
   private targetDayFrac(): number {
     if (this.timeOverride !== null) return this.timeOverride;
     return this.mirror.hasResync ? this.mirror.scalars[S.dayFrac]! : 0.4;
@@ -172,20 +180,22 @@ export class Fx {
     this.nowSec = nowSec;
     const spec = TIER_TABLE[this.tier];
 
-    const target = this.targetDayFrac();
+    if (this.look) { this.clock.snap(this.look.dayFrac); this.snapped = true; }
+    const target = this.look ? this.look.dayFrac : this.targetDayFrac();
     if (!this.snapped && (this.timeOverride !== null || this.mirror.hasResync)) { this.clock.snap(target); this.snapped = true; }
     this.clock.step(target, dt);
 
-    const kind = this.weatherOverride ? this.weatherOverride.kind : Math.round(this.mirror.scalars[S.weather]!);
-    const intensity = this.weatherOverride ? this.weatherOverride.intensity : this.mirror.scalars[S.weatherIntensity]!;
+    const pin = this.pinnedWeather;
+    const kind = pin ? pin.kind : Math.round(this.mirror.scalars[S.weather]!);
+    const intensity = pin ? pin.intensity : this.mirror.scalars[S.weatherIntensity]!;
     this.focus.set(pose.tx, pose.ty, pose.tz);
     const flash = this.weather.update(dt, nowSec, kind, intensity, this.focus, camDist, this.camera);
 
     // A pinned weather owns the sky: sim strikes are dropped, and a pinned storm makes its own.
     const strikes = this.mirror.takeLightning();
     const last = strikes[strikes.length - 1];
-    if (this.weatherOverride) {
-      if (this.weatherOverride.kind === WEATHER.STORM && this.weather.syntheticDue(nowSec)) {
+    if (pin) {
+      if (pin.kind === WEATHER.STORM && this.weather.syntheticDue(nowSec)) {
         const a = nowSec * 12.9898, r = 18 + ((Math.sin(a) * 43758.5453) % 1 + 1) % 1 * 40;
         const x = pose.tx + Math.cos(a) * r, z = pose.tz + Math.sin(a) * r;
         this.weather.strike(x, z, this.groundAt(x, z), this.camera, nowSec);
@@ -217,7 +227,7 @@ export class Fx {
 
     this.fog.color.setRGB(look.fogColor[0], look.fogColor[1], look.fogColor[2]);
     this.fog.density = BASE_FOG * st.fogMul;
-    this.exposure = look.exposure * (1 - st.overcast * 0.2);
+    this.exposure = look.exposure * (1 - st.overcast * 0.2) * (this.look?.exposure ?? 1);
     this.renderer.toneMappingExposure = this.exposure;
 
     this.sky.follow(this.camera.position);
@@ -234,9 +244,10 @@ export class Fx {
     const fwd = cam.getWorldDirection(this.fwd);
     const facing = fwd.x * sun[0] + fwd.y * sun[1] + fwd.z * sun[2];
     const shafts = smoothstep(0.05, 0.4, facing) * smoothstep(-0.02, 0.2, sun[1]) * (1 - st.overcast) * (1 - flash);
-    this.tilt = tiltStrength(camDist, pitch);
+    this.tilt = this.look?.tilt ?? tiltStrength(camDist, pitch);
     this.post.setParams({
       tilt: this.tilt,
+      look: postLook(this.look),
       sunUv: [this.tmp.x * 0.5 + 0.5, this.tmp.y * 0.5 + 0.5],
       shafts,
       sunColor: [look.sunColor[0], look.sunColor[1], look.sunColor[2]],
@@ -294,7 +305,7 @@ export class Fx {
     const self = this;
     return {
       get dayFrac() { return self.clock.value; },
-      get weather() { return weatherName(self.weatherOverride ? self.weatherOverride.kind : Math.round(self.mirror.scalars[S.weather]!)); },
+      get weather() { const pin = self.pinnedWeather; return weatherName(pin ? pin.kind : Math.round(self.mirror.scalars[S.weather]!)); },
       get sunDir() { return [...self.sun] as [number, number, number]; },
       get postPasses() { return [...self.post.passes]; },
       get shadows() { return { mode: self.lighting.shadowMode, cascades: self.lighting.cascadeCount, mapSize: TIER_TABLE[self.tier].shadowMapSize }; },

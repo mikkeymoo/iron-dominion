@@ -14,6 +14,7 @@ import { Checklist } from './Checklist';
 import { useLayout } from './layout';
 import { Banner, MilestonesPanel } from './Milestones';
 import { useOutsideDismiss, type PanelId } from './panels';
+import { PhotoMode } from './PhotoMode';
 import { factsFromLayers, type CityFacts } from './progress';
 import { ServicesPanel } from './ServicesPanel';
 import { Tools, type ToolHints } from './Tools';
@@ -57,10 +58,13 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
   const servicesOpen = panel === 'services';
   const projectsOpen = panel === 'projects';
   const [following, setFollowing] = useState(false);
+  const [photoOn, setPhotoOn] = useState(false);
+  const [touring, setTouring] = useState(false);
   const game = useRef<Game | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let unsubPhoto: (() => void) | undefined;
     const el = host.current;
     if (!el) return;
     const fail = (message: string): void => { setError(message); setPhase('failed'); };
@@ -68,12 +72,14 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       .then((g) => {
         if (cancelled) { g.dispose(); return; }
         game.current = g;
+        unsubPhoto = g.photo.subscribe(() => setPhotoOn(g.photo.active));
         if (window.__iron) window.__iron.render = g.debug;
         setPhase('running');
       })
       .catch((e: unknown) => { if (!cancelled) fail(e instanceof Error ? e.message : String(e)); });
     return () => {
       cancelled = true;
+      unsubPhoto?.();
       game.current?.dispose();
       game.current = null;
       if (window.__iron) delete window.__iron.render;
@@ -82,7 +88,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
 
   useEffect(() => {
     if (phase !== 'running') return;
-    const id = window.setInterval(() => { const g = game.current; if (g) { setPerf(g.perf()); setFollowing(g.debug.following); } }, 250);
+    const id = window.setInterval(() => { const g = game.current; if (g) { setPerf(g.perf()); setFollowing(g.debug.following); setTouring(g.debug.cinematic.active); } }, 250);
     return () => window.clearInterval(id);
   }, [phase]);
 
@@ -137,9 +143,10 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
         </div>
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
-      <div className="hud">
+      {photoOn && game.current && <PhotoMode photo={game.current.photo} lifecycle={lifecycle} passes={game.current.debug.fx.postPasses} touring={touring} onTour={() => { game.current?.tour(); setTouring(!!game.current?.debug.cinematic.active); }} />}
+      <div className="hud" hidden={photoOn}>
         <AudioSync settings={settings} />
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
+        <Hud photo={phase === 'running' ? { enter: () => game.current?.photo.enter(), tour: () => { game.current?.tour(); } } : undefined} photoActive={photoOn} lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
         {phase === 'running' && facts && <Checklist facts={facts} state={listState} onChange={onList} onPick={(t) => { setPanel(null); tools.controller.select(t); }} collapseOnPick={phone} />}
         {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}

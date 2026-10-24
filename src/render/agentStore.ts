@@ -159,6 +159,13 @@ export class AgentStore {
     return out;
   }
 
+  /** Distinct agent kinds in the latest message, ascending. Lets a camera offer "follow a vehicle" once traffic kinds exist. */
+  kinds(): number[] {
+    const seen = new Set<number>();
+    for (let i = 0; i < this.cur.count; i++) seen.add(this.cur.ids[i * 2 + 1]! & 0xff);
+    return [...seen].sort((a, b) => a - b);
+  }
+
   /** Current interpolated pose of one agent, or null when it is gone. */
   poseOf(key: number, nowMs: number): { x: number; z: number; yaw: number } | null {
     const i = this.cur.index.get(key);

@@ -9,6 +9,7 @@ import { Fx } from './fx/index.ts';
 import { LinesView } from './lines.ts';
 import { OutageIcons } from './outageIcons.ts';
 import { OverlayView } from './overlay.ts';
+import type { PhotoLook } from './photoSettings.ts';
 import { TerrainView } from './terrain.ts';
 import { TIER_TABLE, type Tier } from './tier.ts';
 import type { ViewState } from './viewState.ts';
@@ -78,6 +79,17 @@ export class WorldScene {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
     this.fx.setAspect(aspect);
+  }
+
+  /** Photo mode: atmosphere look and vertical field of view in degrees; (null, null) restores the game's own. */
+  setPhotoLook(look: PhotoLook | null, fovDeg: number | null): void {
+    this.fx.setLook(look);
+    this.setFov(fovDeg ?? CAMERA.fovDeg);
+  }
+
+  setFov(fovDeg: number): void {
+    this.camera.fov = fovDeg;
+    this.setAspect(this.camera.aspect);
   }
 
   applyTier(tier: Tier): void {

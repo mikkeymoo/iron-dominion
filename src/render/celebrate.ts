@@ -1,4 +1,4 @@
-import type { CineTarget } from './cinematic.ts';
+import type { MegaTarget } from './cinematic.ts';
 import type { ParticleKind } from './fx/particles.ts';
 import type { CelebrationEvent } from './mirror.ts';
 
@@ -13,7 +13,7 @@ export interface CelebrateDeps {
   focus(): { x: number; z: number; dist: number };
   /** Height of the finished model of a megaproject archetype. */
   finishedHeight(arch: number): number;
-  startCinematic(target: CineTarget): void;
+  startCinematic(target: MegaTarget): void;
 }
 
 /** Sparks and dust around a footprint edge: a stage finished. */

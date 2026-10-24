@@ -70,6 +70,10 @@ interface Props {
   onProjects?(): void;
   /** Chase-camera state and toggle; absent while the 3D view is not running. */
   follow?: { active: boolean; toggle(): void };
+  /** Photo mode and the city tour, from the menu; absent while the 3D view is not running. */
+  photo?: { enter(): void; tour(): void };
+  /** Photo mode is open: the speed and pause keys are left to it. */
+  photoActive?: boolean;
   onSave(): void;
   onSaveAs(name: string): void;
   onExport(): void;
@@ -128,7 +132,7 @@ function TrafficReadout({ t }: { t?: TrafficStats }) {
 }
 
 export function Hud({
-  lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, onProjects, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
+  lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, onProjects, follow, photo, photoActive = false, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
   facts = NO_FACTS, perfOn = false, onPerf, layout: forced, activeTier, panel: panelProp, onPanel, topOpen: topOpenProp, onTopOpen,
 }: Props) {
   const detected = useLayout();
@@ -162,6 +166,7 @@ export function Hud({
   useEffect(() => { if (lc.speed !== 0) lastRunning.current = lc.speed; }, [lc.speed]);
 
   useEffect(() => {
+    if (photoActive) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.ctrlKey || e.metaKey || e.altKey || isEditableTarget(e.target)) return;
       const hit = SPEEDS.find((s) => s.key === e.key);
@@ -173,7 +178,7 @@ export function Hud({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [lifecycle]);
+  }, [lifecycle, photoActive]);
 
   useEffect(() => { if (!menu) setMode('main'); }, [menu]);
   const closeMenu = (): void => setOpenPanel(null);
@@ -294,6 +299,8 @@ export function Hud({
                 </label>
               )}
               <button type="button" className="tb row" onClick={() => { onSetting('onboarding', { ...DEFAULT_SETTINGS.onboarding }); closeMenu(); }}>Show tips again</button>
+              {photo && <button type="button" className="tb row" data-testid="photo-menu" onClick={() => { closeMenu(); photo.enter(); }}>Photo mode (F2)</button>}
+              {photo && <button type="button" className="tb row" data-testid="tour-menu" onClick={() => { closeMenu(); photo.tour(); }}>City tour</button>}
               <button type="button" className="tb row" onClick={() => setMode('settings')}>Settings</button>
               <button type="button" className="tb row" onClick={() => { closeMenu(); onQuit(); }}>Quit to title (saves)</button>
               <button type="button" className="tb row" onClick={closeMenu}>Close</button>

@@ -53,9 +53,12 @@ export interface RenderDebug {
   /** Follow-a-robot chase camera. `follow(true)` picks a random active robot and returns whether one was found. */
   readonly following: boolean;
   follow(on: boolean, kind?: number): boolean;
-  /** The megaproject completion camera is running; `skipCinematic()` is the tap or Escape that ends it. */
-  readonly cinematic: boolean;
-  skipCinematic(): void;
+  /** Agent kinds currently in the world (AGENT_KIND values); follow(true, kind) chases any of them, so a vehicle kind added later works unchanged. */
+  agentKinds(): number[];
+  /** Photo mode (U14c): `capture()` renders the framed shot and resolves with its PNG size; it rejects unless photo mode is active. */
+  readonly photo: { readonly active: boolean; enter(): void; exit(): void; capture(): Promise<{ width: number; height: number; bytes: number }> };
+  /** Cinematic camera (the photo tour and the megaproject completion orbit): whether a path is playing, the tour over the tallest buildings, and skip (the tap or Escape that ends it). */
+  readonly cinematic: { readonly active: boolean; tour(): boolean; skip(): void };
 }
 
 export interface BuildingDebug {

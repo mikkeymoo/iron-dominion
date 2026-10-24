@@ -4,7 +4,7 @@ import { MEGA_ARCHS, megaStages } from '../sim/megaprojects.ts';
 import type { BuildingRec, ChunkPatch } from '../sim/protocol.ts';
 import { CHUNKS } from '../sim/layers.ts';
 import { celebrate, type CelebrateDeps } from './celebrate.ts';
-import { CINEMATIC_SECONDS, Cinematic, cinematicPose, type CineTarget } from './cinematic.ts';
+import { CinematicPlayer, MEGA_CINEMATIC_SECONDS, megaOrbit, type MegaTarget } from './cinematic.ts';
 import { CameraRig, type RigState } from './camera.ts';
 import { BuildingInstances, MEGA_CRANES, extraCrane, type FineSet } from './instances.ts';
 import { STATE_STRIDE } from './instancePacker.ts';
@@ -146,67 +146,72 @@ describe('megaproject instances', () => {
   });
 });
 
+const angleBetween = (a: number, b: number): number => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+
 describe('cinematic', () => {
   const rig = (): RigState => ({ x: 40, z: 60, yaw: 0.6, pitch: 0.7, dist: 90, ty: 3 });
-  const target: CineTarget = { x: 120, z: 130, ground: 2, height: 6, size: 5 };
+  const target: MegaTarget = { x: 120, z: 130, ground: 2, height: 6, size: 5 };
 
-  it('runs for about six seconds and hands the camera back exactly where it was', () => {
-    const c = new Cinematic(), s = rig();
-    expect(CINEMATIC_SECONDS).toBe(6);
-    expect(c.start(s, target)).toBe(true);
-    expect(c.start(s, { ...target, x: 1 })).toBe(false);
-    let t = 0, moved = false;
-    while (c.step(0.1, s)) { t += 0.1; if (Math.abs(s.x - 40) > 1) moved = true; if (t > 7) break; }
-    expect(t).toBeGreaterThan(5.7);
-    expect(t).toBeLessThan(6.3);
-    expect(moved).toBe(true);
-    expect(s).toEqual(rig());
-    expect(c.active).toBe(false);
+  it('runs for six seconds and ends exactly where the camera started', () => {
+    const from = rig(), p = megaOrbit(from, target);
+    expect(MEGA_CINEMATIC_SECONDS).toBe(6);
+    expect(p.duration).toBeCloseTo(6, 6);
+    expect(p.at(0)).toEqual(from);
+    const end = p.at(p.duration);
+    expect(end.x).toBeCloseTo(from.x, 6);
+    expect(end.z).toBeCloseTo(from.z, 6);
+    expect(end.dist).toBeCloseTo(from.dist, 6);
+    expect(end.ty).toBeCloseTo(from.ty, 6);
+    expect(angleBetween(end.yaw, from.yaw)).toBeLessThan(1e-6);
   });
 
-  it('orbits the project: near the target mid-move, a full lap of yaw, and the swing in and out are continuous', () => {
-    const from = rig();
-    const mid = cinematicPose(0.5, from, target);
+  it('orbits the project: on the target mid-move, closer than the start, a lap of yaw, continuous at the swing in', () => {
+    const from = rig(), p = megaOrbit(from, target);
+    const mid = p.at(p.duration * 0.5);
     expect(mid.x).toBe(target.x);
     expect(mid.z).toBe(target.z);
     expect(mid.dist).toBeLessThan(from.dist);
-    const a = cinematicPose(0.18, from, target), b = cinematicPose(0.1801, from, target);
+    const swing = p.duration * 0.18;
+    const a = p.at(swing - 1e-4), b = p.at(swing + 1e-4);
     expect(Math.abs(a.yaw - b.yaw)).toBeLessThan(0.01);
     expect(Math.abs(a.dist - b.dist)).toBeLessThan(0.5);
-    const yaws = [0.2, 0.4, 0.6, 0.8].map((t) => cinematicPose(t, from, target).yaw);
-    expect(yaws[3]! - yaws[0]!).toBeGreaterThan(Math.PI);
-    expect(cinematicPose(0, from, target)).toEqual(from);
+    const yaws = [0.2, 0.4, 0.6, 0.8].map((t) => p.at(p.duration * t).yaw);
+    expect(Math.abs(yaws[3]! - yaws[0]!)).toBeGreaterThan(Math.PI);
   });
 
-  it('is skippable: a tap or Escape ends it at once and restores the camera', () => {
-    const c = new Cinematic(), s = rig();
-    c.start(s, target);
-    c.step(1.5, s);
-    expect(s.x).not.toBe(40);
-    c.skip(s);
-    expect(s).toEqual(rig());
-    expect(c.active).toBe(false);
-    expect(c.step(0.1, s)).toBe(false);
-    c.skip(s);
-    expect(s).toEqual(rig());
+  it('plays through the shared player and skipping reports an interrupted move', () => {
+    const player = new CinematicPlayer();
+    const ends: boolean[] = [];
+    player.play(megaOrbit(rig(), target), (completed) => ends.push(completed));
+    player.step(1.5);
+    expect(player.active).toBe(true);
+    player.skip();
+    expect(ends).toEqual([false]);
+    expect(player.active).toBe(false);
+    expect(player.step(0.1)).toBeNull();
+    player.play(megaOrbit(rig(), target), (completed) => ends.push(completed));
+    player.step(10);
+    expect(ends).toEqual([false, true]);
   });
 
-  it('drives a real camera rig and leaves its own state clamped and valid', () => {
-    const r = new CameraRig(() => 2), c = new Cinematic();
+  it('drives a real camera rig through its script hook and leaves its state valid', () => {
+    const r = new CameraRig(() => 2), player = new CinematicPlayer();
     r.reset(40, 60, 0.6, 0.7, 90);
     const before = { ...r.state };
-    c.start(r.state, target);
-    for (let i = 0; i < 20; i++) { r.step(0.1); c.step(0.1, r.state); }
+    player.play(megaOrbit(r.state, target));
+    r.script((dt) => player.step(dt));
+    for (let i = 0; i < 20; i++) r.step(0.1);
     expect(r.state.dist).toBeLessThan(before.dist);
-    c.skip(r.state);
-    expect(r.state).toEqual(before);
+    player.skip();
+    r.script(null);
+    expect(Number.isFinite(r.state.dist)).toBe(true);
   });
 });
 
 describe('celebrations', () => {
   interface Emit { kind: string; x: number; y: number; z: number; count: number }
-  function deps(): { d: CelebrateDeps; emits: Emit[]; cine: CineTarget[] } {
-    const emits: Emit[] = [], cine: CineTarget[] = [];
+  function deps(): { d: CelebrateDeps; emits: Emit[]; cine: MegaTarget[] } {
+    const emits: Emit[] = [], cine: MegaTarget[] = [];
     return {
       emits, cine,
       d: {
