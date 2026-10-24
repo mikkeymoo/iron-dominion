@@ -1,7 +1,7 @@
 // Template: build.mjs substitutes __BUILD_HASH__ and the precache list and writes dist/sw.js. Do not serve this file as is.
 // Scope is the folder sw.js is served from, so the root build and /next/ install independent workers.
-const HASH = "5eb9213b56ca";
-const PRECACHE = ["./","./app.css","./app.js","./icon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/icon-maskable-512.png","./index.html","./manifest.webmanifest","./sim-worker.js?v=5eb9213b56ca"];
+const HASH = "3d29e22b9a2b";
+const PRECACHE = ["./","./app.css","./app.js","./icon.svg","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./icons/icon-maskable-512.png","./index.html","./manifest.webmanifest","./sim-worker.js?v=3d29e22b9a2b"];
 const SCOPE = new URL(self.registration.scope).pathname;
 const PREFIX = `iron-dominion:${SCOPE}:`;
 const CACHE = PREFIX + HASH;
