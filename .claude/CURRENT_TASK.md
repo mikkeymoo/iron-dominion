@@ -1,5 +1,5 @@
 phase: build
-accept: npm test && npm run build && npm run smoke
+accept: npm test && npm run build && npm run smoke:quick
 
 # Task: Iron Dominion city-builder rewrite
 

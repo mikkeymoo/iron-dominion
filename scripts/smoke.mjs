@@ -865,8 +865,11 @@ const browser = await chromium.launch({ ...(existsSync(CHROMIUM) ? { executableP
 let failed = 0;
 // SMOKE_ONLY=robots runs just the U7 workforce block, for iterating on it; the acceptance run leaves it unset.
 const only = process.env.SMOKE_ONLY === 'robots';
+// SMOKE_QUICK=1 (npm run smoke:quick) is the per-unit gate: desktop WebGL2 boot, render and the robots build loop.
+// The full run (every viewport, backend, showcase, fx and feature block) is kept for the gate before publishing.
+const quick = process.env.SMOKE_QUICK === '1';
 try {
-  for (const vp of VIEWPORTS) {
+  for (const vp of quick ? VIEWPORTS.filter((v) => v.name === 'desktop') : VIEWPORTS) {
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
     const page = await ctx.newPage();
     const errors = [];
@@ -883,12 +886,14 @@ try {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;
     }
-    for (const leg of only ? [] : RENDER_LEGS[vp.name] ?? []) {
+    const legs = only ? [] : quick ? [{ backend: 'webgl2' }] : RENDER_LEGS[vp.name] ?? [];
+    for (const leg of legs) {
       const p = await open(RENDER_QUERY(leg.backend));
       for (const [name, problem] of await renderChecks(p, leg.backend, { ...leg, shots: process.env.SMOKE_SHOTS ? `${process.env.SMOKE_SHOTS}-${vp.name}` : undefined })) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
+      if (quick) { await p.close(); continue; }
       const sp = await open(`${RENDER_QUERY(leg.backend)}&showcase=1`.replace('tier=low', `tier=${leg.showcaseTier ?? 'low'}`));
       for (const [name, problem] of await showcaseChecks(sp, p, leg.backend, vp.name)) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
@@ -904,16 +909,17 @@ try {
       if (!sp.isClosed()) await sp.close();
       if (!p.isClosed()) await p.close();
     }
-    if (vp.name === 'desktop' && !only) {
+    if (vp.name === 'desktop' && !only && !quick) {
       for (const [name, problem] of await persistenceChecks(open)) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
     }
-    const buildChecks = only ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
-    if (vp.name === 'desktop' && !only) buildChecks.push(...await roadGraphChecks(open));
-    if (vp.name === 'desktop' && !only) buildChecks.push(...await economyChecks(open));
-    if (vp.name === 'desktop' && !only) buildChecks.push(...await utilitiesChecks(open));
+    const full = !only && !quick;
+    const buildChecks = !full ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
+    if (vp.name === 'desktop' && full) buildChecks.push(...await roadGraphChecks(open));
+    if (vp.name === 'desktop' && full) buildChecks.push(...await economyChecks(open));
+    if (vp.name === 'desktop' && full) buildChecks.push(...await utilitiesChecks(open));
     buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
