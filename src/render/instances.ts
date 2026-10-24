@@ -28,7 +28,7 @@ export interface InstanceDeps {
 export interface InstanceStats { near: number; far: number; sites: number; cranes: number }
 
 /** A continuous particle source anchored to a building: stack smoke on finished industry, dust on a building site. */
-export interface EmitterRec { kind: 'smoke' | 'dust'; x: number; y: number; z: number; rate: number }
+export interface EmitterRec { kind: 'smoke' | 'dust' | 'debris'; x: number; y: number; z: number; rate: number }
 
 /** A finished building that lost power and/or water: where its outage icon floats (tile units, above the roof). */
 export interface OutageRec { x: number; y: number; z: number; power: boolean; water: boolean }
@@ -36,6 +36,7 @@ export interface OutageRec { x: number; y: number; z: number; power: boolean; wa
 const ICON_LIFT = 0.3;
 
 const SMOKE_RATE = 2.4;
+const DEBRIS_RATE_PER_TILE = 1.1;
 const DUST_RATE_PER_TILE = 1.6;
 
 const modelCache = new Map<string, KitModel>();
@@ -180,6 +181,8 @@ export class BuildingInstances {
       for (const [lx, ly, lz] of model.smoke) recs.push({ kind: 'smoke', x: cx + c * lx + s * lz, y: gy + ly, z: cz - s * lx + c * lz, rate: SMOKE_RATE });
     } else if (stageOf(p) !== 'complete') {
       recs.push({ kind: 'dust', x: cx, y: gy + 0.05, z: cz, rate: DUST_RATE_PER_TILE * Math.max(1, b.w * b.h) * (p > 0.04 ? 1 : 0.5) });
+      // Robots tearing a building down throw debris from its roofline as it shrinks.
+      if ((b.flags & BFLAG.DEMOLISHING) !== 0) recs.push({ kind: 'debris', x: cx, y: gy + 0.1 + model.height * builtFraction(p) * 0.8, z: cz, rate: DEBRIS_RATE_PER_TILE * Math.max(1, b.w * b.h) });
     }
     if (recs.length > 0) this.emitters.set(slot, recs); else this.emitters.delete(slot);
 

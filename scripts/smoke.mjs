@@ -342,6 +342,9 @@ async function bootBuildPage(open, add) {
   const page = await open(BUILD_QUERY);
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && r.triangles > 10000 && window.__iron.tools); }, null, 60000);
   if (!up) { add('city boots with tools', 'renderer or __iron.tools never ready'); await page.close(); return null; }
+  // A depot with a road at its door makes robots, and they cost money; these checks are about exact tool costs, so the sim waits
+  // (commands still run at once while paused). The robot checks below run their own, unpaused page.
+  await page.locator('button[title="Pause (0)"]').click();
   const site = await siteWhenReady(page, 14);
   if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return null; }
   await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
@@ -766,6 +769,93 @@ async function utilitiesChecks(open) {
 }
 // ---- end U9 block ----
 
+// ---- U7 robot workforce checks (webgl2 low; desktop and one phone leg) ----
+// The key acceptance: no debug growth. A depot, a street grid and R/C/I zones placed through the build tools turn into
+// buildings built by robots, which the page reports through __iron.sim.workforce and __iron.render.robots.
+const ROBOT_QUERY = '?autostart=1&seed=42&backend=webgl2&tier=low&governor=off';
+const ROBOT_LIMIT_MS = 150000;
+
+async function workforceChecks(open, phone) {
+  const out = [];
+  const label = phone ? 'phone ' : '';
+  const add = (name, problem) => out.push([`robots: ${label}${name}`, problem]);
+  const page = await open(ROBOT_QUERY);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && window.__iron.tools); }, null, 120000);
+  if (!up) { add('city boots with tools', 'renderer or __iron.tools never ready'); await page.close(); return out; }
+  // The mirror's first Resync can land a moment after the renderer reports ready, so wait for a site instead of asking once.
+  const site = await siteWhenReady(page, 14);
+  if (!site) { add('a flat 14x14 land site exists', 'findSite returned null'); await page.close(); return out; }
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 6, z: s.y + 7, dist: 24, pitch: 0.75, yaw: 0.5 }), site);
+
+  // Depot beside a street, a second street, and residential, commercial and industrial zones between and below them.
+  const laid = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    const sent = [];
+    const drag = (tool, opts, a, b) => { t.select(tool, opts); sent.push(t.dragTiles(a, b)); };
+    drag('service', { name: 'depot' }, t.tileFor('depot', { x: s.x + 2, y: s.y + 2 }), t.tileFor('depot', { x: s.x + 2, y: s.y + 2 }));
+    drag('road', { cls: 1 }, { x: s.x + 1, y: s.y + 4 }, { x: s.x + 12, y: s.y + 4 });
+    drag('road', { cls: 1 }, { x: s.x + 1, y: s.y + 9 }, { x: s.x + 12, y: s.y + 9 });
+    drag('road', { cls: 1 }, { x: s.x + 1, y: s.y + 4 }, { x: s.x + 1, y: s.y + 9 });
+    drag('zone', { zone: 1, density: 0 }, { x: s.x + 2, y: s.y + 5 }, { x: s.x + 6, y: s.y + 8 });
+    drag('zone', { zone: 2, density: 0 }, { x: s.x + 7, y: s.y + 5 }, { x: s.x + 11, y: s.y + 8 });
+    drag('zone', { zone: 3, density: 0 }, { x: s.x + 2, y: s.y + 10 }, { x: s.x + 11, y: s.y + 12 });
+    t.cancel();
+    return sent;
+  }, site);
+  add('depot, roads and R/C/I zones sent through tools.dragTiles', laid.every((id) => id > 0) ? null : `command ids ${JSON.stringify(laid)}`);
+  if (!laid.every((id) => id > 0)) { await page.close(); return out; }
+
+  await page.getByRole('button', { name: 'Max' }).click();
+  const t0 = Date.now();
+  const sawRobots = await until(page, () => { const w = window.__iron.sim.workforce; return !!w && w.builders > 0 && w.haulers > 0; }, null, ROBOT_LIMIT_MS);
+  const w1 = await page.evaluate(() => ({ ...window.__iron.sim.workforce }));
+  add('the depot builds robots (sim workforce builders and haulers > 0)', sawRobots ? null : `workforce ${JSON.stringify(w1)}`);
+  const drawn = await until(page, () => { const r = window.__iron.render.robots; return r.visible > 0 && r.builders + r.haulers > 0; }, null, ROBOT_LIMIT_MS);
+  add('robots are drawn (__iron.render.robots.visible > 0)', drawn ? null : JSON.stringify(await page.evaluate(() => ({ ...window.__iron.render.robots }))));
+  const job = await until(page, () => window.__iron.sim.workforce?.jobs > 0 && window.__iron.render.buildings.sites > 0, null, ROBOT_LIMIT_MS);
+  add('a construction job starts and its site (foundation, scaffold) is instanced', job ? null : JSON.stringify(await page.evaluate(() => ({ w: window.__iron.sim.workforce, b: { ...window.__iron.render.buildings } }))));
+  const hud = (await page.locator('[data-testid="workforce"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  add('the HUD shows the workforce readout', /Builders \d+\/\d+/.test(hud) && /Haulers \d+\/\d+/.test(hud) && /Jobs \d+/.test(hud) && /Material \d+/.test(hud) ? null : JSON.stringify(hud));
+
+  // Follow a robot: the button toggles the chase camera, the camera moves with the robot, Escape (desktop) or a tap (phone) ends it.
+  const active = await until(page, () => window.__iron.render.robots.visible > 0, null, ROBOT_LIMIT_MS);
+  if (active) {
+    // At Max the whole district finishes in a moment; 2x keeps robots working while the camera follows one.
+    await page.getByRole('button', { name: '2x' }).click();
+    await page.getByRole('button', { name: 'Follow a robot' }).click();
+    const on = await until(page, () => window.__iron.render.following === true, null, 5000);
+    add('Follow a robot starts the chase camera', on ? null : 'render.following never became true');
+    if (on) {
+      const a = await camOf(page);
+      await page.waitForTimeout(1500);
+      const b = await camOf(page);
+      const moved = Math.hypot(b.x - a.x, b.z - a.z) + Math.abs(b.yaw - a.yaw);
+      add('the camera moves with the robot at street level', b.dist < 4 && moved > 0.02 ? null : `dist ${b.dist}, moved ${moved.toFixed(4)}`);
+      if (phone) {
+        const box = await page.locator('canvas').boundingBox();
+        await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+      } else await page.keyboard.press('Escape');
+      const off = await until(page, () => window.__iron.render.following === false, null, 5000);
+      add(`${phone ? 'a tap' : 'Escape'} ends the follow camera`, off ? null : 'render.following stayed true');
+    }
+  } else add('Follow a robot starts the chase camera', 'no robot was drawn to follow');
+
+  const built = await until(page, () => (window.__iron.sim.population ?? 0) > 0 || (window.__iron.sim.jobs ?? 0) > 0, null, ROBOT_LIMIT_MS);
+  const end = await page.evaluate(() => ({ pop: window.__iron.sim.population, jobs: window.__iron.sim.jobs, w: window.__iron.sim.workforce, b: { ...window.__iron.render.buildings }, r: { ...window.__iron.render.robots }, tick: window.__iron.sim.tick }));
+  console.log(`         ${label}robots: first completion after ${((Date.now() - t0) / 1000).toFixed(1)} s wall time, sim tick ${end.tick}, ${JSON.stringify(end.w)}, buildings ${JSON.stringify(end.b)}`);
+  add('road + zone -> a building is completed by robots (population or jobs > 0)', built ? null : JSON.stringify(end));
+  const sites = await until(page, () => window.__iron.render.buildings.instances + window.__iron.render.buildings.farInstances >= 2, null, 30000);
+  add('finished buildings are instanced beside the depot', sites ? null : JSON.stringify(end.b));
+  if (!phone) {
+    await page.getByRole('button', { name: '1x' }).click();
+    const sparks = await page.evaluate(() => window.__iron.render.robots.sparks);
+    add('welding sparks were emitted at active sites', sparks > 0 ? null : `sparks ${sparks}`);
+  }
+  await page.close();
+  return out;
+}
+// ---- end U7 block ----
+
 const RENDER_LEGS = {
   desktop: [{ backend: 'webgl2', interact: true, loseDevice: true, fx: true, rain: true }, { backend: 'webgpu', showcaseTier: 'high', fx: true }],
   phone: [{ backend: 'webgl2' }],
@@ -773,6 +863,8 @@ const RENDER_LEGS = {
 
 const browser = await chromium.launch({ ...(existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {}), args: ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-vulkan=swiftshader', '--enable-features=Vulkan'] });
 let failed = 0;
+// SMOKE_ONLY=robots runs just the U7 workforce block, for iterating on it; the acceptance run leaves it unset.
+const only = process.env.SMOKE_ONLY === 'robots';
 try {
   for (const vp of VIEWPORTS) {
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
@@ -786,12 +878,12 @@ try {
     watch(page);
     const open = async (query) => { const p = await ctx.newPage(); watch(p); await p.goto(url + query, { waitUntil: 'load' }); return p; };
     await page.goto(url, { waitUntil: 'load' });
-    for (const [name, check] of CHECKS) {
+    for (const [name, check] of only ? [] : CHECKS) {
       const problem = await check(page, open);
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;
     }
-    for (const leg of RENDER_LEGS[vp.name] ?? []) {
+    for (const leg of only ? [] : RENDER_LEGS[vp.name] ?? []) {
       const p = await open(RENDER_QUERY(leg.backend));
       for (const [name, problem] of await renderChecks(p, leg.backend, { ...leg, shots: process.env.SMOKE_SHOTS ? `${process.env.SMOKE_SHOTS}-${vp.name}` : undefined })) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
@@ -812,16 +904,17 @@ try {
       if (!sp.isClosed()) await sp.close();
       if (!p.isClosed()) await p.close();
     }
-    if (vp.name === 'desktop') {
+    if (vp.name === 'desktop' && !only) {
       for (const [name, problem] of await persistenceChecks(open)) {
         console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
         if (problem) failed++;
       }
     }
-    const buildChecks = vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
-    if (vp.name === 'desktop') buildChecks.push(...await roadGraphChecks(open));
-    if (vp.name === 'desktop') buildChecks.push(...await economyChecks(open));
-    if (vp.name === 'desktop') buildChecks.push(...await utilitiesChecks(open));
+    const buildChecks = only ? [] : vp.name === 'desktop' ? await buildToolChecksDesktop(open) : await buildToolChecksPhone(open, ctx);
+    if (vp.name === 'desktop' && !only) buildChecks.push(...await roadGraphChecks(open));
+    if (vp.name === 'desktop' && !only) buildChecks.push(...await economyChecks(open));
+    if (vp.name === 'desktop' && !only) buildChecks.push(...await utilitiesChecks(open));
+    buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

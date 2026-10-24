@@ -187,6 +187,9 @@ export function Budget({ client, events, stats, onClose }: Props) {
             <dt>Roads</dt><dd>{money(-cur.roads)}</dd>
             <dt>Services</dt><dd>{money(-cur.services)}</dd>
             <dt>Loan interest</dt><dd>{money(-cur.interest)}</dd>
+            <dt>Robot upkeep</dt><dd data-testid="budget-robot-upkeep">{money(-cur.robotUpkeep)}</dd>
+            <dt>Material imports</dt><dd data-testid="budget-imports">{money(-cur.imports)}</dd>
+            <dt>New robots</dt><dd data-testid="budget-robot-purchases">{money(-cur.robotPurchases)}</dd>
             <dt>Expenses</dt><dd>{money(-cur.expenses)}</dd>
             <dt>Net</dt><dd>{money(cur.net)}</dd>
           </dl>

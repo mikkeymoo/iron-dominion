@@ -1,7 +1,9 @@
 import { PerspectiveCamera, Scene, type WebGPURenderer } from 'three/webgpu';
 import { CAMERA, type Pose } from './camera.ts';
 import type { RenderMirror } from './mirror.ts';
+import type { AgentStore } from './agentStore.ts';
 import { BuildingsView } from './buildings.ts';
+import { RobotsView } from './robots.ts';
 import { Fx } from './fx/index.ts';
 import { LinesView } from './lines.ts';
 import { OutageIcons } from './outageIcons.ts';
@@ -23,8 +25,11 @@ export class WorldScene {
   private viewVersion = -1;
   private iconVersion = -1;
   private under = false;
+  readonly robots: RobotsView;
+  private tier: Tier;
 
-  constructor(private readonly renderer: WebGPURenderer, mirror: RenderMirror, search: string, tier: Tier) {
+  constructor(private readonly renderer: WebGPURenderer, mirror: RenderMirror, search: string, tier: Tier, agents: AgentStore) {
+    this.tier = tier;
     this.fx = new Fx(renderer, this.scene, this.camera, mirror, search, tier);
     this.terrain = new TerrainView(mirror, this.fx.water.material);
     this.scene.add(this.terrain.group);
@@ -35,6 +40,8 @@ export class WorldScene {
     this.icons = new OutageIcons();
     this.scene.add(this.icons.mesh);
     this.overlay = new OverlayView(mirror, this.terrain.slots);
+    this.robots = new RobotsView(agents, mirror, (kind, x, y, z, n) => this.fx.particles.emit(kind, x, y, z, n), tier);
+    this.scene.add(this.robots.group);
     this.fx.attach(this.terrain, this.buildings);
     renderer.setClearColor(0xb4d4f0, 1);
   }
@@ -74,6 +81,8 @@ export class WorldScene {
     this.fx.applyTier(tier);
     this.terrain.setShadows(spec.shadows !== 'blob');
     this.buildings.setTier(tier);
+    this.robots.setTier(tier);
+    this.tier = tier;
   }
 
   applyPose(p: Pose): void {
@@ -87,6 +96,11 @@ export class WorldScene {
     this.fx.update(dt, nowSec, pose, dist, pitch);
   }
 
+  /** Draw the interpolated robots near the camera focus and their welding sparks (call after update, before render). */
+  updateRobots(dt: number, nowMs: number, pose: Pose): void {
+    this.robots.update(dt, nowMs, pose.tx, pose.tz, Math.floor(TIER_TABLE[this.tier].fx.emitters / 6));
+  }
+
   render(): void { this.fx.render(); }
 
   async compile(): Promise<void> {
@@ -94,6 +108,7 @@ export class WorldScene {
   }
 
   dispose(): void {
+    this.robots.dispose();
     this.fx.dispose();
     this.icons.dispose();
     this.lines.dispose();

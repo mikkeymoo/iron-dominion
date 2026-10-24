@@ -215,7 +215,8 @@ describe('monthly budget', () => {
   it('pays the budget into the treasury exactly at the month boundary while ticking', () => {
     const sim = syntheticCity();
     const w = sim.world;
-    runTicks(sim, MONTH_TICKS - 20);
+    // Months close at midnight. A new city opens at 07:00, so its first (prorated) month closes before MONTH_TICKS have run.
+    runTicks(sim, MONTH_TICKS - w.scalars[S.tickOfDay]! - 20);
     expect(w.scalars[S.month]).toBe(0);
     const before = w.scalars[S.treasury]!;
     runTicks(sim, 40);
@@ -568,7 +569,7 @@ describe('registry and persistence', () => {
 
   it('resumes across a month boundary and the treasury moves by the month net', () => {
     const straight = activeCity();
-    runTicks(straight, MONTH_TICKS - 100);
+    runTicks(straight, MONTH_TICKS - straight.world.scalars[S.tickOfDay]! - 100);
     const mid = snapshot(straight);
     const treasuryBefore = straight.world.scalars[S.treasury]!;
     runTicks(straight, 200);
@@ -579,6 +580,7 @@ describe('registry and persistence', () => {
     const last = budgetHistory(straight.world)[0]!;
     expect(straight.world.scalars[S.treasury]! - treasuryBefore).toBe(last.net);
     expect(last.population).toBeGreaterThan(0);
-    expect(last.interest).toBe(175);
+    // 25,000 at 70 bp is 175 a month; the first month ran from 07:00 to midnight, 3360 of 4800 ticks.
+    expect(last.interest).toBe(Math.floor((175 * (MONTH_TICKS - 1440)) / MONTH_TICKS));
   }, 60000);
 });

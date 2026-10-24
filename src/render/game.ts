@@ -1,4 +1,5 @@
 import { MAP } from '../sim/layers.ts';
+import type { AgentStore } from './agentStore.ts';
 import type { SimClient } from '../sim/client.ts';
 import { CameraRig, pixelToNdc, rayFromPose } from './camera.ts';
 import { blockGestureZoom, createRenderContext, parseBackend, type RenderContext } from './context.ts';
@@ -25,6 +26,8 @@ export interface GameDeps {
   tools?: ToolController;
   /** Overlay mode and underground view, set by the HUD. Without it the terrain shows no overlay and the surface view. */
   view?: ViewState;
+  /** Interpolated robot positions fed by the sim's Agents messages. */
+  agents: AgentStore;
   /** Called when the renderer cannot be recovered after a device loss. */
   onFatal: (message: string) => void;
 }
@@ -50,6 +53,7 @@ export interface Game {
 }
 
 const VIEW_RECT_MS = 250;
+const FOLLOW_GRACE_MS = 6000;
 const RESET = { x: MAP / 2, z: MAP / 2, yaw: 0, pitch: 1.1, dist: 60 } as const;
 
 export async function startGame(deps: GameDeps): Promise<Game> {
@@ -89,7 +93,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     const c = await createRenderContext({ container: host, backend: pref, tier: () => tier, onLost });
     try {
       pickTier?.(c);
-      const w = new WorldScene(c.renderer, mirror, deps.search, tier);
+      const w = new WorldScene(c.renderer, mirror, deps.search, tier, deps.agents);
       w.applyTier(tier);
       c.resize();
       w.setAspect(host.clientWidth / Math.max(1, host.clientHeight));
@@ -128,6 +132,36 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   };
   const input = bindCameraInput({ element: host, rig, groundAt, tool: deps.tools ? createToolInput(deps.tools, pickAt) : undefined });
 
+  // Follow-a-robot: chase a random active robot at street level; when it is gone pick another, and stop when none are left.
+  let followKey: number | null = null;
+  const pickRobot = (kind?: number): boolean => {
+    const keys = deps.agents.activeKeys(kind);
+    if (keys.length === 0) { followKey = null; return false; }
+    followKey = keys[Math.floor(Math.random() * keys.length)]!;
+    return true;
+  };
+  const follow = (on: boolean, kind?: number): boolean => {
+    if (!on) { rig.stopFollow(); followKey = null; return false; }
+    if (!pickRobot(kind)) return false;
+    let last: { x: number; z: number; yaw: number } | null = null;
+    let lostAt = 0;
+    rig.followTarget(() => {
+      const now = performance.now();
+      let p = followKey === null ? null : deps.agents.poseOf(followKey, now);
+      if (!p && pickRobot(kind)) p = deps.agents.poseOf(followKey!, now);
+      if (p) { last = p; lostAt = 0; return p; }
+      // Every robot is parked for the moment: hold the last view for a few seconds before giving the camera back.
+      if (lostAt === 0) lostAt = now;
+      return last && now - lostAt < FOLLOW_GRACE_MS ? last : null;
+    });
+    return true;
+  };
+  // A tap or click anywhere on the view, or Escape, hands the camera back.
+  const stopFollowing = (): void => { if (rig.following) follow(false); };
+  const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') stopFollowing(); };
+  host.addEventListener('pointerdown', stopFollowing, true);
+  window.addEventListener('keydown', onKey);
+
   const sendViewRect = (now: number): void => {
     const w = host.clientWidth, h = host.clientHeight;
     const key = `${rig.version}|${w}x${h}`;
@@ -147,6 +181,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     const pose = rig.pose();
     world.applyPose(pose);
     world.update(dt, now / 1000, pose, rig.state.dist, rig.state.pitch);
+    world.updateRobots(dt, now, pose);
 
     if (mirror.hasResync) {
       world.terrain.update(rig.state.x, rig.state.z, TIER_TABLE[tier].fullDetailChunks);
@@ -263,6 +298,9 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       const s = rig.state, p = rig.pose();
       return { x: s.x, z: s.z, ty: s.ty, yaw: s.yaw, pitch: s.pitch, dist: s.dist, px: p.px, py: p.py, pz: p.pz };
     },
+    get robots() { return world.robots.snapshot; },
+    get following() { return rig.following; },
+    follow,
     pickTile: pickAt,
     resetCamera(pose) { rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
     loseDevice() {
@@ -284,6 +322,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     dispose() {
       disposed = true;
       ro.disconnect();
+      host.removeEventListener('pointerdown', stopFollowing, true);
+      window.removeEventListener('keydown', onKey);
       input.dispose();
       unblock();
       try { ctx.renderer.setAnimationLoop(null); ghost?.dispose(); world.dispose(); ctx.dispose(); } catch { /* already gone */ }

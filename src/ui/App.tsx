@@ -10,7 +10,7 @@ import { openPlatformDb, type PlatformDb, type SlotMeta } from '../platform/db.t
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type Settings } from '../platform/settings.ts';
 import { readFileBytes } from '../platform/save.ts';
 import { GameView } from './GameView';
-import { failText, type HudStats } from './Hud';
+import { NO_WORKFORCE, failText, type HudStats } from './Hud';
 import { openSession, saveSession, type Session } from './session.ts';
 import { Title } from './Title';
 import './app.css';
@@ -18,7 +18,7 @@ import './app.css';
 // ?autostart=1 skips the title screen with an unsaved city; add &slot=<id> to load that slot instead.
 // ?seed=42&haltAt=200 is the determinism debug path (see session.ts).
 const ZERO: HudStats = {
-  tick: 0, day: 0, dayFrac: 0, treasury: 0, population: 0, rciDemand: [0, 0, 0], taxRates: [DEFAULT_TAX, DEFAULT_TAX, DEFAULT_TAX], month: 0, lastNet: 0, loans: [], debtMonths: 0,
+  tick: 0, day: 0, dayFrac: 0, treasury: 0, population: 0, rciDemand: [0, 0, 0], taxRates: [DEFAULT_TAX, DEFAULT_TAX, DEFAULT_TAX], month: 0, lastNet: 0, loans: [], debtMonths: 0, workforce: NO_WORKFORCE,
   power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 }, unpowered: 0, unwatered: 0, modelled: { power: false, water: false },
 };
 const SAMPLE_CAP = 2000;
@@ -96,12 +96,15 @@ export function App() {
         const dbg = iron.current;
         if (dbg) {
           dbg.sim.tick = st.tick;
+          dbg.sim.workforce = st.workforce;
+          dbg.sim.population = st.population;
+          dbg.sim.jobs = st.jobsC + st.jobsI;
           if (st.hash !== undefined) { dbg.sim.hash = st.hash; dbg.sim.hashTick = st.tick; }
         }
         samplesRef.current?.push(st);
         setHud({
           tick: st.tick, day: st.day, dayFrac: st.dayFrac, treasury: st.treasury, population: st.population,
-          rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths,
+          rciDemand: st.rciDemand, taxRates: st.taxRates, month: st.month, lastNet: st.lastMonth.net, loans: st.loans, debtMonths: st.debtMonths, workforce: st.workforce,
           power: st.power, water: st.water, unpowered: st.unpowered, unwatered: st.unwatered, modelled: st.modelled,
         });
       },
@@ -256,7 +259,7 @@ export function App() {
   if (view === 'game' && live && platformReady) {
     return (
       <GameView
-        client={live.client} mirror={live.mirror} tools={live.tools} view={live.view} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
+        client={live.client} mirror={live.mirror} agents={live.agents} tools={live.tools} view={live.view} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
         tick={hud.tick} worker={worker} onExit={onQuit}
         quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
       />

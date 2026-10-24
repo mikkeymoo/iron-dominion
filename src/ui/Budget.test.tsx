@@ -9,7 +9,7 @@ import { DemandBars } from './DemandBars';
 afterEach(cleanup);
 
 const rec = (month: number, net: number): BudgetRecord => ({
-  month, incomeR: 100, incomeC: 50, incomeI: 25, roads: 10, services: 20, interest: 5, income: 175, expenses: 175 - net, net, population: 40 + month, treasury: 1000,
+  month, incomeR: 100, incomeC: 50, incomeI: 25, roads: 10, services: 20, interest: 5, robotUpkeep: 4, imports: 3, robotPurchases: 2, income: 175, expenses: 175 - net, net, population: 40 + month, treasury: 1000,
 });
 
 function fakeClient(history: BudgetRecord[]) {
@@ -32,6 +32,15 @@ describe('Budget panel', () => {
     expect(screen.getByTestId('budget-chart').getAttribute('aria-label')).toMatch(/last 3 months/);
     expect(screen.getByRole('dialog', { name: 'Budget' })).toBeTruthy();
     expect(screen.getAllByText('-$20').length).toBeGreaterThan(0);
+  });
+
+  it('lists the robot workforce costs among the month expenses', async () => {
+    const { client, events } = fakeClient([rec(0, 10)]);
+    render(<Budget client={client} events={events} stats={stats()} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('budget-month')).toBeTruthy());
+    expect(screen.getByTestId('budget-robot-upkeep').textContent).toBe('-$4');
+    expect(screen.getByTestId('budget-imports').textContent).toBe('-$3');
+    expect(screen.getByTestId('budget-robot-purchases').textContent).toBe('-$2');
   });
 
   it('sends setTax for the zone when a slider moves, keeps the new value, and caps at 20', async () => {
