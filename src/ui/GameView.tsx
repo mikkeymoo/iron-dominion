@@ -19,12 +19,15 @@ import { factsFromLayers, type CityFacts } from './progress';
 import { ServicesPanel } from './ServicesPanel';
 import { Tools, type ToolHints } from './Tools';
 import type { SandboxDisaster, ToolsRuntime } from './toolsStore.ts';
+import { WhyUi } from './WhyUi';
+import type { WhyStore } from './whyStore.ts';
 
 interface Props {
   client: SimClient;
   mirror: RenderMirror;
   agents: AgentStore;
   tools: ToolsRuntime;
+  why: WhyStore;
   view: ViewState;
   lifecycle: Lifecycle;
   stats: HudStats;
@@ -45,7 +48,7 @@ interface Props {
 
 type Phase = 'starting' | 'running' | 'failed';
 
-export function GameView({ client, mirror, agents, tools, view, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting }: Props) {
+export function GameView({ client, mirror, agents, tools, why, view, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>('starting');
   const [error, setError] = useState('');
@@ -68,7 +71,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
     const el = host.current;
     if (!el) return;
     const fail = (message: string): void => { setError(message); setPhase('failed'); };
-    startGame({ host: el, mirror, client, agents, tools: tools.controller, view, search: window.location.search, onFatal: fail, onTier: (t) => onSetting('autoTier', t) })
+    startGame({ host: el, mirror, client, agents, tools: tools.controller, view, search: window.location.search, onFatal: fail, onTier: (t) => onSetting('autoTier', t), onTap: (t) => why.tap(t) })
       .then((g) => {
         if (cancelled) { g.dispose(); return; }
         game.current = g;
@@ -84,7 +87,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       game.current = null;
       if (window.__iron) delete window.__iron.render;
     };
-  }, [client, mirror, agents, tools, view]);
+  }, [client, mirror, agents, tools, why, view]);
 
   useEffect(() => {
     if (phase !== 'running') return;
@@ -136,6 +139,11 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
     if (cam) tools.triggerDisaster(kind, Math.floor(cam.x), Math.floor(cam.z));
   };
   const jump = (x: number, y: number): void => { game.current?.debug.jumpTo(x, y); };
+  const followOne = (key: number): boolean => {
+    const ok = game.current?.debug.followAgent(key) ?? false;
+    if (ok) setFollowing(true);
+    return ok;
+  };
 
   return (
     <div className="game" data-render={phase} data-worker={worker}>
@@ -155,6 +163,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
         <Hud photo={phase === 'running' ? { enter: () => game.current?.photo.enter(), tour: () => { game.current?.tour(); } } : undefined} photoActive={photoOn} lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onTrigger={phase === 'running' ? trigger : undefined} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
         {phase === 'running' && facts && <Checklist facts={facts} state={listState} onChange={onList} onPick={(t) => { setPanel(null); tools.controller.select(t); }} collapseOnPick={phone} />}
         {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} onJump={jump} />}
+        {phase === 'running' && <WhyUi why={why} onJump={jump} onBudget={() => setPanel('budget')} onFollow={followOne} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}
         {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}
         {projectsOpen && <MilestonesPanel stats={stats.milestone} population={stats.population} runtime={tools} onClose={() => setPanel(null)} />}

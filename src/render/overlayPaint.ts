@@ -22,9 +22,14 @@ export interface OverlayLayers {
   covEdu: ArrayLike<number>;
   covPark: ArrayLike<number>;
   crime: ArrayLike<number>;
+  /** The depot work-radius tint, 0 outside; not a sim layer (RenderMirror.depotReach). */
+  depotReach: ArrayLike<number>;
 }
 
+const NO_REACH = new Uint8Array(MAP * MAP);
+
 export const overlayLayersOf = (layers: Record<string, ArrayLike<number>>): OverlayLayers => ({
+  depotReach: layers.depotReach ?? NO_REACH,
   terrain: layers.terrain!, waterDepth: layers.waterDepth!, bId: layers.bId!, ugPower: layers.ugPower!,
   ugWater: layers.ugWater!, powerOn: layers.powerOn!, waterOn: layers.waterOn!, landValue: layers.landValue!, pollution: layers.pollution!, traffic: layers.traffic!,
   covFire: layers.covFire!, covPolice: layers.covPolice!, covHealth: layers.covHealth!, covEdu: layers.covEdu!, covPark: layers.covPark!, crime: layers.crime!,
@@ -92,6 +97,10 @@ function colour(mode: OverlayMode, L: OverlayLayers, i: number): Rgba {
     case 'health': return coverage(L, L.covHealth, i, HEALTH_RGB, true);
     case 'education': return coverage(L, L.covEdu, i, EDU_RGB, true);
     case 'parks': return coverage(L, L.covPark, i, PARK_RGB, false);
+    case 'depotReach': {
+      const v = L.depotReach[i]!;
+      return v === 0 || !dry(L, i) ? NONE : [60, 214, 255, Math.min(200, Math.round(40 + v * 0.6))];
+    }
     case 'crime': {
       const c = L.crime[i]!;
       if (c === 0 || !dry(L, i)) return NONE;

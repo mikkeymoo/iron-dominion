@@ -2,7 +2,7 @@ import { REGISTRY, type World } from './layers.ts';
 import { chunkIdx } from './tiles.ts';
 import type { Command } from './commands.ts';
 import type { RoadNet } from './roads/graph.ts';
-import type { ServiceStats } from './protocol.ts';
+import type { Issue, ServiceStats } from './protocol.ts';
 import type { UtilStats } from './utilities/solve.ts';
 
 export type SimEvent =
@@ -49,6 +49,9 @@ export interface Sim {
   utils?: UtilStats;
   /** Coverage percentages and indices of the last services passes for the HUD; derived, never hashed or saved. */
   services?: ServiceStats;
+  /** Ranked problems of the last issues pass (sim/issues.ts) and the tick it ran at; derived, never hashed or saved. */
+  issues?: Issue[];
+  issuesTick?: number;
 }
 
 export function allocWorld(): World {

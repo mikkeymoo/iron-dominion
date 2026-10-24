@@ -1061,6 +1061,67 @@ async function trafficQuickChecks(open) {
 }
 // ---- end U10 block ----
 
+// ---- Why is this happening: advisor chip, jump to an issue, tap for details (webgl2 low; desktop) ----
+// A debug city with a power plant and one house that has no line to it: the sim names the house as an unpowered building, the advisor
+// chip shows a power issue, tapping the issue flies the camera to the house within a few tiles, and tapping the house shows its card.
+async function advisorChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`advisor: ${name}`, problem]);
+  const page = await open(TRAFFIC_QUERY(0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  const site = up ? await (async () => { await until(page, () => window.__iron.tools.findSite(26) !== null, null, 20000); return page.evaluate(() => window.__iron.tools.findSite(26)); })() : null;
+  if (!site) { add('city boots with a build site', 'renderer, tools or site missing'); await page.close(); return out; }
+  const house = { x: site.x + 16, y: site.y + 12 };
+  const placed = await page.evaluate((s) => {
+    const t = window.__iron.tools;
+    t.select('service', { name: 'powerPlant' });
+    const at = t.tileFor('powerPlant', { x: s.x + 1, y: s.y + 1 });
+    const id = t.dragTiles(at, at);
+    t.cancel();
+    return id;
+  }, site);
+  add('a power plant is placed through the tools', placed > 0 ? null : `dragTiles returned ${placed}`);
+  await until(page, (id) => window.__iron.tools.lastEvent?.cmd === id && window.__iron.tools.lastEvent.type === 'accepted', placed);
+  await page.evaluate((h) => window.__iron.economy.command({ type: 'debugGrow', x: h.x, y: h.y, archetype: 16, progress: 1 }), house);
+  const dark = await until(page, (h) => window.__iron.tools.buildings().some((b) => b.x === h.x && b.y === h.y && !b.powered), house, 30000);
+  add('the house with no power line goes dark in the sim', dark ? null : JSON.stringify(await page.evaluate(() => window.__iron.tools.buildings())));
+  const chip = await until(page, () => document.querySelector('[data-testid="advisor-chip"]')?.getAttribute('data-kind') === 'power', null, 20000);
+  const chipText = await page.locator('[data-testid="advisor-text"]').first().textContent().catch(() => '');
+  add('the advisor chip shows a power issue', chip ? null : `chip kind ${await page.locator('[data-testid="advisor-chip"]').first().getAttribute('data-kind').catch(() => 'missing')}, text ${chipText}`);
+  add('the chip names the cause and counts the problems', /no power/.test(chipText) && (await page.locator('[data-testid="advisor-count"]').first().textContent().catch(() => '')) === '1' ? null : `text "${chipText}"`);
+  const icon = await until(page, () => (window.__iron.render.statusIcons?.byKind?.power ?? 0) >= 1, null, 15000);
+  add('a no-power status icon is drawn for the house', icon ? null : JSON.stringify(await page.evaluate(() => window.__iron.render.statusIcons)));
+
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x - 6, z: s.y - 6, dist: 60, pitch: 1.0 }), site);
+  await until(page, ({ x, y }) => Math.hypot(window.__iron.render.camera.x - x, window.__iron.render.camera.z - y) > 8, { x: house.x + 0.5, y: house.y + 0.5 }, 5000);
+  const before = await camOf(page);
+  const far = Math.hypot(before.x - (house.x + 0.5), before.z - (house.y + 0.5));
+  add('the camera starts more than 8 tiles from the house', far > 8 ? null : `only ${far.toFixed(1)} tiles away`);
+  await page.locator('[data-testid="advisor-chip"]').first().click();
+  const listed = await until(page, () => document.querySelectorAll('[data-testid="advisor-issue"]').length > 0, null, 5000);
+  add('tapping the chip opens the issue list', listed ? null : 'no issue rows');
+  await page.locator('[data-testid="advisor-issue"][data-kind="power"]').first().click();
+  const flew = await until(page, ({ x, y }) => Math.hypot(window.__iron.render.camera.x - x, window.__iron.render.camera.z - y) < 3, { x: house.x + 0.5, y: house.y + 0.5 }, 8000);
+  const after = await camOf(page);
+  add('tapping the issue moves the camera to within 3 tiles of the house', flew ? null : `camera at ${after.x.toFixed(1)}, ${after.z.toFixed(1)}, house at ${house.x}, ${house.y}`);
+  const overlay = await until(page, () => window.__iron.render.overlay.mode === 'power', null, 5000);
+  add('tapping the issue switches the overlay to power', overlay ? null : `overlay ${await page.evaluate(() => window.__iron.render.overlay.mode)}`);
+  add('the list closes after a pick', (await page.locator('[data-testid="advisor-list"]').count()) === 0 ? null : 'list still open');
+
+  await page.evaluate(() => window.__iron.render.setOverlay('none'));
+  const box = await page.locator('canvas').first().boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const card = await until(page, () => document.querySelector('[data-testid="info-card"][data-kind="building"] [data-testid="info-name"]')?.textContent === 'House', null, 10000);
+  add('tapping the house opens its card', card ? null : `card ${await page.locator('[data-testid="info-card"]').first().textContent().catch(() => 'missing')}`);
+  const thought = await page.locator('[data-testid="thoughts"]').first().textContent().catch(() => '');
+  add('the card names the cause: no power', /No power/.test(thought) ? null : `thoughts "${thought}"`);
+  await page.locator('[data-testid="info-close"]').first().click();
+  add('the card closes', (await page.locator('[data-testid="info-card"]').count()) === 0 ? null : 'card still open');
+  await page.close();
+  return out;
+}
+// ---- end why block ----
+
 // ---- U14a phone UX and visual clarity checks (webgl2 low; desktop and phone viewports) ----
 const MIN_TARGET = 43.5;
 async function hudChecks(open, vp) {
@@ -1347,6 +1408,7 @@ try {
     if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     if (onlyBlock === 'traffic' || full) buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
     if (quick && vp.name === 'desktop') buildChecks.push(...await trafficQuickChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await advisorChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

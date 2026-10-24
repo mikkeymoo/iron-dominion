@@ -51,6 +51,12 @@ export const PRODUCE_PERIOD = 40;
 export const INDUSTRY_STOCK_CAP = 60;
 export const HAUL_CAP = 4;
 
+/**
+ * Road tiles a depot works from. Advisory only (the robots path anywhere connected): jobs beyond it are called slow, and the
+ * depot tool tints the reach. Changing it never changes the sim.
+ */
+export const DEPOT_WORK_RADIUS = 40;
+
 // ---- Jobs ----
 export const MAX_BUILDERS_PER_JOB = 3;
 export const GROWTH_PERIOD = 20;

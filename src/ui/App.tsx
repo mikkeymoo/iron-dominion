@@ -271,7 +271,7 @@ export function App() {
   if (view === 'game' && live && platformReady) {
     return (
       <GameView
-        client={live.client} mirror={live.mirror} agents={live.agents} tools={live.tools} view={live.view} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
+        client={live.client} mirror={live.mirror} agents={live.agents} tools={live.tools} why={live.why} view={live.view} lifecycle={live.lifecycle} stats={hud} settings={settings} notice={notice}
         tick={hud.tick} worker={worker} onExit={onQuit}
         quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={() => { void leave(); }} onQuitCancel={() => setQuitPrompt(null)} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting}
       />

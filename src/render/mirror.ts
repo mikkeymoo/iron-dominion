@@ -1,4 +1,4 @@
-import { CHUNK, CHUNKS, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, isTileLayer, type LayerName } from '../sim/layers.ts';
+import { CHUNK, CHUNKS, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, TILES, isTileLayer, type LayerName } from '../sim/layers.ts';
 import type { BuildingRec, FromWorker, Typed } from '../sim/protocol.ts';
 import { chunkIdx, copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
 import type { SimEvent } from '../sim/world.ts';
@@ -23,6 +23,15 @@ export class RenderMirror {
   terrainVersion = 0;
   /** Bumped when the road layer may have changed. */
   roadVersion = 0;
+  /** Bumped when any building record was written (a resync or a patch that carried buildings), and when an overlay layer was patched. */
+  buildingVersion = 0;
+  overlayVersion = 0;
+  /**
+   * The depot work-radius tint (0 outside, up to 255 at a depot's door), painted by overlay mode 'depotReach'. Computed on the main
+   * thread from the road layer (ui/whyStore.ts), never sent by the sim; `depotReachVersion` bumps when it is rewritten.
+   */
+  readonly depotReach = new Uint8Array(TILES);
+  depotReachVersion = 0;
   private lightning: { x: number; y: number; tick: number }[] = [];
   private celebrations: CelebrationEvent[] = [];
   private disasters: DisasterEvent[] = [];
@@ -57,6 +66,8 @@ export class RenderMirror {
         this.hasResync = true;
         this.terrainVersion++;
         this.roadVersion++;
+        this.buildingVersion++;
+        this.overlayVersion++;
         for (let c = 0; c < CHUNKS * CHUNKS; c++) this.terrainDirty.add(c);
         for (let c = 0; c < CHUNKS * CHUNKS; c++) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); this.dirtyLines.add(c); }
         for (let b = 0; b < before.length; b++) if (before[b] || this.table.bArch[b]) this.dirtyBuildings.add(b);
@@ -71,15 +82,22 @@ export class RenderMirror {
         if ('road' in m.layers) this.roadVersion++;
         for (const c of m.chunks) { this.dirtyGeometry.add(c); this.dirtyOverlay.add(c); }
         for (const b of m.buildings) { writeBuilding(this.table, b); this.dirtyBuildings.add(b.slot); }
+        if (m.buildings.length > 0) this.buildingVersion++;
+        this.overlayVersion++;
         this.tick = m.tick;
         return true;
       case 'overlayPatch':
         this.writeChunks(m.chunks, m.layers);
         for (const c of m.chunks) this.dirtyOverlay.add(c);
+        this.overlayVersion++;
         return true;
       case 'stats':
         this.scalars[S.treasury] = m.treasury;
         this.scalars[S.population] = m.population;
+        this.scalars[S.demandR] = m.rciDemand[0];
+        this.scalars[S.demandC] = m.rciDemand[1];
+        this.scalars[S.demandI] = m.rciDemand[2];
+        this.scalars[S.unemployment] = m.unemployment;
         this.scalars[S.dayFrac] = m.dayFrac;
         this.scalars[S.day] = m.day;
         this.scalars[S.weather] = m.weather;
@@ -99,6 +117,12 @@ export class RenderMirror {
       default:
         return false;
     }
+  }
+
+  /** Replace the depot reach tint (a layer of TILES values) and ask the overlay to repaint. */
+  setDepotReach(layer: Uint8Array): void {
+    this.depotReach.set(layer);
+    this.depotReachVersion++;
   }
 
   /** Chunks whose height, terrain or water depth changed since the last call (everything after a resync). */

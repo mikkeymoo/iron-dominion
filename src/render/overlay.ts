@@ -12,20 +12,22 @@ export class OverlayView {
   private readonly layers: OverlayLayers;
   private applied: OverlayMode | null = null;
   private sum: number | null = null;
+  private reachSeen = -1;
   /** Texture uploads so far, for the debug hook. */
   uploads = 0;
 
   constructor(private readonly mirror: RenderMirror, private readonly slots: TerrainSlots) {
-    this.layers = overlayLayersOf(mirror.layers);
+    this.layers = overlayLayersOf({ ...mirror.layers, depotReach: mirror.depotReach });
   }
 
   update(mode: OverlayMode): void {
     const dirty = this.mirror.takeDirtyOverlay();
     const data = this.slots.overlayTexture.image.data as Uint8Array;
     let changed = false;
-    if (mode !== this.applied) {
+    if (mode !== this.applied || (mode === 'depotReach' && this.reachSeen !== this.mirror.depotReachVersion)) {
       if (mode === 'none') data.fill(0); else paintAll(mode, this.layers, data);
       this.applied = mode;
+      this.reachSeen = this.mirror.depotReachVersion;
       changed = true;
     } else if (mode !== 'none' && dirty.length > 0) {
       for (const c of dirty) paintChunk(mode, this.layers, c, data);

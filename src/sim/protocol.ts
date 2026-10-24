@@ -142,8 +142,34 @@ export interface MilestoneStats {
   projects: ProjectStatus[];
   victory: boolean;
 }
+/** What the advisor can ask the player to look at. 'budget' issues have no tile worth flying to. */
+export type IssueKind =
+  | 'fire' | 'budget' | 'depot' | 'power' | 'water' | 'stuck' | 'jobs' | 'commute' | 'crime' | 'noFire' | 'noLand' | 'abandoned';
+export type IssueCategory = 'safety' | 'economy' | 'utilities' | 'robots' | 'growth' | 'services';
+/** Overlay modes an issue can switch the view to (a subset of render/viewState OverlayMode). */
+export type IssueOverlay = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | 'traffic' | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks';
+/** One thing wrong with the city, derived from the world by sim/issues.ts (never hashed or saved). */
+export interface Issue {
+  /** Stable across derivations while the same problem persists, so the UI can key on it. */
+  id: string;
+  kind: IssueKind;
+  category: IssueCategory;
+  /** 0..100; the list is sorted by it. */
+  severity: number;
+  /** How many buildings, robots or jobs the problem touches. */
+  count: number;
+  /** Tile the camera flies to (the worst or nearest case; the city centre for city-wide problems). */
+  x: number;
+  y: number;
+  /** One sentence naming the cause. */
+  text: string;
+  overlay: IssueOverlay;
+}
+
 export interface Stats {
   type: 'stats';
+  /** Up to 8 ranked problems, refreshed about every 2 s of sim time. */
+  issues: Issue[];
   services: ServiceStats;
   workforce: Workforce;
   traffic: TrafficStats;
@@ -197,6 +223,51 @@ export interface PathMsg {
   /** Tile indices (y * MAP + x) from start to goal. */
   tiles: number[];
 }
+export type InfoKind = 'building' | 'agent';
+/** Ask what a building (id = slot) or a robot or vehicle (id = key, slot | generation << 16 as in AgentsMsg) is thinking. Read-only. */
+export interface RequestInfo { type: 'requestInfo'; id: number; kind: InfoKind; ref: number }
+export type ThoughtTone = 'good' | 'warn' | 'bad';
+/** One named cause or fact shown on a building card; `overlay` is the view that shows it on the map. */
+export interface Thought { text: string; tone: ThoughtTone; overlay?: IssueOverlay }
+export interface BuildingInfo {
+  kind: 'building';
+  slot: number;
+  arch: number;
+  name: string;
+  level: number;
+  maxLevel: number;
+  x: number; y: number; w: number; h: number;
+  /** 'constructing' (with progress), 'working', 'idle' (dark, dry, abandoned or ruined), 'burning'. */
+  status: 'constructing' | 'working' | 'idle' | 'burning';
+  /** Percent built while constructing, else 100. */
+  progress: number;
+  /** Residents (R) or jobs (C, I) of a finished building; 0 for services. */
+  residents: number;
+  jobs: number;
+  thoughts: Thought[];
+  /** Depots only: the road distance robots work from it, and who lives there. */
+  depot?: { radius: number; builders: number; haulers: number; stock: number };
+}
+export interface AgentInfo {
+  kind: 'agent';
+  key: number;
+  /** AGENT_KIND value (1 builder, 2 hauler, 3 car, 4 taxi, 5 truck, 6 bus, 7 firefighter). */
+  akind: number;
+  name: string;
+  /** What it is doing now, in a sentence ("Hauling 4 material to the house, ETA ~20 s"); "Waiting: road blocked" while it cannot move. */
+  job: string;
+  /** While waiting: the task it is waiting on. */
+  detail?: string;
+  x: number; y: number;
+  /** Where it is heading, when it has a destination. */
+  target?: { x: number; y: number };
+  /** Seconds at 1x until it gets there; absent when it is waiting or has no destination. */
+  etaSec?: number;
+  /** Set while it cannot move ('road blocked', 'no road'). */
+  waiting?: string;
+}
+export interface InfoMsg { type: 'info'; id: number; ok: boolean; reason?: string; info?: BuildingInfo | AgentInfo }
+
 export interface ViewRect { type: 'viewRect'; x0: number; y0: number; x1: number; y1: number }
 export interface SetSpeed { type: 'setSpeed'; speed: Speed }
 export interface Pause { type: 'pause' }
@@ -208,6 +279,6 @@ export interface RequestHash { type: 'requestHash' }
 
 export type ToWorker =
   | Hello | CommandMsg | ResyncRequest | AgentsReturn | ViewRect | SetSpeed | Pause | Resume
-  | RequestSnapshot | LoadSnapshot | RequestHash | RequestPath | RequestBudget;
+  | RequestSnapshot | LoadSnapshot | RequestHash | RequestPath | RequestBudget | RequestInfo;
 export type FromWorker =
-  | Ready | ErrorMsg | ResyncMsg | ChunkPatch | OverlayPatch | AgentsMsg | EventsMsg | Stats | SnapshotMsg | PathMsg | BudgetMsg;
+  | Ready | ErrorMsg | ResyncMsg | ChunkPatch | OverlayPatch | AgentsMsg | EventsMsg | Stats | SnapshotMsg | PathMsg | BudgetMsg | InfoMsg;

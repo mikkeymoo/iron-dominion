@@ -142,7 +142,7 @@ describe('megaproject instances', () => {
   it('keeps a lit icon from floating at the top of the tether', () => {
     const { d, put } = setup();
     put(rec(7, ARCH.SPACE_ELEVATOR, 100, 100, 6, { level: 5, prog: 255, flags: BFLAG.UNPOWERED }));
-    expect(d.outages.get(7)!.y).toBeLessThan(10);
+    expect(d.anchors.get(7)!.y).toBeLessThan(10);
   });
 });
 
