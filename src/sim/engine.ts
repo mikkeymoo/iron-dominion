@@ -5,9 +5,11 @@ import { DMODE } from './disasters/tables.ts';
 import type { ChunkPatch, EventsMsg, FromWorker, OverlayPatch, ResyncMsg, Typed } from './protocol.ts';
 import { DEFAULT_TAX } from './economy/tables.ts';
 import { RoadNet } from './roads/graph.ts';
+import { AKIND } from './robots/constants.ts';
 import { roadsSystem } from './roads/index.ts';
 import { seedRng } from './rng.ts';
 import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
+import { placeStarter } from './starter.ts';
 import { generateTerrain } from './terrain.ts';
 import { commandsSystem, runTick } from './tick.ts';
 import { copyChunkOut, readBuilding } from './tiles.ts';
@@ -19,8 +21,10 @@ export const START_DAYFRAC = 0.3;
 /**
  * `disasters` is the starting mode (0 off, 1 rare, 2 normal). A bare createSim opens with disasters off, so tests of the other
  * systems never see a random fire; a session opens with the player's setting through Hello.disasters.
+ * `starter` adds the new-city kit (sim/starter.ts: a depot, a short street and an idle crew). The worker always asks for it; a bare
+ * createSim leaves the map empty so the system tests keep building their own towns, and a loaded snapshot never has it added.
  */
-export function createSim(seed: number, opt: { debug?: boolean; disasters?: number } = {}): Sim {
+export function createSim(seed: number, opt: { debug?: boolean; disasters?: number; starter?: boolean } = {}): Sim {
   const world = allocWorld();
   const s = world.scalars;
   s[S.seed] = seed >>> 0;
@@ -35,7 +39,10 @@ export function createSim(seed: number, opt: { debug?: boolean; disasters?: numb
   seedRng(world.drng, seed ^ 0xd15a57e2);
   world.disaster[D.MODE] = opt.disasters !== undefined && opt.disasters >= 0 && opt.disasters <= DMODE.NORMAL ? Math.floor(opt.disasters) : DMODE.OFF;
   generateTerrain(world, seed);
-  return { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true, roads: RoadNet.build(world) };
+  const sim: Sim = { world, queue: [], events: [], dirty: newDirty(), resync: true, debug: opt.debug === true };
+  if (opt.starter) placeStarter(sim);
+  sim.roads = RoadNet.build(world);
+  return sim;
 }
 
 export function simFromWorld(world: World): Sim {
@@ -122,8 +129,9 @@ export function packAgents(sim: Sim, pos: Float32Array, ids: Uint32Array, view?:
   const w = sim.world;
   let n = 0;
   for (let s = 0; s < AMAX; s++) {
-    // Robots waiting inside a depot are not drawn, so they are not sent.
-    if (w.aKind[s] === 0 || w.aState[s] === 0) continue;
+    // Idle builders and haulers are sent too: the renderer stands them outside their depot to wave. Idle firefighters stay in the station.
+    const kind = w.aKind[s]!;
+    if (kind === 0 || (w.aState[s] === 0 && kind !== AKIND.BUILDER && kind !== AKIND.HAULER)) continue;
     const x = w.aX[s]!, y = w.aY[s]!;
     if (view && (x < view.x0 || x > view.x1 || y < view.y0 || y > view.y1)) continue;
     pos[n * 3] = x; pos[n * 3 + 1] = y; pos[n * 3 + 2] = w.aHead[s]!;

@@ -11,10 +11,12 @@ export const START_YAW = 0.6;
 const SITE = 16;
 
 /**
- * Camera for a fresh city: neighbourhood zoom over the flat, free, buildable window nearest the map centre (the same finder the
- * smoke test and the build tools use), or the map centre when no window exists. Pure and deterministic in the layers.
+ * Camera for a fresh city: neighbourhood zoom over the starter depot (`depot`, the centre of its footprint in tiles) when the sim
+ * placed one, else over the flat, free, buildable window nearest the map centre (the same finder the smoke test and the build tools
+ * use), else the map centre. Pure and deterministic in its inputs.
  */
-export function startCameraFor(read: TileRead): StartPose {
+export function startCameraFor(read: TileRead, depot?: { x: number; y: number } | null): StartPose {
+  if (depot) return { x: depot.x, z: depot.y, yaw: START_YAW, pitch: START_PITCH, dist: START_DIST };
   const site = findFlatSite(read, SITE);
   const x = site ? site.x + SITE / 2 : MAP / 2;
   const z = site ? site.y + SITE / 2 : MAP / 2;

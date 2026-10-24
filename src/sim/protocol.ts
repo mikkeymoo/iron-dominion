@@ -166,6 +166,8 @@ export interface Issue {
   overlay: IssueOverlay;
 }
 
+/** UNIT-0 directive progress: bit masks of the directives met and paid, and the capped progress toward each one's need (sim/directives.ts). */
+export interface DirectiveStats { done: number; claimed: number; have: number[] }
 export interface Stats {
   type: 'stats';
   /** Up to 8 ranked problems, refreshed about every 2 s of sim time. */
@@ -209,6 +211,7 @@ export interface Stats {
   /** True once the city has a finished power (water) producer; until then that network is not modelled and nothing is dark. */
   modelled: { power: boolean; water: boolean };
   milestone: MilestoneStats;
+  directives: DirectiveStats;
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }

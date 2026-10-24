@@ -5,7 +5,8 @@ import type { SimEvent } from '../sim/world.ts';
 
 const renderInfos = REGISTRY.filter((l) => l.render);
 
-export type CelebrationEvent = Extract<SimEvent, { type: 'milestone' | 'megaStage' | 'megaComplete' | 'victory' }>;
+export type CelebrationEvent = Extract<SimEvent, { type: 'milestone' | 'megaStage' | 'megaComplete' | 'victory' | 'directiveReady' | 'directiveClaimed' | 'firstBuilding' }>;
+const CELEBRATED = new Set<string>(['milestone', 'megaStage', 'megaComplete', 'victory', 'directiveReady', 'directiveClaimed', 'firstBuilding']);
 /** A disaster event from the sim, queued for the effects (meteor streak, shockwave, quake shake). */
 export type DisasterEvent = Extract<SimEvent, { type: 'disaster' }>;
 
@@ -110,7 +111,7 @@ export class RenderMirror {
         if (m.tick > this.tick) this.tick = m.tick;
         for (const e of m.events) {
           if (e.type === 'lightning') this.lightning.push({ x: e.x, y: e.y, tick: e.tick });
-          else if (e.type === 'milestone' || e.type === 'megaStage' || e.type === 'megaComplete' || e.type === 'victory') this.celebrations.push(e);
+          else if (CELEBRATED.has(e.type)) this.celebrations.push(e as CelebrationEvent);
           else if (e.type === 'disaster') this.disasters.push(e);
         }
         if (this.celebrations.length > 32) this.celebrations.splice(0, this.celebrations.length - 32);

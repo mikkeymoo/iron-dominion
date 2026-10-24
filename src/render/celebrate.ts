@@ -14,6 +14,17 @@ export interface CelebrateDeps {
   /** Height of the finished model of a megaproject archetype. */
   finishedHeight(arch: number): number;
   startCinematic(target: MegaTarget): void;
+  /** A quick, skippable swoop in to a footprint and back (the first finished building). Absent in tests and when a camera move is already playing. */
+  swoop?(target: MegaTarget): void;
+}
+
+/** A cheap cheer over the middle of the view: a few confetti fountains, `scale` 1 for a directive, less for a reward. */
+function cheer(d: CelebrateDeps, kind: 'confetti' | 'spark', sources: number, each: number): void {
+  const f = d.focus(), spread = Math.max(1.5, f.dist * 0.12), size = Math.max(1, f.dist * 0.04), energy = 1 + f.dist * 0.02;
+  for (let i = 0; i < sources; i++) {
+    const a = (i / sources) * Math.PI * 2, x = f.x + Math.cos(a) * spread, z = f.z + Math.sin(a) * spread;
+    d.emit(kind, x, d.ground(x, z) + f.dist * 0.08, z, each, size, energy);
+  }
 }
 
 /** Sparks and dust around a footprint edge: a stage finished. */
@@ -45,6 +56,15 @@ export function celebrate(events: readonly CelebrationEvent[], d: CelebrateDeps)
           const a = (i / 6) * Math.PI * 2, x = f.x + Math.cos(a) * spread, z = f.z + Math.sin(a) * spread;
           d.emit('confetti', x, d.ground(x, z) + f.dist * 0.12, z, 28, size, energy);
         }
+        break;
+      }
+      case 'directiveReady': cheer(d, 'confetti', 4, 20); break;
+      case 'directiveClaimed': cheer(d, 'spark', 3, 14); break;
+      case 'firstBuilding': {
+        const cx = e.x + e.w / 2, cz = e.y + e.h / 2, g = d.ground(cx, cz);
+        stageBurst(d, e.x, e.y, e.w, e.h, 1);
+        d.emit('confetti', cx, g + 1.2, cz, 60, 1.4, 2.4);
+        d.swoop?.({ x: cx, z: cz, ground: g, height: 2, size: Math.max(e.w, e.h) });
         break;
       }
       case 'victory': {

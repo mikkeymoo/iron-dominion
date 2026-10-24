@@ -112,20 +112,27 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .tool-gap { flex: 0 0 8px; }
 .tool-hint { opacity: 0.7; font-size: 0.78rem; padding: 0 4px; }
 
-.checklist { position: absolute; top: calc(env(safe-area-inset-top) + 64px); left: calc(env(safe-area-inset-left) + 6px); width: min(19rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 12px)); box-sizing: border-box; padding: 4px 8px 8px; background: rgba(11, 17, 22, 0.88); border: 1px solid rgba(230, 237, 243, 0.22); border-radius: 10px; font-size: 0.84rem; }
-.checklist header { display: flex; align-items: center; gap: 2px; }
-.checklist h2 { flex: 1; margin: 0; font-size: 0.92rem; }
-.checklist ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.checklist li { display: flex; align-items: center; gap: 8px; min-height: 28px; }
-.checklist li.next .step-label { font-weight: 700; }
-.checklist li.done .step-label { opacity: 0.55; text-decoration: line-through; }
-.checklist .step-label { flex: 1; min-width: 0; }
-.checklist .tick { flex: 0 0 20px; width: 20px; height: 20px; display: grid; place-items: center; border: 2px solid rgba(230, 237, 243, 0.5); border-radius: 50%; font-size: 0.72rem; font-weight: 800; }
-.checklist li.done .tick { background: #3fb950; border-color: #3fb950; color: #0b1116; }
-.checklist .step-go { flex: 0 0 auto; background: #1d4c7c; border-color: #6fb0ff; }
-.checklist-chip { position: absolute; top: calc(env(safe-area-inset-top) + 64px); left: calc(env(safe-area-inset-left) + 6px); min-height: 44px; padding: 0 14px; font: 600 0.85rem system-ui, sans-serif; color: #e6edf3; background: rgba(29, 76, 124, 0.92); border: 1px solid rgba(111, 176, 255, 0.7); border-radius: 22px; cursor: pointer; }
-/* The desktop top bar wraps to a second row (Follow, Budget, Save, speaker, Menu); the checklist sits below both rows. */
-.hud[data-layout="desktop"] > .checklist, .hud[data-layout="desktop"] > .checklist-chip { top: calc(env(safe-area-inset-top) + 114px); }
+.directive { position: absolute; top: calc(env(safe-area-inset-top) + 64px); left: calc(env(safe-area-inset-left) + 6px); width: min(20rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 12px)); box-sizing: border-box; padding: 4px 10px 10px; display: grid; gap: 6px; background: rgba(11, 17, 22, 0.9); border: 1px solid rgba(255, 179, 71, 0.55); border-radius: 12px; font-size: 0.86rem; }
+.directive.ready { border-color: #3fb950; box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.25); }
+.directive header { display: flex; align-items: center; gap: 4px; }
+.directive .who { flex: 1; min-width: 0; display: grid; }
+.directive h2 { margin: 0; font-size: 0.95rem; letter-spacing: 0.06em; }
+.directive .step { font-size: 0.74rem; opacity: 0.7; }
+.directive .say { margin: 0; line-height: 1.35; }
+.directive .progress { margin: 0; font-size: 0.78rem; opacity: 0.8; }
+.directive .actions { display: flex; align-items: center; gap: 10px; }
+.directive .step-go { background: #1d4c7c; border-color: #6fb0ff; }
+.directive .step-go.claim { background: #1f6f35; border-color: #3fb950; }
+.directive .reward { font-size: 0.78rem; opacity: 0.75; }
+.foreman { flex: 0 0 auto; animation: foreman-bob 2.4s ease-in-out infinite; }
+.foreman .eye { animation: foreman-blink 4.5s infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes foreman-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes foreman-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
+.directive-chip { position: absolute; top: calc(env(safe-area-inset-top) + 64px); left: calc(env(safe-area-inset-left) + 6px); min-height: 44px; padding: 0 14px 0 6px; display: flex; align-items: center; gap: 4px; font: 600 0.85rem system-ui, sans-serif; color: #e6edf3; background: rgba(29, 76, 124, 0.92); border: 1px solid rgba(255, 179, 71, 0.7); border-radius: 22px; cursor: pointer; }
+.directive-chip .foreman { width: 30px; height: 30px; }
+.directive-chip.ready { border-color: #3fb950; background: rgba(31, 111, 53, 0.94); }
+/* The desktop top bar wraps to a second row (Follow, Budget, Save, speaker, Menu); the directive card sits below both rows. */
+.hud[data-layout="desktop"] > .directive, .hud[data-layout="desktop"] > .directive-chip { top: calc(env(safe-area-inset-top) + 114px); }
 .hud > .tool-cost { position: absolute; display: grid; gap: 2px; max-width: 12rem; padding: 4px 8px; background: rgba(11, 17, 22, 0.88); border: 1px solid rgba(111, 176, 255, 0.6); border-radius: 6px; font-size: 0.8rem; pointer-events: none; }
 .hud > .tool-cost.bad { border-color: #e05a50; }
 .hud > .tool-cost.bad span { color: #ffb3ab; }

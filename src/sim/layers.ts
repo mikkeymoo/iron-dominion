@@ -228,6 +228,9 @@ export const S = {
   tripAccOut: 38, tripAccBack: 39, tripAccShop: 40, tripAccFreight: 41, spawnBlocked: 42,
   // graphEpoch the lane occupancy was last rebuilt from the vehicles at (a road change can change a tile's class, hence its lanes).
   occEpoch: 43,
+  // UNIT-0 directive chain (sim/directives.ts): bit i of directiveDone is set once directive i's condition has been met (it never clears),
+  // bit i of directiveClaimed once its reward was paid. `firsts` holds one-time celebrations that already fired (bit 0: the first finished building).
+  directiveDone: 44, directiveClaimed: 45, firsts: 46,
 } as const;
 
 /** Indices into the `disaster` layer. MODE is 0 off, 1 rare, 2 normal; METEOR_AT is the impact tick of an incoming meteor (0 = none). */
