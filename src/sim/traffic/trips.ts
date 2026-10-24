@@ -3,9 +3,10 @@ import { occupancyOf, zoneOfArch, isOperating } from '../economy/totals.ts';
 import { refOf } from '../robots/pool.ts';
 import { findPath, lotAccess, pathTiles, type RoadNet } from '../roads/index.ts';
 import {
-  CITIZENS_PER_VEHICLE, FREIGHT_PER_JOB, GRAVITY_SOFT, HOURLY, HOUR_TICKS, PURPOSE, SHOP_PER_RESIDENT, SPAWN_MAX, TAXI_SHARE, TRIP_PERIOD,
+  CITIZENS_PER_VEHICLE, FREIGHT_PER_JOB, GRAVITY_SOFT, HOURLY, HOUR_TICKS, PURPOSE, SHOP_PER_RESIDENT, SPAWN_MAX, TRIP_PERIOD,
   TRIP_RANGE, TRUCK_JOBS, VEHICLE_BUDGET, VKIND,
 } from './constants.ts';
+import { mods } from '../firmware.ts';
 import { recordTrip, spawnVehicle } from './vehicles.ts';
 
 // Trip generation. The sim does not simulate every citizen: every TRIP_PERIOD ticks it works out how many trips of each purpose the
@@ -18,6 +19,9 @@ const mix = (a: number, b: number, c: number): number => {
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
   return h >>> 0;
 };
+
+/** Whether the car of this trip is a robo-taxi: `share` out of 256 (mods().taxiShare). */
+export const isTaxi = (seed: number, tick: number, key: number, share: number): boolean => (mix(seed, tick, key) & 255) < share;
 
 /** Buildings of one kind with the running total of their weights, for weighted picks. */
 class Pool {
@@ -91,7 +95,7 @@ function startTrip(net: RoadNet, w: World, purpose: number, src: number, dst: nu
   const h = findPath(net, a, b);
   const tiles = h ? pathTiles(net, h) : null;
   if (!tiles || tiles.length > PATH_CAP) return fail();
-  const kind = purpose === PURPOSE.FREIGHT ? VKIND.TRUCK : (mix(seed, tick, key) & 255) < TAXI_SHARE ? VKIND.TAXI : VKIND.CAR;
+  const kind = purpose === PURPOSE.FREIGHT ? VKIND.TRUCK : isTaxi(seed, tick, key, mods(w).taxiShare) ? VKIND.TAXI : VKIND.CAR;
   const lane = (mix(key, tick, seed) >>> 8) % 3;
   const r = spawnVehicle(w, kind, purpose, srcRef, dstRef, tiles, tiles.length, lane);
   if (r === 'blocked') w.scalars[S.spawnBlocked]!++;

@@ -4,9 +4,10 @@ import { BMAX, MAP, RMAX, S, ZONE, type World } from '../layers.ts';
 import { MEGA_BUILDERS, isMega, megaRate } from '../megaprojects.ts';
 import { lotAccess, nearestRoad, type RoadNet } from '../roads/index.ts';
 import type { Sim } from '../world.ts';
+import { buildSpeed, depotCaps, mods } from '../firmware.ts';
 import {
-  AKIND, AST, BUILDER_COST, BUILDERS_PER_DEPOT, DEMOLISH_SPEED, HAULERS_PER_DEPOT, HAUL_CAP, HAULER_COST, HOMELESS_TICKS, JOB, JOB_MAX,
-  MAX_BUILDERS_PER_JOB, DISPATCH_MAX, REASSIGN_PERIOD, SITE_WALK, SPAWN_RESERVE, rateFor,
+  AKIND, AST, BUILDER_COST, DEMOLISH_SPEED, HAULER_COST, HOMELESS_TICKS, JOB, JOB_MAX,
+  DISPATCH_MAX, REASSIGN_PERIOD, SITE_WALK, SPAWN_RESERVE, rateFor,
 } from './constants.ts';
 import { dropPath, startTrip, stepAgent } from './move.ts';
 import { SPEND, available, despawnAgent, homeSlot, jobSlot, liveSlot, nearestTileOf, refOf, spawnAgent } from './pool.ts';
@@ -100,7 +101,8 @@ function work(sim: Sim, net: RoadNet, w: World, a: number): void {
     return;
   }
   const kind = w.jKind[j]!;
-  const rate = isMega(w.bArch[j]!) ? megaRate(w.bArch[j]!, w.bLevel[j]!) : rateFor(bw * bh, w.bLevel[j]!);
+  const base = isMega(w.bArch[j]!) ? megaRate(w.bArch[j]!, w.bLevel[j]!) : rateFor(bw * bh, w.bLevel[j]!);
+  const rate = Math.max(1, Math.floor(base * buildSpeed(w, j)));
   if (kind === JOB.DEMOLISH) {
     w.jProg[j] = Math.max(0, w.jProg[j]! - rate * DEMOLISH_SPEED);
     return;
@@ -166,6 +168,7 @@ export function updateAgent(sim: Sim, net: RoadNet, a: number): void {
 export function spawnPass(sim: Sim, net: RoadNet): void {
   const w = sim.world;
   const builders = new Map<number, number>(), haulers = new Map<number, number>();
+  const restingBuilder = new Map<number, number>(), restingHauler = new Map<number, number>();
   for (let a = 0; a < RMAX; a++) {
     const k = w.aKind[a]!;
     if (k !== AKIND.BUILDER && k !== AKIND.HAULER) continue;
@@ -173,11 +176,16 @@ export function spawnPass(sim: Sim, net: RoadNet): void {
     if (h < 0) continue;
     const m = k === AKIND.BUILDER ? builders : haulers;
     m.set(h, (m.get(h) ?? 0) + 1);
+    if (w.aState[a] === AST.IDLE) (k === AKIND.BUILDER ? restingBuilder : restingHauler).set(h, a);
   }
   for (let s = 0; s < BMAX; s++) {
     if (w.bArch[s] !== ARCH.DEPOT || depotAccess(net, w, s) < 0) continue;
     const b = builders.get(s) ?? 0, h = haulers.get(s) ?? 0;
-    const kind = b < BUILDERS_PER_DEPOT && (b <= h || h >= HAULERS_PER_DEPOT) ? AKIND.BUILDER : h < HAULERS_PER_DEPOT ? AKIND.HAULER : 0;
+    const caps = depotCaps(w, s);
+    // A removed module takes its robots with it, one resting robot per call.
+    const surplus = b > caps.builders ? restingBuilder.get(s) : h > caps.haulers ? restingHauler.get(s) : undefined;
+    if (surplus !== undefined) { despawnAgent(w, surplus); continue; }
+    const kind = b < caps.builders && (b <= h || h >= caps.haulers) ? AKIND.BUILDER : h < caps.haulers ? AKIND.HAULER : 0;
     if (kind === 0) continue;
     const cost = kind === AKIND.BUILDER ? BUILDER_COST : HAULER_COST;
     if (available(w) < cost + SPAWN_RESERVE) continue;
@@ -190,7 +198,7 @@ interface Source { slot: number; acc: number }
 
 /** Hand idle builders to jobs that need hands and idle haulers to jobs that need material. At most DISPATCH_MAX assignments per call. */
 export function dispatch(sim: Sim, net: RoadNet): void {
-  const w = sim.world;
+  const w = sim.world, m = mods(w);
   const idleB: number[] = [], idleH: number[] = [];
   const assigned = new Map<number, number>();
   for (let a = 0; a < RMAX; a++) {
@@ -219,7 +227,7 @@ export function dispatch(sim: Sim, net: RoadNet): void {
   for (const j of jobs) {
     const kind = w.jKind[j]!, target = w.jAccess[j]!;
     let have = assigned.get(j) ?? 0;
-    const crew = isMega(w.bArch[j]!) ? MEGA_BUILDERS : MAX_BUILDERS_PER_JOB;
+    const crew = isMega(w.bArch[j]!) ? MEGA_BUILDERS : m.buildersPerJob;
     while (have < crew && budget > 0 && idleB.length > 0) {
       if (have > 0 && kind !== JOB.DEMOLISH && w.jHave[j] === 0) break;
       let best = -1, bestD = Infinity, bestAcc = -1;
@@ -253,9 +261,17 @@ export function dispatch(sim: Sim, net: RoadNet): void {
     return sources;
   };
 
+  // A hauler serves sites within the depot work radius. A site no depot reaches that way is served by anyone, so nothing is stranded.
+  let depotSlots: number[] | undefined;
+  const nearDepot = (target: number): boolean => {
+    depotSlots ??= (() => { const out: number[] = []; for (let s = 0; s < BMAX; s++) if (w.bArch[s] === ARCH.DEPOT) out.push(s); return out; })();
+    return depotSlots.some((d) => { const door = doorOf(d); return door >= 0 && manhattan(door, target) <= m.workRadius && net.connected(door, target); });
+  };
+
   for (const j of jobs) {
     if (w.jKind[j] === JOB.DEMOLISH) continue;
     const target = w.jAccess[j]!;
+    let covered: boolean | undefined;
     while (budget > 0 && idleH.length > 0) {
       const remaining = w.jNeed[j]! - w.jHave[j]! - w.jInbound[j]!;
       if (remaining <= 0) break;
@@ -264,6 +280,7 @@ export function dispatch(sim: Sim, net: RoadNet): void {
       for (let i = 0; i < tryCount; i++) {
         const home = doorOf(homeSlot(w, idleH[i]!));
         if (home < 0 || !net.connected(home, target)) continue;
+        if (manhattan(home, target) > m.workRadius && (covered ??= nearDepot(target))) continue;
         for (const src of sourcesNow()) {
           if (w.bStock[src.slot] === 0 || !net.connected(home, src.acc)) continue;
           const c = manhattan(home, src.acc) + manhattan(src.acc, target);
@@ -273,7 +290,7 @@ export function dispatch(sim: Sim, net: RoadNet): void {
       if (bi < 0 || !bestSrc) break;
       const a = idleH.splice(bi, 1)[0]!;
       budget--;
-      const units = Math.min(HAUL_CAP, remaining, w.bStock[bestSrc.slot]!);
+      const units = Math.min(m.haulCap, remaining, w.bStock[bestSrc.slot]!);
       const toPickup = bestSrc.acc !== bestHome;
       if (!startTrip(net, w, a, bestHome, toPickup ? bestSrc.acc : target)) continue;
       w.bStock[bestSrc.slot]! -= units;

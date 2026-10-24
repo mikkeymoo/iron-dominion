@@ -6,7 +6,8 @@ import { depotDistances, materialStock } from './issues.ts';
 import { archLabel, capitalise } from './labels.ts';
 import { AMAX, BMAX, MAP, PATH_CAP, RMAX, ROAD, S, ZONE, type World } from './layers.ts';
 import type { AgentInfo, BuildingInfo, InfoMsg, IssueOverlay, RequestInfo, Thought, ThoughtTone } from './protocol.ts';
-import { AKIND, AST, BUILDER_SPEED, DEPOT_WORK_RADIUS, FIREFIGHTER_SPEED, HAULER_SPEED, JOB, JOB_MAX } from './robots/constants.ts';
+import { AKIND, AST, BUILDER_SPEED, FIREFIGHTER_SPEED, HAULER_SPEED, JOB, JOB_MAX } from './robots/constants.ts';
+import { depotCaps, mods, moduleAt } from './firmware.ts';
 import { pathOf } from './robots/move.ts';
 import { homeSlot, jobSlot, liveSlot, nearestTileOf, refOf } from './robots/pool.ts';
 import { lotAccess, nearestRoad, roadsOf, UNREACHED, type RoadNet } from './roads/index.ts';
@@ -104,7 +105,8 @@ function jobThoughts(sim: Sim, net: RoadNet, slot: number, out: Weighted[]): voi
   if (w.jStuck[slot]! > 0) { out.push(thought(45, 'bad', 'No road from a depot reaches this site.')); return; }
   const wants = kind !== JOB.DEMOLISH && need > have + w.jInbound[slot]!;
   if (wants && materialStock(w) === 0) out.push(thought(40, 'bad', 'Waiting for material: no depot or factory has any in stock.'));
-  if (depotDistances(net, anchors)[w.jAccess[slot]!] === UNREACHED) out.push(thought(30, 'warn', `Slow: no nearby depot (robots work within ${DEPOT_WORK_RADIUS} road tiles of one).`));
+  const radius = mods(w).workRadius;
+  if (depotDistances(net, anchors, radius)[w.jAccess[slot]!] === UNREACHED) out.push(thought(30, 'warn', `Slow: no nearby depot (robots work within ${radius} road tiles of one).`));
   if (builderCrew(w, slot) === 0 && (flags & BFLAG.CONSTRUCTING) !== 0) out.push(thought(20, 'warn', 'No builder bot has reached it yet.'));
 }
 
@@ -184,7 +186,7 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
     const svc = a.service;
     if (arch === ARCH.DEPOT) {
       if (lotAccess(net, w.bX[slot]!, w.bY[slot]!, w.bW[slot]!, w.bH[slot]!) < 0) out.push(thought(65, 'bad', 'No road at its door: robots cannot leave.'));
-      out.push(thought(20, 'good', `Robots work within ${DEPOT_WORK_RADIUS} road tiles of this depot.`));
+      out.push(thought(20, 'good', `Robots work within ${mods(w).workRadius} road tiles of this depot.`));
       if (w.bStock[slot]! < 8) out.push(thought(30, 'warn', `Only ${w.bStock[slot]} material left in stock.`));
     } else if (svc && svc.kind !== SVC.PARK && svc.kind !== SVC.REPAIR && works(flags)) {
       const st = sim.services && (svc.kind === SVC.FIRE ? sim.services.fire : svc.kind === SVC.POLICE ? sim.services.police : svc.kind === SVC.HEALTH ? sim.services.health : sim.services.edu);
@@ -221,7 +223,11 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
       if (w.aKind[k] === 0 || homeSlot(w, k) !== slot) continue;
       if (w.aKind[k] === AKIND.BUILDER) builders++; else if (w.aKind[k] === AKIND.HAULER) haulers++;
     }
-    info.depot = { radius: DEPOT_WORK_RADIUS, builders, haulers, stock: w.bStock[slot]! };
+    const caps = depotCaps(w, slot);
+    info.depot = {
+      radius: mods(w).workRadius, builders, haulers, stock: w.bStock[slot]!, builderCap: caps.builders, haulerCap: caps.haulers, droneCap: caps.drones,
+      modules: [moduleAt(w, slot, 0), moduleAt(w, slot, 1)],
+    };
   }
   return info;
 }

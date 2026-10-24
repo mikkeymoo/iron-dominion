@@ -4,6 +4,7 @@ import {
   abandonedBuildings, growthCandidates, levelUpCandidates, reachAnchors, reachableAccess, zoneDemand, type Lot,
 } from '../economy/index.ts';
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
+import { mods } from '../firmware.ts';
 import { bytesOf, fnv1a } from '../hash.ts';
 import { BMAX, MAP, ROAD, S, TERRAIN, ZONE, isWaterTerrain, type World } from '../layers.ts';
 import { isMega, megaBit, megaStageNeed, megaStages } from '../megaprojects.ts';
@@ -12,7 +13,7 @@ import type { RoadNet } from '../roads/graph.ts';
 import type { Sim } from '../world.ts';
 import { markDirty } from '../world.ts';
 import {
-  CANDIDATES, DEPOT_START_STOCK, DEPOT_STOCK_CAP, DEPOT_TRICKLE_CAP, GROWTH_MIN_DEMAND, GROWTH_PERIOD, IMPORT_COST, IMPORT_PERIOD,
+  CANDIDATES, DEPOT_START_STOCK, REBUILD_EXTRA_DEMOLITIONS, DEPOT_STOCK_CAP, DEPOT_TRICKLE_CAP, GROWTH_MIN_DEMAND, GROWTH_PERIOD, IMPORT_COST, IMPORT_PERIOD,
   IMPORT_UNITS, INDUSTRY_STOCK_CAP, JOB, JOB_MAX, JOB_PENALTY, JOB_STUCK_TICKS, MAX_DEMOLITIONS, MAX_JOBS, PRODUCE_PERIOD, materialFor,
 } from './constants.ts';
 import { SPEND, available, clearJob } from './pool.ts';
@@ -155,6 +156,39 @@ function advanceMega(sim: Sim, s: number): boolean {
   return false;
 }
 
+const nearestReadyDepot = (w: World, from: number): number => {
+  let best = -1, bestD = Infinity;
+  for (let s = 0; s < BMAX; s++) {
+    if (w.bArch[s] !== ARCH.DEPOT || (w.bFlags[s]! & (BFLAG.CONSTRUCTING | BFLAG.RUBBLE)) !== 0) continue;
+    const d = Math.abs(w.bX[s]! - w.bX[from]!) + Math.abs(w.bY[s]! - w.bY[from]!);
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return best;
+};
+
+/**
+ * A demolition ran out of building. Recycling Drive returns a share of the material the building took to put up to the nearest
+ * depot, and Rebuild protocol starts a level-1 building of the same zone and density on the freed lot of a ruin at once.
+ */
+function finishDemolition(sim: Sim, s: number): void {
+  const w = sim.world, m = mods(w), arch = archetype(w.bArch[s]!);
+  const ruin = (w.bFlags[s]! & BFLAG.RUBBLE) !== 0;
+  const rci = arch !== undefined && arch.zone !== undefined;
+  const x = w.bX[s]!, y = w.bY[s]!, access = w.jAccess[s]!;
+  if (m.recycle > 0 && rci) {
+    const depot = nearestReadyDepot(w, s);
+    if (depot >= 0) {
+      const units = Math.floor(materialFor(w.bW[s]! * w.bH[s]!, w.bLevel[s]!) * m.recycle);
+      w.bStock[depot] = Math.max(w.bStock[depot]!, Math.min(DEPOT_STOCK_CAP, w.bStock[depot]! + units));
+    }
+  }
+  releaseLot(sim, s);
+  if (m.autoRebuild && ruin && rci) {
+    const next = archetype(rciId(arch.zone!, arch.density!, 1));
+    if (next) startBuild(sim, next, x, y, access);
+  }
+}
+
 /** Mirror job progress into the building table and finish what is done. Runs after the robots have worked this tick. */
 export function settleJobs(sim: Sim): void {
   const w = sim.world;
@@ -163,7 +197,7 @@ export function settleJobs(sim: Sim): void {
     if (kind === 0) continue;
     const top = w.jProg[s]! >> 8;
     if (kind === JOB.DEMOLISH) {
-      if (w.jProg[s] === 0) { releaseLot(sim, s); continue; }
+      if (w.jProg[s] === 0) { finishDemolition(sim, s); continue; }
     } else if (w.jProg[s]! >= JOB_MAX) {
       if ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0) { clearJob(w, s); continue; }
       if (kind === JOB.BUILD && isMega(w.bArch[s]!) && advanceMega(sim, s)) continue;
@@ -179,7 +213,7 @@ export function settleJobs(sim: Sim): void {
 
 /** Industry produces into its own stock; depots get their starting stock once and a paid trickle while low. */
 export function materialSystem(sim: Sim): void {
-  const w = sim.world, tick = w.scalars[S.tick]!;
+  const w = sim.world, tick = w.scalars[S.tick]!, m = mods(w);
   const produce = tick % PRODUCE_PERIOD === 0, trickle = tick % IMPORT_PERIOD === 0;
   for (let s = 0; s < BMAX; s++) {
     const arch = w.bArch[s]!;
@@ -191,7 +225,9 @@ export function materialSystem(sim: Sim): void {
         w.spend[SPEND.IMPORTS]! += IMPORT_UNITS * IMPORT_COST;
       }
     } else if (produce && zoneOfArch(arch) === ZONE.I && isOperating(w, s)) {
-      w.bStock[s] = Math.min(INDUSTRY_STOCK_CAP, w.bStock[s]! + 1 + w.bLevel[s]!);
+      // A multiplier on the output (Smog Permit) is paid in whole units by carrying the fraction: floor(x * (n + 1)) - floor(x * n) for the nth period.
+      const x = (1 + w.bLevel[s]!) * m.industryOutput, n = tick / PRODUCE_PERIOD;
+      w.bStock[s] = Math.min(INDUSTRY_STOCK_CAP, w.bStock[s]! + Math.floor(x * (n + 1)) - Math.floor(x * n));
     }
   }
 }
@@ -271,8 +307,23 @@ export function growthDirector(sim: Sim, builders: number): void {
     if (d >= GROWTH_MIN_DEMAND) order.push({ z, score: d - JOB_PENALTY * perZone[z]! });
   }
   order.sort((a, b) => b.score - a.score || a.z - b.z);
+  const m = mods(w);
+  // Ruins from a disaster go first: they block their lot and the renderer shows rubble until the robots clear it.
+  const ruin = (s: number): number => ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0 ? 1 : 0);
+  const demolishOne = (ruinsOnly: boolean): boolean => {
+    for (const s of abandonedBuildings(w).sort((a, b) => ruin(b) - ruin(a) || a - b)) {
+      if (w.jKind[s] !== 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) !== 0 || (ruinsOnly && ruin(s) === 0)) continue;
+      const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
+      if (access >= 0) { startDemolish(sim, s, access); return true; }
+    }
+    return false;
+  };
+  // Rebuild protocol: ruins are cleared before anything new starts, a little beyond the usual demolition limit.
+  if (m.autoRebuild && demolitions < MAX_DEMOLITIONS + REBUILD_EXTRA_DEMOLITIONS && demolishOne(true)) return;
   // One job per builder keeps the crews together (up to three bots on a site) instead of spreading thin over many foundations.
-  if (jobs < Math.min(MAX_JOBS, Math.max(2, builders))) {
+  // Parallel fabrication adds one job slot per depot.
+  const depots = m.extraJobsPerDepot > 0 ? countDepots(w) : 0;
+  if (jobs < Math.min(MAX_JOBS, Math.max(2, builders) + m.extraJobsPerDepot * depots)) {
     for (const { z } of order) {
       for (const lot of candidatesFor(sim, z)) {
         const a = archetype(rciId(z, lot.density, 1));
@@ -287,13 +338,11 @@ export function growthDirector(sim: Sim, builders: number): void {
       }
     }
   }
-  if (jobs < MAX_JOBS && demolitions < MAX_DEMOLITIONS) {
-    // Ruins from a disaster go first: they block their lot and the renderer shows rubble until the robots clear it.
-    const ruin = (s: number): number => ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0 ? 1 : 0);
-    for (const s of abandonedBuildings(w).sort((a, b) => ruin(b) - ruin(a) || a - b)) {
-      if (w.jKind[s] !== 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) !== 0) continue;
-      const access = reachableAccess(net, anchors, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
-      if (access >= 0) { startDemolish(sim, s, access); return; }
-    }
-  }
+  if (jobs < MAX_JOBS && demolitions < MAX_DEMOLITIONS) demolishOne(false);
 }
+
+const countDepots = (w: World): number => {
+  let n = 0;
+  for (let s = 0; s < BMAX; s++) if (w.bArch[s] === ARCH.DEPOT) n++;
+  return n;
+};

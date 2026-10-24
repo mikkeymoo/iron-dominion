@@ -8,7 +8,7 @@ import { decayCommuteFail, rebuildOccupancy, updateVehicles, type TickFlow } fro
 
 export * from './constants.ts';
 export { poseAlong, laneOffset, dirOfStep, type Pose } from './pose.ts';
-export { generateTrips } from './trips.ts';
+export { generateTrips, isTaxi } from './trips.ts';
 export { trafficRamp } from './ramp.ts';
 export { bumpCommuteFail, laneOf, purposeOf, rebuildOccupancy, recordTrip, routeBase, spawnVehicle, updateVehicles } from './vehicles.ts';
 

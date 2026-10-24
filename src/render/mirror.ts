@@ -1,4 +1,4 @@
-import { CHUNK, CHUNKS, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, TILES, isTileLayer, type LayerName } from '../sim/layers.ts';
+import { CHUNK, CHUNKS, F, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, TILES, isTileLayer, type LayerName } from '../sim/layers.ts';
 import type { BuildingRec, FromWorker, Typed } from '../sim/protocol.ts';
 import { chunkIdx, copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
 import type { SimEvent } from '../sim/world.ts';
@@ -16,6 +16,8 @@ export type DisasterEvent = Extract<SimEvent, { type: 'disaster' }>;
  */
 export class RenderMirror {
   readonly layers: Record<string, Typed> = {};
+  /** The firmware layer's research and edict masks, kept current from Stats so display code can ask mods() for the work radius. */
+  private readonly firmware = new Float64Array(8);
   readonly table: BuildingTable;
   scalars = new Float64Array(SPEC.scalars.length);
   tick = 0;
@@ -44,6 +46,7 @@ export class RenderMirror {
 
   constructor() {
     for (const l of renderInfos) this.layers[l.name] = new l.ctor(l.length) as Typed;
+    this.layers.firmware = this.firmware as Typed;
     const L = this.layers;
     this.table = {
       bArch: L.bArch as Uint8Array, bX: L.bX as Uint16Array, bY: L.bY as Uint16Array, bW: L.bW as Uint8Array,
@@ -95,6 +98,7 @@ export class RenderMirror {
       case 'stats':
         // Patches only go out when something changed, so stats and events keep the clock moving for tick-driven effects.
         if (m.tick > this.tick) this.tick = m.tick;
+        if (m.firmware) { this.firmware[F.RESEARCH] = m.firmware.research; this.firmware[F.EDICTS] = m.firmware.edicts; }
         this.scalars[S.treasury] = m.treasury;
         this.scalars[S.population] = m.population;
         this.scalars[S.demandR] = m.rciDemand[0];

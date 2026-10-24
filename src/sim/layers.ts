@@ -160,6 +160,12 @@ export const SPEC = {
   jPrevUg: L(Uint8Array, UMAX * UCELLS, false, 'none'),
   jPostUg: L(Uint8Array, UMAX * UCELLS, false, 'none'),
 
+  // Depot modules (sim/firmware.ts): two 4-bit module codes per building slot, slot 0 in the low nibble. Only depots hold any.
+  bMod: L(Uint8Array, BMAX, false, 'none'),
+  // Firmware state, indexed by F: research points, the bit mask of researched nodes, the bit mask of active edicts, RP earned ever.
+  // A layer of its own (not scalars) so a save from before this existed still loads: a missing layer reads as zeros.
+  firmware: L(Float64Array, 8, false, 'none'),
+
   scalars: L(Float64Array, 48, false, 'none'),
   rng: L(Uint32Array, 4, false, 'none'),
   // Disasters (sim/disasters): the mode and the pending meteor live in `disaster` (see D), randomness in its own stream so that
@@ -232,6 +238,9 @@ export const S = {
   // bit i of directiveClaimed once its reward was paid. `firsts` holds one-time celebrations that already fired (bit 0: the first finished building).
   directiveDone: 44, directiveClaimed: 45, firsts: 46,
 } as const;
+
+/** Indices into the `firmware` layer. */
+export const F = { RP: 0, RESEARCH: 1, EDICTS: 2, EARNED: 3 } as const;
 
 /** Indices into the `disaster` layer. MODE is 0 off, 1 rare, 2 normal; METEOR_AT is the impact tick of an incoming meteor (0 = none). */
 export const D = { MODE: 0, METEOR_AT: 1, METEOR_X: 2, METEOR_Y: 3 } as const;

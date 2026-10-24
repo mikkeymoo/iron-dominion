@@ -2,6 +2,7 @@ import { ARCH, BFLAG } from './catalog.ts';
 import {
   BANKRUPT_MONTHS, CRIME_TOLERANCE, computeBudget, footprintMean, growthCandidates, isOperating, reachAnchors, zoneDemand, zoneOfArch,
 } from './economy/index.ts';
+import { mods } from './firmware.ts';
 import { archLabel, capitalise } from './labels.ts';
 import { BMAX, MAP, RMAX, S, TILES, type World } from './layers.ts';
 import type { Issue, IssueCategory, IssueKind, IssueOverlay } from './protocol.ts';
@@ -193,8 +194,8 @@ export function materialStock(w: World): number {
 }
 
 /** Road distance from the nearest depot door per tile, UNREACHED beyond DEPOT_WORK_RADIUS. A shared buffer: read it before the next call. */
-export function depotDistances(net: RoadNet, anchors: readonly number[]): Uint16Array {
-  roadFlow(net, anchors, DEPOT_WORK_RADIUS, distBuf);
+export function depotDistances(net: RoadNet, anchors: readonly number[], radius = DEPOT_WORK_RADIUS): Uint16Array {
+  roadFlow(net, anchors, radius, distBuf);
   return distBuf;
 }
 
@@ -206,7 +207,7 @@ function jobsIssue(sim: Sim, net: RoadNet, c: Census, anchors: readonly number[]
   if (c.jobs === 0 || anchors === null || anchors.length === 0) return null;
   const crew = countAgents(w);
   const stock = materialStock(w);
-  const reach = depotDistances(net, anchors);
+  const reach = depotDistances(net, anchors, mods(w).workRadius);
   const count: Record<StallCause, number> = { road: 0, material: 0, builders: 0, haulers: 0, far: 0 };
   const first: Record<StallCause, number> = { road: -1, material: -1, builders: -1, haulers: -1, far: -1 };
   for (let s = 0; s < BMAX; s++) {

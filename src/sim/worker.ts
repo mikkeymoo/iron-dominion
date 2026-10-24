@@ -6,6 +6,7 @@ import { budgetMessage, econStats } from './economy/index.ts';
 import { directiveStats } from './directives.ts';
 import { answerInfo } from './info.ts';
 import { invalidateIssues, issuesOf } from './issues.ts';
+import { firmwareStats } from './firmware.ts';
 import { milestoneStats } from './milestones.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
@@ -118,6 +119,7 @@ function flush(now: number, force = false): void {
       ...serviceStats(sim),
       milestone: milestoneStats(sim.world),
       directives: directiveStats(sim.world),
+      firmware: firmwareStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);

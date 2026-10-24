@@ -1,0 +1,32 @@
+/* Research and Edicts panels, and the depot module picker. Every control is at least 44 px tall. */
+.fw-panel { width: min(46rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 12px)); }
+.fw-rp { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 8px 0 2px; font-size: 1rem; }
+.fw-rp strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.fw-income { color: #8fe3a4; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.fw-tree { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.fw-branch h3 { margin: 6px 0; }
+.fw-branch ol, .fw-edicts, .fw-effects { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.fw-node, .fw-edict { padding: 8px; border: 1px solid rgba(230, 237, 243, 0.22); border-radius: 8px; background: rgba(230, 237, 243, 0.05); }
+.fw-node[data-state="owned"], .fw-edict[data-active="true"] { border-color: rgba(143, 227, 164, 0.7); background: rgba(70, 150, 100, 0.16); }
+.fw-node[data-state="locked"], .fw-edict[data-locked="true"] { opacity: 0.6; }
+.fw-node p, .fw-edict p { margin: 4px 0 6px; font-size: 0.8rem; opacity: 0.88; }
+.fw-node-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.fw-cost { font-size: 0.8rem; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0.85; }
+.fw-node .tb.wide, .fw-edict .tb.wide { width: 100%; min-height: 44px; white-space: normal; }
+.fw-edicts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fw-effects { gap: 2px; margin-bottom: 8px; font-size: 0.82rem; }
+.fw-effects li { padding-left: 1.1em; position: relative; }
+.fw-effects li::before { position: absolute; left: 0; font-weight: 700; }
+.fw-effects .up { color: #8fe3a4; }
+.fw-effects .up::before { content: "+"; }
+.fw-effects .down { color: #ffb8a6; }
+.fw-effects .down::before { content: "-"; }
+@media (max-width: 640px) {
+  .fw-tree, .fw-edicts { grid-template-columns: 1fr; }
+}
+
+.depot-modules { margin-top: 8px; }
+.depot-modules h3 { margin: 0; font-size: 0.9rem; }
+.module-slot { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 6px; }
+.tb.module { display: grid; place-items: center; align-content: center; gap: 0; padding: 2px 2px; min-width: 44px; min-height: 48px; font-size: 0.7rem; line-height: 1.15; white-space: normal; text-align: center; }
+.tb.module small { font-size: 0.66rem; font-weight: 500; opacity: 0.8; }

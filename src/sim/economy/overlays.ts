@@ -1,4 +1,5 @@
-import { BFLAG, CATALOG, isRci } from '../catalog.ts';
+import { ARCH, BFLAG, CATALOG, isRci } from '../catalog.ts';
+import { mods } from '../firmware.ts';
 import { BMAX, MAP, ROAD, S, TILES, ZONE, isWaterTerrain, type World } from '../layers.ts';
 import { megaAuras, type Aura } from '../megaprojects.ts';
 import { markDirty, type Sim } from '../world.ts';
@@ -78,6 +79,7 @@ export function landValueAt(w: World, x: number, y: number, auras: readonly Aura
   // Utilities, once the city models them: no water reach costs the tile land value, and so does standing under a dark building.
   if ((w.scalars[S.grid]! & GRID_WATER) !== 0 && w.waterOn[i] !== 1 && w.waterOn[i] !== 2) v -= LV_NO_WATER;
   if (w.bId[i] !== 0 && (w.bFlags[w.bId[i]! - 1]! & BFLAG.UNPOWERED) !== 0) v -= LV_NO_POWER;
+  v += mods(w).landValue;
   return v < 0 ? 0 : v > 255 ? 255 : v;
 }
 
@@ -104,8 +106,10 @@ export function recomputeLandValue(sim: Sim): void {
 export function emissionOf(w: World, slot: number): number {
   const arch = w.bArch[slot]!;
   if (arch === 0) return 0;
-  if (zoneOfArch(arch) === ZONE.I) return isOperating(w, slot) ? EMIT_I[arch]! : 0;
-  return zoneOfArch(arch) === 0 && (w.bFlags[slot]! & BFLAG.CONSTRUCTING) === 0 ? EMIT_OTHER[arch]! : 0;
+  const m = mods(w);
+  if (zoneOfArch(arch) === ZONE.I) return isOperating(w, slot) ? Math.floor(EMIT_I[arch]! * m.industryPollution) : 0;
+  if (zoneOfArch(arch) !== 0 || (w.bFlags[slot]! & BFLAG.CONSTRUCTING) !== 0) return 0;
+  return EMIT_OTHER[arch]! + (arch === ARCH.DEPOT ? m.depotPollution : 0);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { mods, roll } from '../firmware.ts';
 import { AMAX, MAP, ROAD, S, type World } from '../layers.ts';
 import { findPath, pathTiles, type RoadNet } from '../roads/index.ts';
 import { AKIND, BACKOFF_BASE, BACKOFF_MAX, BUILDER_SPEED, DAMAGED_ROAD_SPEED, FIREFIGHTER_SPEED, HAULER_SPEED } from './constants.ts';
@@ -80,8 +81,16 @@ export function stepAgent(net: RoadNet, w: World, a: number): MoveResult {
   const first = step === 0 && frac === 0, from = step;
   const cls = w.road[tiles[step]!]! & ROAD.CLASS_MASK;
   const boost = w.covRepair[tiles[step]!] !== 0 ? REPAIR_BOOST_Q / ONE : 1;
-  const speeds = w.aKind[a] === AKIND.BUILDER ? BUILDER_SPEED : w.aKind[a] === AKIND.FIREFIGHTER ? FIREFIGHTER_SPEED : HAULER_SPEED;
-  frac += speeds[cls]! * boost * ((w.road[tiles[step]!]! & ROAD.DAMAGED) !== 0 ? DAMAGED_ROAD_SPEED : 1);
+  const m = mods(w), kind = w.aKind[a]!;
+  if (kind === AKIND.HAULER && m.breakdown > 0 && (roll(w.scalars[S.seed]!, w.scalars[S.tick]!, a) >>> 16) < m.breakdown) {
+    w.aWait[a] = m.breakdownTicks;
+    return 'blocked';
+  }
+  const speeds = kind === AKIND.BUILDER ? BUILDER_SPEED : kind === AKIND.FIREFIGHTER ? FIREFIGHTER_SPEED : HAULER_SPEED;
+  const own = kind === AKIND.HAULER ? m.haulerSpeed : kind === AKIND.FIREFIGHTER ? m.ffSpeed : 1;
+  // Robots share the street with the cars: a jammed tile slows them, unless Priority lanes took them off it.
+  const jam = m.jamSlow > 0 ? 1 - (m.jamSlow * w.traffic[tiles[step]!]!) / 255 : 1;
+  frac += speeds[cls]! * boost * own * jam * ((w.road[tiles[step]!]! & ROAD.DAMAGED) !== 0 ? DAMAGED_ROAD_SPEED : 1);
   while (frac >= 1 && step < last) { frac -= 1; step++; }
   if (step >= last) {
     w.aStep[a] = last; w.aFrac[a] = 0;

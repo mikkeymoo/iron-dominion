@@ -1,11 +1,12 @@
 import { ARCH } from '../sim/catalog.ts';
 import { BMAX, MAP, ROAD, TILES } from '../sim/layers.ts';
-import { DEPOT_WORK_RADIUS } from '../sim/robots/constants.ts';
+import { mods } from '../sim/firmware.ts';
+import type { World } from '../sim/layers.ts';
 import { lotAccess, roadFlow, UNREACHED, type RoadNet } from '../sim/roads/index.ts';
 import { COV_HALO } from '../sim/services/tables.ts';
 
 // The depot's work radius on the main thread: the same roadFlow the sim's coverage passes use, run over the mirror's road layer
-// from the door of every depot. Display only; the robots path anywhere connected (see DEPOT_WORK_RADIUS).
+// from the door of every depot. Display only; the robots path anywhere connected (see mods().workRadius).
 
 /** Tint at a depot's door, falling to REACH_EDGE at the radius. */
 export const REACH_DOOR = 255;
@@ -21,6 +22,9 @@ export function roadView(road: ArrayLike<number>): RoadNet {
   const r = road as Uint16Array;
   return { road: r, flowQueue: queue, isRoad: (t: number): boolean => t >= 0 && t < TILES && (r[t]! & ROAD.CLASS_MASK) !== 0 } as unknown as RoadNet;
 }
+
+/** The work radius in force (Long-range firmware stretches it), read from the mirror's firmware layer. */
+export const workRadiusOf = (layers: Layers): number => mods(layers as unknown as World).workRadius;
 
 export interface Footprint { x: number; y: number; w: number; h: number }
 
@@ -47,19 +51,20 @@ export function doorOfBuilding(layers: Layers, slot: number): number {
 
 /**
  * Fill `out` (TILES values) with the work radius of the given door tiles: REACH_DOOR at a door, falling linearly to REACH_EDGE at
- * DEPOT_WORK_RADIUS road tiles, then spread COV_HALO tiles either side of every road tile reached (a lot takes the tint of the
+ * the work radius in road tiles, then spread COV_HALO tiles either side of every road tile reached (a lot takes the tint of the
  * road it borders, as it does for service coverage). Returns how many tiles are tinted.
  */
 export function reachLayer(layers: Layers, doors: readonly number[], out: Uint8Array): number {
   out.fill(0);
   if (doors.length === 0) return 0;
   const net = roadView(layers.road!);
-  const { reached } = roadFlow(net, doors, DEPOT_WORK_RADIUS, dist);
+  const radius = workRadiusOf(layers);
+  const { reached } = roadFlow(net, doors, radius, dist);
   let n = 0;
   for (let k = 0; k < reached.length; k++) {
     const t = reached[k]!, d = dist[t]!;
     if (d === UNREACHED) continue;
-    const v = REACH_DOOR - Math.floor((d * (REACH_DOOR - REACH_EDGE)) / DEPOT_WORK_RADIUS);
+    const v = REACH_DOOR - Math.floor((d * (REACH_DOOR - REACH_EDGE)) / radius);
     const x = t & (MAP - 1), y = t >> 8;
     for (let yy = Math.max(0, y - COV_HALO); yy <= Math.min(MAP - 1, y + COV_HALO); yy++) {
       for (let xx = Math.max(0, x - COV_HALO); xx <= Math.min(MAP - 1, x + COV_HALO); xx++) {

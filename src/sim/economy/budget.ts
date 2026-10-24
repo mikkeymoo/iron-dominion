@@ -1,4 +1,5 @@
 import { BFLAG, CATALOG, isRci } from '../catalog.ts';
+import { accrueResearch, edictUpkeep, mods } from '../firmware.ts';
 import { BMAX, BUDGET_FIELDS, BUDGET_MONTHS, MAX_LOANS, ROAD, S, TILES, ZONE, type World } from '../layers.ts';
 import { isMega, megaSums } from '../megaprojects.ts';
 import type { BudgetRecord, LoanInfo } from '../protocol.ts';
@@ -47,6 +48,11 @@ export function computeBudget(world: World, month: number): BudgetRecord {
     const wealth = HEAD_BASE[z - 1]! + ((footprintMean(world, world.landValue, s) * HEAD_LV[z - 1]!) >> 8);
     inc[z - 1]! += Math.floor((payers * wealth * taxRate(world, z)) / 100);
   }
+  // Edicts: Tax Holiday and Curfew scale what the zone pays; their costs are booked with the services.
+  const m = mods(world);
+  inc[0] = Math.floor(inc[0]! * m.incomeR);
+  inc[1] = Math.floor(inc[1]! * m.incomeC);
+  services += edictUpkeep(world);
   // Megaprojects pay a flat monthly sum (tourism, cargo, residents' rates) booked with the commercial income.
   inc[1]! += megaSums(world).income;
   let roads = 0;
@@ -99,6 +105,7 @@ export function closeMonth(sim: Sim): BudgetRecord {
   writeRecord(w, r);
   w.spend.fill(0);
   sc[S.month] = month + 1;
+  accrueResearch(w);
   sc[S.lowMonths] = r.treasury < 0 ? sc[S.lowMonths]! + 1 : 0;
   // Once per crossing: a long stay in debt does not repeat the warning until the treasury recovers and sinks again.
   if (sc[S.lowMonths] === BANKRUPT_MONTHS) sim.events.push({ type: 'bankruptcy', tick: sc[S.tick]!, months: sc[S.lowMonths]! });

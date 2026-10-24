@@ -3,12 +3,11 @@ import { LV_PARK_SHIFT, LV_SERVICE_SHIFT } from '../../sim/economy/tables.ts';
 import { zoneOfArch } from '../../sim/economy/totals.ts';
 import { footprintOf } from '../../sim/estimate.ts';
 import { BMAX, MAP, TILES, type World } from '../../sim/layers.ts';
-import { DEPOT_WORK_RADIUS } from '../../sim/robots/constants.ts';
 import { lotAccess, roadFlow } from '../../sim/roads/index.ts';
 import { COV_HALO, COVERED_MIN, falloff } from '../../sim/services/tables.ts';
 import { PRODUCER, PUMP_INLAND_ML, PUMP_NEAR_ML, SOLAR_PEAK_MW, fixedMwOf, powerUseOf, producerKind, waterUseOf } from '../../sim/utilities/tables.ts';
 import { nearWater } from '../../sim/utilities/solve.ts';
-import { depotDoors, reachLayer, roadView } from '../depotReach.ts';
+import { depotDoors, reachLayer, roadView, workRadiusOf } from '../depotReach.ts';
 import type { Plan, ToolWorld } from './controller.ts';
 
 // The chips beside the build ghost: what this placement would do, worked out on the main thread from the mirror (and the same
@@ -179,7 +178,7 @@ function depotChips(layers: Layers, x: number, y: number, w: number, h: number):
   reachLayer(layers, depotDoors(layers, ghost), reachScratch);
   const before = zonedIn(layers, baseScratch), after = zonedIn(layers, reachScratch);
   const add = after.in - before.in;
-  if (after.all === 0) out.push({ id: 'radius', text: `Work radius ${DEPOT_WORK_RADIUS} road tiles`, tone: 'good' });
+  if (after.all === 0) out.push({ id: 'radius', text: `Work radius ${workRadiusOf(layers)} road tiles`, tone: 'good' });
   else if (add > 0) out.push({ id: 'reach', text: `+${add} zoned tiles in reach`, tone: 'good' });
   else if (before.in > 0) out.push({ id: 'reach', text: 'Already in reach of another depot', tone: 'warn' });
   else out.push({ id: 'reach', text: 'No zoned land in reach', tone: 'bad' });
