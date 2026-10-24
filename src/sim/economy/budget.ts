@@ -1,4 +1,5 @@
 import { BFLAG, CATALOG, isRci } from '../catalog.ts';
+import { approvalIncome } from '../council/effects.ts';
 import { accrueResearch, edictUpkeep, mods } from '../firmware.ts';
 import { BMAX, BUDGET_FIELDS, BUDGET_MONTHS, MAX_LOANS, ROAD, S, TILES, ZONE, type World } from '../layers.ts';
 import { isMega, megaSums } from '../megaprojects.ts';
@@ -53,6 +54,9 @@ export function computeBudget(world: World, month: number): BudgetRecord {
   const m = mods(world);
   inc[0] = Math.floor(inc[0]! * m.incomeR);
   inc[1] = Math.floor(inc[1]! * m.incomeC);
+  // Low approval: citizens resist the tax, every zone pays a share less.
+  const resist = approvalIncome(world);
+  if (resist !== 1) for (let z = 0; z < 3; z++) inc[z] = Math.floor(inc[z]! * resist);
   services += edictUpkeep(world);
   // Megaprojects pay a flat monthly sum (tourism, cargo, residents' rates) booked with the commercial income.
   inc[1]! += megaSums(world).income;

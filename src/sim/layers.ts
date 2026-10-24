@@ -165,6 +165,9 @@ export const SPEC = {
   // Firmware state, indexed by F: research points, the bit mask of researched nodes, the bit mask of active edicts, RP earned ever.
   // A layer of its own (not scalars) so a save from before this existed still loads: a missing layer reads as zeros.
   firmware: L(Float64Array, 8, false, 'none'),
+  // Approval, council requests and festivals (sim/council), indexed by C. A layer of its own (not scalars) so a save from before this
+  // existed still loads: a missing layer reads as zeros, which is approval 50 with nothing open (the approval slot holds its offset from 50).
+  council: L(Float64Array, 64, false, 'none'),
   // Scenario state (sim/scenarios.ts, indexed by SC): which scenario or challenge runs, its modifier mask, goal, star thresholds and progress. All zeros in the
   // sandbox. A render layer only so the ghost estimate on the main thread can read the modifier mask; it never changes after the city is created.
   scenario: L(Float64Array, 24, true, 'none'),
@@ -266,6 +269,21 @@ export const SC = {
 
 /** Indices into the `firmware` layer. */
 export const F = { RP: 0, RESEARCH: 1, EDICTS: 2, EARNED: 3 } as const;
+
+/** Open council requests at most: each owns REQ_STRIDE doubles of the `council` layer from REQ0 on (field offsets: REQ in sim/council/tables.ts). */
+export const MAX_REQUESTS = 2;
+
+/**
+ * Indices into the `council` layer. APPROVAL is the offset of the approval meter from 50 (so a zeroed layer is a neutral city);
+ * MONTH is the last budget month the monthly pass ran for. FEST_* hold the running festival, FEST_CD one cooldown-until tick per festival kind.
+ */
+export const C = {
+  APPROVAL: 0, MONTH: 1, LOW_MONTHS: 2, WARNED: 3, NEXT_REQUEST: 4, SEQ: 5, DISASTER_MEM: 6, OUTCOME_MEM: 7,
+  COMPLETED: 8, FAILED: 9, DECLINED: 10, BUILT: 11,
+  FEST_KIND: 12, FEST_START: 13, FEST_END: 14, FEST_X: 15, FEST_Y: 16, FEST_BOOST_END: 17, FEST_BOOST: 18, HELD: 19,
+  FEST_CD: 20, LAST_KIND: 23,
+  REQ0: 24, REQ_STRIDE: 14,
+} as const;
 
 /** Indices into the `disaster` layer. MODE is 0 off, 1 rare, 2 normal; METEOR_AT is the impact tick of an incoming meteor (0 = none). */
 export const D = { MODE: 0, METEOR_AT: 1, METEOR_X: 2, METEOR_Y: 3 } as const;

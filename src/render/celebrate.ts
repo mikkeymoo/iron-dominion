@@ -16,6 +16,8 @@ export interface CelebrateDeps {
   startCinematic(target: MegaTarget): void;
   /** A quick, skippable swoop in to a footprint and back (the first finished building). Absent in tests and when a camera move is already playing. */
   swoop?(target: MegaTarget): void;
+  /** The festival show (render/festival.ts): started by a `festival` start event, stopped by its end. Absent in tests. */
+  festival?: { start(show: { festival: number; x: number; y: number; ticks: number }): void; stop(): void };
 }
 
 /** A cheap cheer over the middle of the view: a few confetti fountains, `scale` 1 for a directive, less for a reward. */
@@ -56,6 +58,17 @@ export function celebrate(events: readonly CelebrationEvent[], d: CelebrateDeps)
           const a = (i / 6) * Math.PI * 2, x = f.x + Math.cos(a) * spread, z = f.z + Math.sin(a) * spread;
           d.emit('confetti', x, d.ground(x, z) + f.dist * 0.12, z, 28, size, energy);
         }
+        break;
+      }
+      case 'festival': {
+        if (e.phase === 'end') { d.festival?.stop(); break; }
+        const cx = e.x + 0.5, cz = e.y + 0.5, g = d.ground(cx, cz);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2, x = cx + Math.cos(a) * 3, z = cz + Math.sin(a) * 3;
+          d.emit('confetti', x, d.ground(x, z) + 2.5, z, 30, 1.4, 2);
+        }
+        d.emit('spark', cx, g + 4, cz, 40, 2.2, 3);
+        d.festival?.start({ festival: e.festival, x: e.x, y: e.y, ticks: e.ticks });
         break;
       }
       case 'directiveReady': cheer(d, 'confetti', 4, 20); break;

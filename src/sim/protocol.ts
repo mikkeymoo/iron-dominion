@@ -150,7 +150,7 @@ export interface MilestoneStats {
 }
 /** What the advisor can ask the player to look at. 'budget' issues have no tile worth flying to. */
 export type IssueKind =
-  | 'fire' | 'budget' | 'depot' | 'power' | 'water' | 'stuck' | 'jobs' | 'commute' | 'crime' | 'noFire' | 'noLand' | 'abandoned' | 'resource' | 'needs';
+  | 'fire' | 'budget' | 'depot' | 'power' | 'water' | 'stuck' | 'jobs' | 'commute' | 'crime' | 'noFire' | 'noLand' | 'abandoned' | 'request' | 'approval' | 'resource' | 'needs';
 export type IssueCategory = 'safety' | 'economy' | 'utilities' | 'robots' | 'growth' | 'services';
 /** Overlay modes an issue can switch the view to (a subset of render/viewState OverlayMode). */
 export type IssueOverlay = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | 'traffic' | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks';
@@ -184,6 +184,52 @@ export interface FirmwareStats {
   edicts: number;
   edictsActive: number;
   modules: [number, number, number, number];
+}
+/** One open council request (sim/council): who asked, what for, how far along it is and what it pays or costs. Times are sim ticks. */
+export interface CouncilRequestStat {
+  slot: number;
+  id: number;
+  kind: number;
+  group: number;
+  state: 'pending' | 'accepted';
+  text: string;
+  x: number;
+  y: number;
+  have: number;
+  need: number;
+  progress: string;
+  done: boolean;
+  /** Ticks left to the deadline (a budget month is 4800). */
+  ticksLeft: number;
+  cash: number;
+  approval: number;
+  rp: number;
+  penalty: number;
+  overlay: IssueOverlay;
+}
+export interface FestivalStat {
+  id: number;
+  name: string;
+  cost: number;
+  approval: number;
+  /** Ticks until it can be held again; 0 when the cooldown is over. */
+  cooldown: number;
+  /** Why it cannot be held now ('approval', 'busy', 'cooldown', 'night', 'funds', 'no-city'), or absent when it can. */
+  blocked?: string;
+}
+export interface CouncilStats {
+  /** The meter, 0..100, and the band it is in. */
+  approval: number;
+  level: 'high' | 'good' | 'low' | 'veryLow';
+  /** Where this month's pass is pulling it, and the signed points each cause contributes to that target. */
+  target: number;
+  factors: { key: string; label: string; value: number }[];
+  requests: CouncilRequestStat[];
+  festivals: FestivalStat[];
+  /** The show running now: festival id, where, and the ticks it has left. */
+  running: { festival: number; x: number; y: number; ticksLeft: number } | null;
+  completed: number;
+  failed: number;
 }
 /** Scenario progress for the goal chip and the results screen; null in the sandbox. `state` is 0 playing, 1 won, 2 failed (time out). */
 export interface ScenarioStats {
@@ -249,6 +295,7 @@ export interface Stats {
   milestone: MilestoneStats;
   directives: DirectiveStats;
   firmware: FirmwareStats;
+  council: CouncilStats;
   scenario: ScenarioStats | null;
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */

@@ -8,6 +8,7 @@ import { attribute, cameraPosition, cos, cross, float, mix, normalize, positionG
 import { ARCH } from '../sim/catalog.ts';
 import { RMAX } from '../sim/layers.ts';
 import { AGENT_KIND, AGENT_STATE, makeSample, type AgentSample, type AgentStore } from './agentStore.ts';
+import type { ParadePose } from './festival.ts';
 import { surfaceHeight } from './heightfield.ts';
 import { cachedModel, composeMatrix } from './instances.ts';
 import { fxU } from './fx/uniforms.ts';
@@ -205,6 +206,9 @@ export class RobotsView {
   private sparkCarry = 0;
   private time = 0;
   private readonly mat = new Float32Array(16);
+  private readonly paradeBots: ParadePose[] = [];
+  /** Set by the festival show (render/festival.ts): fills the poses of the robots marching now and returns how many. */
+  parade: ((out: ParadePose[]) => number) | null = null;
 
   constructor(
     private readonly store: AgentStore, private readonly mirror: RenderMirror, private readonly emit: RobotEmit,
@@ -269,6 +273,22 @@ export class RobotsView {
         this.haulers.matrix.set(this.mat, nh * 16);
         this.haulers.iBot.set([phase, s.carry[i] ? 1 : 0, Math.max(0, s.carry[i]! - 1), yaw], nh * 4);
         nh++;
+      }
+    }
+    // Festival parade: marching robots from the show, drawn as waving builders and hovering haulers.
+    const marching = this.parade ? this.parade(this.paradeBots) : 0;
+    for (let i = 0; i < marching; i++) {
+      const p = this.paradeBots[i]!, gy = surfaceHeight(heights, p.x, p.z), phase = i * 0.9;
+      if (p.hauler) {
+        composeMatrix(this.mat, p.x, gy + HOVER, p.z, p.yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
+        this.haulers.matrix.set(this.mat, nh * 16);
+        this.haulers.iBot.set([phase, 0, 0, p.yaw], nh * 4);
+        nh++;
+      } else {
+        composeMatrix(this.mat, p.x, gy, p.z, p.yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
+        this.builders.matrix.set(this.mat, nb * 16);
+        this.builders.iBot.set([phase, 0, 2, p.yaw], nb * 4);
+        nb++;
       }
     }
     this.builders.count = nb; this.haulers.count = nh; this.fighters.count = nf;

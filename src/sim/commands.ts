@@ -5,6 +5,7 @@ import { grantRp, invalidateModuleCache, mods, researchNode, setModule, toggleEd
 import { debugScenario, finishScenario } from './scenarioRun.ts';
 import { clearJob } from './robots/pool.ts';
 import { isChainArch, used } from './robots/stock.ts';
+import { debugPost, holdFestival, respond } from './council/index.ts';
 import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
@@ -53,6 +54,12 @@ export type CommandBody =
   | { type: 'setDepotModule'; slot: number; index: number; module: number }
   /** Debug-only: add research points. */
   | { type: 'debugRp'; amount: number }
+  /** Accept or decline the council request in `slot` (0 or 1; sim/council). Declining costs a little approval. */
+  | { type: 'councilRespond'; slot: number; accept: boolean }
+  /** Pay for a festival (FESTIVAL id; needs approval above 70, the festival off cooldown, and night for Fireworks). */
+  | { type: 'holdFestival'; festival: number }
+  /** Debug-only: post a council request of `kind` (council KIND) at once, whatever the city looks like; `accept` also accepts it. */
+  | { type: 'debugCouncil'; kind: number; accept?: boolean }
   /** Scenario: end it now as won with the stars earned so far (at least one). */
   | { type: 'finishScenario' }
   /** Debug-only: treat the scenario goal's metric as `value` and evaluate at once. */
@@ -449,6 +456,12 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'undo': undo(sim, cmd); break;
       case 'claimDirective': claimDirective(sim, cmd); break;
       case 'research': case 'toggleEdict': case 'setDepotModule': case 'debugRp': firmwareCommand(sim, cmd); break;
+      case 'councilRespond': case 'holdFestival': case 'debugCouncil': {
+        const why = cmd.type === 'councilRespond' ? respond(sim, cmd.slot, cmd.accept)
+          : cmd.type === 'holdFestival' ? holdFestival(sim, cmd.festival) : debugPost(sim, cmd.kind, cmd.accept === true);
+        if (why) reject(why);
+        break;
+      }
       case 'finishScenario': { const why = finishScenario(sim); if (why) reject(why); break; }
       case 'debugScenario': { const why = debugScenario(sim, cmd.value); if (why) reject(why); break; }
       default: reject('unknown-command');

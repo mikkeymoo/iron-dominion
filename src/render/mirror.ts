@@ -5,8 +5,8 @@ import type { SimEvent } from '../sim/world.ts';
 
 const renderInfos = REGISTRY.filter((l) => l.render);
 
-export type CelebrationEvent = Extract<SimEvent, { type: 'milestone' | 'megaStage' | 'megaComplete' | 'victory' | 'directiveReady' | 'directiveClaimed' | 'firstBuilding' }>;
-const CELEBRATED = new Set<string>(['milestone', 'megaStage', 'megaComplete', 'victory', 'directiveReady', 'directiveClaimed', 'firstBuilding']);
+export type CelebrationEvent = Extract<SimEvent, { type: 'milestone' | 'megaStage' | 'megaComplete' | 'victory' | 'directiveReady' | 'directiveClaimed' | 'firstBuilding' | 'festival' }>;
+const CELEBRATED = new Set<string>(['milestone', 'megaStage', 'megaComplete', 'victory', 'directiveReady', 'directiveClaimed', 'firstBuilding', 'festival']);
 /** A disaster event from the sim, queued for the effects (meteor streak, shockwave, quake shake). */
 export type DisasterEvent = Extract<SimEvent, { type: 'disaster' }>;
 

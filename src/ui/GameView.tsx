@@ -11,6 +11,7 @@ import { bindLifecycleDom } from '../platform/lifecycle.ts';
 import type { Settings } from '../platform/settings.ts';
 import { AudioSync } from '../audio/ui.tsx';
 import { Budget } from './Budget';
+import { CouncilPanel } from './Council';
 import { Hud, type HudStats } from './Hud';
 import { DirectiveCard } from './DirectiveCard';
 import { EdictsPanel, ResearchPanel } from './FirmwarePanels';
@@ -229,6 +230,7 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
         <RadialMenu controller={radial as RadialController} />
         {panel === 'research' && <ResearchPanel stats={stats.firmware} client={client} onClose={() => setPanel(null)} />}
         {panel === 'edicts' && <EdictsPanel stats={stats.firmware} tier={stats.milestone?.tier ?? 0} client={client} onClose={() => setPanel(null)} />}
+        {panel === 'council' && stats.council && <CouncilPanel stats={stats.council} client={client} onShow={(x, y, overlay) => { setPanel(null); game.current?.glideTo(x, y); view.setOverlay(overlay); }} onClose={() => setPanel(null)} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}
         {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}
         {projectsOpen && <MilestonesPanel stats={stats.milestone} population={stats.population} runtime={tools} onClose={() => setPanel(null)} />}

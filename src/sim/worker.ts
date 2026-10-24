@@ -3,6 +3,7 @@ import { apply, collectOutgoing, drainCommands, createSim, packAgents, restore, 
 import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
+import { councilStats } from './council/index.ts';
 import { directiveStats } from './directives.ts';
 import { answerInfo } from './info.ts';
 import { invalidateIssues, issuesOf } from './issues.ts';
@@ -122,6 +123,7 @@ function flush(now: number, force = false): void {
       milestone: milestoneStats(sim.world),
       directives: directiveStats(sim.world),
       firmware: firmwareStats(sim.world),
+      council: councilStats(sim.world),
       scenario: scenarioStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }

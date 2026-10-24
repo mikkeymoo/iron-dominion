@@ -1,4 +1,5 @@
 import { ARCH, BFLAG, isRci } from './catalog.ts';
+import { approvalBuild } from './council/effects.ts';
 import { BMAX, DAY_TICKS, F, S, SC, type World } from './layers.ts';
 import type { FirmwareStats } from './protocol.ts';
 import { TAX_MAX } from './economy/tables.ts';
@@ -193,6 +194,8 @@ export const EDICT_NUMBERS = {
   landValuePts: 5, greenUpkeepPerBuilding: 2,
   demandRPts: 20, residentialIncomePct: -30,
   recyclePct: 50,
+  /** Approval points an edict adds to (or takes from) the monthly approval target (council/approval.ts). */
+  approvalNightShift: -3, approvalRoboTaxis: 5, approvalSmog: -5, approvalCurfew: -6, approvalGreenRoofs: 3, approvalTaxHoliday: 4,
 } as const;
 
 export interface EdictEffect {
@@ -222,6 +225,7 @@ export const EDICTS: readonly EdictDef[] = [
     effects: [
       { key: 'nightBuild', label: 'build speed at night', value: N.nightBuildPct, unit: '%', good: true },
       { key: 'depotPollution', label: 'pollution from each depot', value: N.depotPollution, unit: 'pts', good: false },
+      { key: 'approval', label: 'approval', value: N.approvalNightShift, unit: 'pts', good: false },
     ],
   },
   {
@@ -237,6 +241,7 @@ export const EDICTS: readonly EdictDef[] = [
     effects: [
       { key: 'taxiShare', label: 'robo-taxi share of cars', value: N.taxiSharePct, unit: '%', good: true },
       { key: 'commuteRescue', label: 'failed commutes rescued', value: N.commuteRescuePct, unit: '%', good: true },
+      { key: 'approval', label: 'approval', value: N.approvalRoboTaxis, unit: 'pts', good: true },
     ],
   },
   {
@@ -245,6 +250,7 @@ export const EDICTS: readonly EdictDef[] = [
       { key: 'industryOutput', label: 'industrial material output', value: N.industryOutputPct, unit: '%', good: true },
       { key: 'industryDemand', label: 'industrial demand', value: N.industryDemandPts, unit: 'pts', good: true },
       { key: 'industryPollution', label: 'industrial pollution', value: N.industryPollutionPct, unit: '%', good: false },
+      { key: 'approval', label: 'approval', value: N.approvalSmog, unit: 'pts', good: false },
     ],
   },
   {
@@ -252,6 +258,7 @@ export const EDICTS: readonly EdictDef[] = [
     effects: [
       { key: 'crime', label: 'crime', value: N.crimePct, unit: '%', good: true },
       { key: 'commercialIncome', label: 'commercial income', value: N.commercialIncomePct, unit: '%', good: false },
+      { key: 'approval', label: 'approval', value: N.approvalCurfew, unit: 'pts', good: false },
     ],
   },
   {
@@ -259,6 +266,7 @@ export const EDICTS: readonly EdictDef[] = [
     effects: [
       { key: 'landValue', label: 'land value', value: N.landValuePts, unit: 'pts', good: true },
       { key: 'greenUpkeep', label: 'upkeep per finished building a month', value: N.greenUpkeepPerBuilding, unit: '$', good: false },
+      { key: 'approval', label: 'approval', value: N.approvalGreenRoofs, unit: 'pts', good: true },
     ],
   },
   {
@@ -266,6 +274,7 @@ export const EDICTS: readonly EdictDef[] = [
     effects: [
       { key: 'demandR', label: 'residential demand', value: N.demandRPts, unit: 'pts', good: true },
       { key: 'residentialIncome', label: 'residential income', value: N.residentialIncomePct, unit: '%', good: false },
+      { key: 'approval', label: 'approval', value: N.approvalTaxHoliday, unit: 'pts', good: true },
     ],
   },
   {
@@ -318,6 +327,8 @@ export interface Mods {
   /** Credits per month: flat edict costs, and per finished RCI building (Green Roofs). */
   edictCost: number;
   greenUpkeep: number;
+  /** Points added to the monthly approval target (council/approval.ts). */
+  approval: number;
   /**
    * Scenario modifiers (sim/scenarios.ts MOD). Defaults are the sandbox: no restriction, whole requirements, no floor on the disasters setting.
    * `taxCap` is the highest tax percent a command may set; `megaReq` scales a megaproject's population, power and water requirements.
@@ -372,6 +383,8 @@ export function computeMods(research: number, edicts: number, scenario = 0): Mod
     recycle: on(EDICT.RECYCLING) ? pct(N.recyclePct) : 0,
     edictCost,
     greenUpkeep: on(EDICT.GREEN_ROOFS) ? N.greenUpkeepPerBuilding : 0,
+    approval: (on(EDICT.NIGHT_SHIFT) ? N.approvalNightShift : 0) + (on(EDICT.ROBO_TAXIS) ? N.approvalRoboTaxis : 0) + (on(EDICT.SMOG_PERMIT) ? N.approvalSmog : 0)
+      + (on(EDICT.CURFEW) ? N.approvalCurfew : 0) + (on(EDICT.GREEN_ROOFS) ? N.approvalGreenRoofs : 0) + (on(EDICT.TAX_HOLIDAY) ? N.approvalTaxHoliday : 0),
     noBridges: sc(MOD.NO_BRIDGES),
     noPowerPlant: sc(MOD.NO_POWER_PLANT),
     inlandPumps: sc(MOD.INLAND_PUMPS),
@@ -423,10 +436,10 @@ export function isNight(w: World): boolean {
   return f < 0.25 || f >= 20 / 24;
 }
 
-/** Multiplier on a builder's progress per tick for the job at building slot `j`: research, night shift and workshops. */
+/** Multiplier on a builder's progress per tick for the job at building slot `j`: research, night shift, workshops and the low-approval sabotage. */
 export function buildSpeed(w: World, j: number): number {
   const m = mods(w);
-  return m.buildRate * (isNight(w) ? m.nightBuild : 1) * (1 + workshopBonus(w, j));
+  return m.buildRate * (isNight(w) ? m.nightBuild : 1) * (1 + workshopBonus(w, j)) * approvalBuild(w);
 }
 
 /** Credits per month the edicts cost: their flat prices plus Green Roofs' upkeep on every finished RCI building. */

@@ -33,7 +33,16 @@ export type SimEvent =
    * building's archetype. A meteor reports twice: 'start' when it is seen coming (it lands at impactTick) and 'impact'. A quake
    * reports once, 'impact', with its radius.
    */
-  | { type: 'disaster'; tick: number; kind: 'fire' | 'quake' | 'meteor'; phase: 'start' | 'impact'; x: number; y: number; radius: number; arch: number; impactTick: number };
+  | { type: 'disaster'; tick: number; kind: 'fire' | 'quake' | 'meteor'; phase: 'start' | 'impact'; x: number; y: number; radius: number; arch: number; impactTick: number }
+  /**
+   * A council request (sim/council) was posted, answered, paid or lost. `kind` and `group` are KIND and GROUP; (x, y) is where the request is
+   * about. `approval` is the points gained (negative on 'failed'), `cash` and `rp` the reward.
+   */
+  | { type: 'council'; tick: number; phase: 'posted' | 'accepted' | 'declined' | 'expired' | 'completed' | 'failed'; id: number; kind: number; group: number; x: number; y: number; cash: number; approval: number; rp: number }
+  /** A festival began (with the show's length in ticks) or its show ended. (x, y) is the middle of the shops. */
+  | { type: 'festival'; tick: number; phase: 'start' | 'end'; festival: number; x: number; y: number; ticks: number }
+  /** Approval has stayed under 15 for 3 months running. A warning only: nothing ends the game. */
+  | { type: 'approvalWarning'; tick: number; approval: number; months: number };
 
 export interface DirtySets {
   geometry: Set<number>;

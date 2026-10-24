@@ -6,7 +6,7 @@ import {
 import { isOperating, zoneOfArch } from '../economy/totals.ts';
 import { mods } from '../firmware.ts';
 import { bytesOf, fnv1a } from '../hash.ts';
-import { BMAX, MAP, ROAD, S, TERRAIN, ZONE, isWaterTerrain, type World } from '../layers.ts';
+import { BMAX, C, MAP, ROAD, S, TERRAIN, ZONE, isWaterTerrain, type World } from '../layers.ts';
 import { isMega, megaBit, megaStageNeed, megaStages } from '../megaprojects.ts';
 import { roadsOf } from '../roads/index.ts';
 import type { RoadNet } from '../roads/graph.ts';
@@ -211,6 +211,7 @@ export function settleJobs(sim: Sim): void {
       w.bFlags[s] = w.bFlags[s]! & ~(BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING);
       w.bProg[s] = 255;
       clearJob(w, s);
+      w.council[C.BUILT]!++;
       sim.dirty.buildings.add(s);
       continue;
     }
