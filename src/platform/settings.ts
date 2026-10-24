@@ -8,6 +8,8 @@ export interface Settings {
   tier: TierOverride;
   graphics: { shadows: boolean; bloom: boolean; resolutionScale: number };
   audio: { muted: boolean; volume: number };
+  /** Per-bus levels under the master `audio.volume`; `musicOn` mutes music alone. */
+  soundMix: { music: number; ambience: number; sfx: number; musicOn: boolean };
   disasters: boolean;
 }
 
@@ -15,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tier: 'auto',
   graphics: { shadows: true, bloom: true, resolutionScale: 1 },
   audio: { muted: false, volume: 0.7 },
+  soundMix: { music: 0.6, ambience: 0.8, sfx: 0.9, musicOn: true },
   disasters: true,
 };
 
@@ -29,11 +32,12 @@ function sanitize(raw: Record<string, unknown>): Settings {
   const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {});
   const bool = (v: unknown, f: boolean): boolean => (typeof v === 'boolean' ? v : f);
   const num = (v: unknown, f: number, lo: number, hi: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : f);
-  const g = obj(raw.graphics), a = obj(raw.audio);
+  const g = obj(raw.graphics), a = obj(raw.audio), m = obj(raw.soundMix);
   return {
     tier: isTierOverride(raw.tier) ? raw.tier : d.tier,
     graphics: { shadows: bool(g.shadows, d.graphics.shadows), bloom: bool(g.bloom, d.graphics.bloom), resolutionScale: num(g.resolutionScale, d.graphics.resolutionScale, 0.25, 2) },
     audio: { muted: bool(a.muted, d.audio.muted), volume: num(a.volume, d.audio.volume, 0, 1) },
+    soundMix: { music: num(m.music, d.soundMix.music, 0, 1), ambience: num(m.ambience, d.soundMix.ambience, 0, 1), sfx: num(m.sfx, d.soundMix.sfx, 0, 1), musicOn: bool(m.musicOn, d.soundMix.musicOn) },
     disasters: bool(raw.disasters, d.disasters),
   };
 }

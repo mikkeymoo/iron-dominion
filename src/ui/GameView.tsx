@@ -7,6 +7,7 @@ import type { ViewState } from '../render/viewState.ts';
 import type { Lifecycle } from '../platform/lifecycle.ts';
 import { bindLifecycleDom } from '../platform/lifecycle.ts';
 import type { Settings } from '../platform/settings.ts';
+import { SpeakerToggle } from '../audio/ui.tsx';
 import { Budget } from './Budget';
 import { Hud, type HudStats } from './Hud';
 import { Tools } from './Tools';
@@ -98,6 +99,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
         <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
         {phase === 'running' && <Tools runtime={tools} view={view} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setBudgetOpen(false)} />}
+        <SpeakerToggle settings={settings} onSetting={onSetting} />
         <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
         {panel && perf && (
           <dl className="perf" data-testid="perf">

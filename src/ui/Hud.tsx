@@ -6,6 +6,7 @@ import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
 import { isEditableTarget } from '../render/editable.ts';
+import { SoundSettings } from '../audio/ui.tsx';
 
 export const SPEEDS: { speed: Speed; label: string; key: string }[] = [
   { speed: 0, label: 'Pause', key: '0' },
@@ -166,6 +167,7 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
                 </select>
               </label>
               <p className="hint">Takes effect the next time a city starts.</p>
+              <SoundSettings settings={settings} onSetting={onSetting} />
               <button type="button" className="tb row" onClick={() => setPanel('main')}>Back</button>
             </div>
           )}
