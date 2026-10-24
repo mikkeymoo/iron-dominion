@@ -1,5 +1,6 @@
 // Paints the terrain overlay texture (256x256 RGBA8, one pixel per tile) from the mirror's tile layers for one overlay mode.
 // Pure: no three, no DOM. The terrain shader blends the texture over the ground colour by its alpha.
+import { trafficRamp } from '../sim/traffic/ramp.ts';
 import { TILE_DARK } from '../sim/utilities/tables.ts';
 import { CHUNK, CHUNKS, MAP, isWaterTerrain } from '../sim/layers.ts';
 import type { OverlayMode } from './viewState.ts';
@@ -14,11 +15,12 @@ export interface OverlayLayers {
   waterOn: ArrayLike<number>;
   landValue: ArrayLike<number>;
   pollution: ArrayLike<number>;
+  traffic: ArrayLike<number>;
 }
 
 export const overlayLayersOf = (layers: Record<string, ArrayLike<number>>): OverlayLayers => ({
   terrain: layers.terrain!, waterDepth: layers.waterDepth!, bId: layers.bId!, ugPower: layers.ugPower!,
-  ugWater: layers.ugWater!, powerOn: layers.powerOn!, waterOn: layers.waterOn!, landValue: layers.landValue!, pollution: layers.pollution!,
+  ugWater: layers.ugWater!, powerOn: layers.powerOn!, waterOn: layers.waterOn!, landValue: layers.landValue!, pollution: layers.pollution!, traffic: layers.traffic!,
 });
 
 type Rgba = readonly [number, number, number, number];
@@ -76,6 +78,7 @@ function colour(mode: OverlayMode, L: OverlayLayers, i: number): Rgba {
       const t = p / 255;
       return [Math.round(176 + (110 - 176) * t), Math.round(120 + (22 - 120) * t), Math.round(210 + (70 - 210) * t), Math.min(215, Math.round(50 + p * 0.65))];
     }
+    case 'traffic': return dry(L, i) ? trafficRamp(L.traffic[i]!) : NONE;
     default: return NONE;
   }
 }

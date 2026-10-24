@@ -5,7 +5,7 @@
 //
 // Every vertex carries a material slot (see VSLOT, the shader tints BODY by the instance paint and lights HEAD, TAIL, ROOF and AMBER)
 // and baked ambient occlusion in the colour alpha, so no lighting pass is needed to make the lower bodies read as grounded.
-import { Geo, aoAt, hash32, hex, mixc, shade, type RGB, type Slot, type V3 } from './geo.ts';
+import { Geo, aoAt, hex, mixc, shade, type RGB, type Slot, type V3 } from './geo.ts';
 import { mergeParts, type MergedGeometry } from './generate.ts';
 
 /** Material slots of a vehicle vertex. BODY is tinted by the instance paint, CARGO is a fixed second colour (truck boxes). */
@@ -41,15 +41,30 @@ const CARGO_COLOURS: readonly RGB[] = [hex(0xf2efe6), hex(0xdfe3e8), hex(0xe8dcc
 const TAXI_PAINT = hex(0xf1f3f2), TAXI_STRIPE = hex(0x12b5a6);
 const BUS_PAINTS: readonly RGB[] = [hex(0xe8742a), hex(0x2f8f5a), hex(0x2f5fa8)];
 
-/** Instance paint for a vehicle key: a palette colour with a small per-vehicle brightness shift. Deterministic. */
-export function paintFor(cls: VehicleClass, key: number): RGB {
-  const h = hash32(key, 0x7a1d), j = ((h >>> 8) & 255) / 255;
+/** hash32(a, b) without the rest-argument array, for per-vehicle per-frame use. Same values. */
+function hash2(a: number, b: number): number {
+  let h = 0x811c9dc5;
+  h = Math.imul(h ^ (a | 0), 0x01000193); h ^= h >>> 15; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13;
+  h = Math.imul(h ^ (b | 0), 0x01000193); h ^= h >>> 15; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13;
+  return h >>> 0;
+}
+
+/** Write the instance paint (r, g, b) for a vehicle key at out[at..at+2]: a palette colour with a small per-vehicle brightness shift. Deterministic, allocation free. */
+export function paintInto(cls: VehicleClass, key: number, out: Float32Array, at: number): void {
+  const h = hash2(key, 0x7a1d), k = 0.92 + 0.14 * (((h >>> 8) & 255) / 255);
   const base = cls === 'taxi' ? TAXI_PAINT : cls === 'truck' ? TRUCK_PAINTS[h % TRUCK_PAINTS.length]! : cls === 'bus' ? BUS_PAINTS[h % BUS_PAINTS.length]! : PAINTS[h % PAINTS.length]!;
-  return shade(base, 0.92 + 0.14 * j);
+  out[at] = base[0] * k; out[at + 1] = base[1] * k; out[at + 2] = base[2] * k;
+}
+
+/** Instance paint for a vehicle key. */
+export function paintFor(cls: VehicleClass, key: number): RGB {
+  const o = new Float32Array(3);
+  paintInto(cls, key, o, 0);
+  return [o[0]!, o[1]!, o[2]!];
 }
 
 /** Style index of a vehicle key within its class. */
-export const styleFor = (cls: VehicleClass, key: number): number => hash32(key, 0x51e5) % STYLES[cls];
+export const styleFor = (cls: VehicleClass, key: number): number => hash2(key, 0x51e5) % STYLES[cls];
 
 /** Tag every vertex added by `fn` with a lamp id. */
 function lamp(g: Geo, id: number, fn: () => void): void {

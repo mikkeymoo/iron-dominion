@@ -189,6 +189,8 @@ function replan(net: RoadNet, w: World, a: number, vi: number, base: number, len
   const startP = segOk ? ((pre >= 0 ? 1 : 0) << POS_SHIFT) | (p & POS_MASK) : 0;
   for (let i = 0; i < n; i++) w.vPath[base + i] = route[i]!;
   w.vLen[vi] = n;
+  // The time budget follows the route: each tile gained or lost moves the deadline by TRIP_PER_TILE.
+  w.vDeadline[vi] = Math.max(w.scalars[S.tick]! + 1, w.vDeadline[vi]! + TRIP_PER_TILE * (n - len));
   w.aGoal[a] = goal; w.aPlan[a] = route[0]!;
   setP(w, a, startP);
   w.aEpoch[a] = w.scalars[S.graphEpoch]!;
@@ -219,8 +221,10 @@ export function updateVehicles(net: RoadNet, w: World, out: TickFlow): void {
       else {
         const t = vPath[base + s]!;
         const segOk = neighbor(net.road, t, dirOfStep(vPath[base + s + 1]! - t)) === vPath[base + s + 1]!;
-        if (segOk && replans <= 0) { aWait[a]!++; aState[a] = SLOW; active++; freeSum += freeQ[kind * 8 + 1]!; continue; }
-        if (segOk) replans--;
+        // A vehicle whose own tile is gone cannot be replanned and cannot wait on it: it fails now. Every other replan is budgeted.
+        if (!segOk && !net.isRoad(t)) { finish(w, a, false); continue; }
+        if (replans <= 0) { aWait[a]!++; aState[a] = SLOW; active++; freeSum += freeQ[kind * 8 + 1]!; continue; }
+        replans--;
         const r = replan(net, w, a, vi, base, vLen[vi]!, p, segOk);
         if (r === REPLAN.FAIL) { finish(w, a, false); continue; }
         if (r === REPLAN.FAIL_RELEASED) { recordTrip(w, purposeOf(w, a), false, w.aSrc[a]!, w.aTarget[a]!); clearVehicle(w, a); continue; }

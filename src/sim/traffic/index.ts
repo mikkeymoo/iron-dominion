@@ -9,6 +9,7 @@ import { decayCommuteFail, rebuildOccupancy, updateVehicles, type TickFlow } fro
 export * from './constants.ts';
 export { poseAlong, laneOffset, dirOfStep, type Pose } from './pose.ts';
 export { generateTrips } from './trips.ts';
+export { trafficRamp } from './ramp.ts';
 export { bumpCommuteFail, laneOf, purposeOf, rebuildOccupancy, recordTrip, routeBase, spawnVehicle, updateVehicles } from './vehicles.ts';
 
 const flow: TickFlow = { moved: 0, free: 0, active: 0 };
@@ -71,12 +72,4 @@ export function trafficStats(w: World): TrafficStats {
     vehicles: s[S.vehicles]!, congestion: s[S.congestion]!, failedPct: ok + bad > 0 ? Math.round((1000 * bad) / (ok + bad)) / 10 : 0,
     trips: s[S.tripsDone]!, failedTrips: s[S.tripsFailed]!,
   };
-}
-
-/** Colour of a traffic overlay cell for a load heat 0..255: transparent where empty, green through amber to red. Returns [r, g, b, a] bytes. */
-export function trafficRamp(heat: number): [number, number, number, number] {
-  if (heat <= 0) return [0, 0, 0, 0];
-  const t = Math.min(1, heat / 255);
-  const r = Math.round(255 * Math.min(1, t * 2)), g = Math.round(255 * Math.min(1, 2 - t * 2));
-  return [r, g, 40, Math.round(120 + 100 * t)];
 }

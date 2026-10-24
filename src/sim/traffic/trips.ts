@@ -98,13 +98,15 @@ function startTrip(net: RoadNet, w: World, purpose: number, src: number, dst: nu
   return r;
 }
 
-/** Trips of one purpose due this run: the day's total times this hour's share, carried in `acc` so no fraction is lost. */
+/**
+ * Trips of one purpose due this run: the day's total times this hour's share. Only the fractional part is carried in `acc`; whole
+ * trips beyond `room` (the spawn cap or the vehicle budget) are dropped, not queued.
+ */
 function due(w: World, acc: number, perDay: number, share: number, room: number): number {
-  let a = w.scalars[acc]! + (perDay * share * TRIP_PERIOD) / HOUR_TICKS;
-  const n = Math.min(Math.floor(a), room);
-  a -= n;
-  w.scalars[acc] = Math.min(a, SPAWN_MAX);
-  return n;
+  const a = w.scalars[acc]! + (perDay * share * TRIP_PERIOD) / HOUR_TICKS;
+  const whole = Math.floor(a);
+  w.scalars[acc] = a - whole;
+  return Math.min(whole, room);
 }
 
 /** Start this period's trips. Called every TRIP_PERIOD ticks by the traffic system, after occupancy was rebuilt. */

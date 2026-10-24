@@ -927,7 +927,8 @@ async function trafficChecks(open, phone) {
   if (night) {
     const lit = await until(page, () => window.__iron.render.traffic.visible > 0 && window.__iron.render.traffic.lit > 0, null, 20000);
     const t2 = await page.evaluate(() => ({ ...window.__iron.render.traffic, sample: undefined, dayFrac: window.__iron.render.fx.dayFrac }));
-    add('at night every drawn vehicle has its lights on (render.traffic.lit > 0)', lit && t2.lit === t2.visible ? null : JSON.stringify(t2));
+    // render.traffic.lit counts the lit flags found in the instance buffers the GPU draws from, one per drawn vehicle.
+    add('at night every drawn vehicle instance carries the lit flag (lit == visible > 0, counted from the instance buffers)', lit && t2.lit === t2.visible ? null : JSON.stringify(t2));
     // Brake lights: with enough traffic some vehicle slows or queues at least once.
     const braked = await until(page, () => window.__iron.render.traffic.braking > 0, null, 60000);
     add('a slowed vehicle lights its brake lights (render.traffic.braking > 0)', braked ? null : 'no vehicle ever braked in 60 s');
@@ -938,6 +939,11 @@ async function trafficChecks(open, phone) {
   // The overlay data layer fills along used roads and only there.
   const heat = await until(page, () => { const t = window.__iron.tools; for (let i = 0; i < 65536; i++) if (t.peek('traffic', i & 255, i >> 8) > 0) return true; return false; }, null, 60000);
   add('the traffic overlay layer carries load in the mirror', heat ? null : 'traffic layer stayed zero');
+  const none = await page.evaluate(() => window.__iron.render.overlay.checksum);
+  const picked = await page.evaluate(() => window.__iron.render.setOverlay('traffic'));
+  const shown = await until(page, (c) => window.__iron.render.overlay.mode === 'traffic' && window.__iron.render.overlay.checksum !== c, none, 20000);
+  add('the Views control can show the traffic overlay (texture painted, checksum changes)', picked && shown ? null : `setOverlay ${picked}, ${JSON.stringify(await page.evaluate(() => ({ ...window.__iron.render.overlay })))}`);
+  add('the Views control has a Traffic button', (await page.getByTestId('overlay-traffic').count()) === 1 ? null : 'no overlay-traffic button');
   const off = await page.evaluate(() => { const t = window.__iron.tools; let n = 0; for (let i = 0; i < 65536; i++) if (t.peek('traffic', i & 255, i >> 8) > 0 && (t.peek('road', i & 255, i >> 8) & 7) === 0) n++; return n; });
   add('no overlay load sits on a tile without a road', off === 0 ? null : `${off} tiles`);
   if (!phone) {
@@ -947,6 +953,30 @@ async function trafficChecks(open, phone) {
     if (process.env.SMOKE_SHOTS) await import('node:fs/promises').then((fs) => fs.writeFile(`${process.env.SMOKE_SHOTS}-traffic.png`, png));
   }
   console.log(`         ${label}traffic: sim ${JSON.stringify(st)}, render ${JSON.stringify(r)}, draw calls ${r.drawCalls}/${r.budget}`);
+  await page.close();
+  return out;
+}
+
+// Quick-mode traffic check (about 10 s): a street with three high-density homes on one side and three shops on the other; at max
+// speed vehicles must appear in the sim and be drawn.
+async function trafficQuickChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`traffic: ${name}`, problem]);
+  const page = await open(TRAFFIC_QUERY(0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  const site = up ? await (async () => { await until(page, () => window.__iron.tools.findSite(26) !== null, null, 20000); return page.evaluate(() => window.__iron.tools.findSite(26)); })() : null;
+  if (!site) { add('quick: city boots with a build site', 'renderer, tools or site missing'); await page.close(); return out; }
+  await page.evaluate(async (s) => {
+    const t = window.__iron.tools, eco = window.__iron.economy;
+    t.select('road', { cls: 1 });
+    t.dragTiles({ x: s.x + 2, y: s.y + 4 }, { x: s.x + 22, y: s.y + 4 });
+    t.cancel();
+    await new Promise((r) => setTimeout(r, 400));
+    for (const x of [4, 8, 12]) { eco.command({ type: 'debugGrow', x: s.x + x, y: s.y + 5, archetype: 24, progress: 1 }); eco.command({ type: 'debugGrow', x: s.x + x, y: s.y + 1, archetype: 33, progress: 1 }); }
+  }, site);
+  await page.getByRole('button', { name: 'Max' }).click();
+  const ok = await until(page, () => (window.__iron.sim.traffic?.vehicles ?? 0) > 0 && window.__iron.render.traffic.visible > 0, null, 15000);
+  add('quick: vehicles are active in the sim and drawn on a small debugGrow city', ok ? null : JSON.stringify(await page.evaluate(() => ({ sim: window.__iron.sim.traffic, render: { ...window.__iron.render.traffic, sample: undefined } }))));
   await page.close();
   return out;
 }
@@ -1019,6 +1049,7 @@ try {
     if (vp.name === 'desktop' && full) buildChecks.push(...await utilitiesChecks(open));
     if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     if (onlyBlock === 'traffic' || full) buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
+    if (quick && vp.name === 'desktop') buildChecks.push(...await trafficQuickChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

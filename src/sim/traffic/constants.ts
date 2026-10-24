@@ -111,5 +111,5 @@ export const TRAFFIC_POLL_MAX = 4;
 // ---- Overlay ----
 /** The `traffic` layer is refreshed every OVERLAY_PERIOD ticks and moves half the way to its target (at least one step). The worker sends overlay patches about once a second anyway. */
 export const OVERLAY_PERIOD = 20;
-/** Mode id of the traffic heat map in the terrain overlay slot (render/terrainMaterial.ts overlayMode). */
-export const OVERLAY_MODE_TRAFFIC = 1;
+/** Name of the traffic heat map in the Views control (render/viewState.ts OverlayMode); it paints the `traffic` layer. */
+export const OVERLAY_MODE_TRAFFIC = 'traffic' as const;

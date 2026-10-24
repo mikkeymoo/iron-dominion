@@ -28,7 +28,7 @@ export interface RenderDebug {
   readonly lines: { pylons: number; spans: number; pipeSegments: number; drawCalls: number };
   /** Outage icons uploaded this frame. */
   readonly outageIcons: number;
-  /** Set the overlay mode (none, power, water, landValue, pollution) the way the HUD buttons do; false for an unknown mode. */
+  /** Set the overlay mode (none, power, water, landValue, pollution, traffic) the way the HUD buttons do; false for an unknown mode. */
   setOverlay(mode: string): boolean;
   setUnderground(on: boolean): void;
   /** Set by ?showcase=1 once the district is planned: the camera pose that frames it. */

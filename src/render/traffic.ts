@@ -12,28 +12,32 @@ import { AGENT_KIND, AGENT_STATE, makeSample, type AgentSample, type AgentStore 
 import { surfaceHeight } from './heightfield.ts';
 import { composeMatrix } from './instances.ts';
 import { fxU } from './fx/uniforms.ts';
-import { ALL_VEHICLES, VSLOT, generateVehicle, paintFor, styleFor, type VehicleClass, type VehicleModel } from './kit/vehicles.ts';
+import { ALL_VEHICLES, VSLOT, generateVehicle, paintInto, styleFor, type VehicleClass, type VehicleModel } from './kit/vehicles.ts';
 import type { RenderMirror } from './mirror.ts';
 
 /** One drawn vehicle in tile units: position (x, z = sim y), heading, kind (AGENT_KIND) and state (AGENT_STATE). */
 export interface VehicleSample { x: number; z: number; yaw: number; kind: number; state: number }
 
-export interface TrafficStats {
+export interface TrafficRenderStats {
   /** Vehicles drawn this frame (after the tier cap and view culling). */
   visible: number;
   /** Vehicles the sim reported in the latest agent message (inside the view rect). */
   active: number;
-  /** Drawn vehicles with their lights on (night or a gloomy sky). */
+  /** Drawn instances whose lit flag is set in the instance buffers (night or a gloomy sky). */
   lit: number;
   /** Drawn vehicles with their brake lights on. */
   braking: number;
 }
 
+/** How dark it is for a driver: the night level, or a gloomy sky's share of it. */
+export const lightLevel = (night: number, overcast: number): number => Math.max(night, overcast * 0.45);
+/** Opacity of the glow quads, 0..1; zero (and every instance unlit) at or below LIGHTS_ON_LEVEL. */
+export const LIGHTS_ON_LEVEL = 0.2;
+export const glowOpacity = (level: number): number => Math.min(1, Math.max(0, (level - LIGHTS_ON_LEVEL) * 2));
+
 /** Asphalt top above the draped terrain, and the bridge deck lift (kit/roads.ts ASPH and BRIDGE_LIFT). */
 const ASPH = 0.042;
 const BRIDGE_LIFT = 0.15;
-/** Headlights switch on below this night level, or when the sky is overcast enough. */
-const LIGHTS_ON_NIGHT = 0.22;
 
 function geometryOf(m: VehicleModel): BufferGeometry {
   const g = new BufferGeometry();
@@ -65,7 +69,9 @@ function vehicleMaterial(): MeshStandardNodeMaterial {
   const ao: any = vertexColor().a;
   const base: any = vertexColor().rgb;
   const night: any = fxU.night;
-  const lights: any = max(night, fxU.overcast.mul(0.45));
+  // iPaint.w packs two flags: brake lights (+1) and headlights on (+2); the CPU sets the second from the same lightLevel that drives the glow.
+  const litFlag: any = step(1.5, iPaint.w);
+  const lights: any = max(night, fxU.overcast.mul(0.45)).mul(litFlag);
 
   const isBody = slotIs(slot, VSLOT.BODY), isGlass = slotIs(slot, VSLOT.GLASS), isMetal = slotIs(slot, VSLOT.METAL), isLight = slotIs(slot, VSLOT.LIGHT);
   const head = slotIs(lampId, 1).mul(isLight), tail = slotIs(lampId, 2).mul(isLight), roof = slotIs(lampId, 3).mul(isLight), amber = slotIs(lampId, 4).mul(isLight);
@@ -80,7 +86,7 @@ function vehicleMaterial(): MeshStandardNodeMaterial {
   m.aoNode = ao;
   m.roughnessNode = mix(mix(float(0.52), float(0.1), isGlass), float(0.35), isMetal);
   m.metalnessNode = mix(mix(float(0.3), float(0.45), isGlass), float(0.75), isMetal);
-  const brake: any = iPaint.w;
+  const brake: any = iPaint.w.sub(litFlag.mul(2));
   m.emissiveNode = base.mul(head).mul(lights.mul(5.5).add(0.08))
     .add(base.mul(tail).mul(lights.mul(1.1).add(0.14).add(brake.mul(3.0))))
     .add(base.mul(roof).mul(night.mul(3.2).add(1.5)))
@@ -93,7 +99,12 @@ class VFleet {
   readonly iPaint: Float32Array;
   readonly matrix: Float32Array;
   count = 0;
-  constructor(readonly geometry: BufferGeometry, material: Material, capacity: number, name: string) {
+  /** The glow quads' size relative to the 0.135 x 0.28 reference body, from this fleet's own model. */
+  readonly widthScale: number;
+  readonly lengthScale: number;
+  constructor(readonly geometry: BufferGeometry, material: Material, capacity: number, name: string, readonly cls: VehicleClass, model: VehicleModel) {
+    this.widthScale = model.width / 0.135;
+    this.lengthScale = model.length / 0.28;
     this.iPaint = new Float32Array(capacity * 4);
     const attr = new InstancedBufferAttribute(this.iPaint, 4);
     attr.setUsage(DynamicDrawUsage);
@@ -201,26 +212,29 @@ const CLASS_OF_KIND: Record<number, VehicleClass> = { [AGENT_KIND.CAR]: 'car', [
 
 export class TrafficView {
   readonly group = new Group();
-  private readonly fleets = new Map<string, VFleet>();
+  private readonly fleets: VFleet[] = [];
+  /** fleetsOf[kind][style]: the fleet that draws that kind with that body style; undefined for kinds that are not vehicles. */
+  private readonly fleetsOf: VFleet[][] = [];
   private readonly glow: Glow;
   private readonly material = vehicleMaterial();
   private readonly sample: AgentSample = makeSample(VMAX);
-  private stats: TrafficStats = { visible: 0, active: 0, lit: 0, braking: 0 };
+  private stats: TrafficRenderStats = { visible: 0, active: 0, lit: 0, braking: 0 };
   private readonly mat = new Float32Array(16);
   private cap = VMAX;
 
   constructor(private readonly store: AgentStore, private readonly mirror: RenderMirror) {
     this.group.name = 'traffic';
     for (const { cls, style } of ALL_VEHICLES) {
-      const f = new VFleet(geometryOf(generateVehicle(cls, style)), this.material, VMAX, `vehicles-${cls}-${style}`);
-      this.fleets.set(`${cls}:${style}`, f);
+      const f = new VFleet(geometryOf(generateVehicle(cls, style)), this.material, VMAX, `vehicles-${cls}-${style}`, cls, generateVehicle(cls, style));
+      this.fleets.push(f);
+      for (const kind of Object.keys(CLASS_OF_KIND)) if (CLASS_OF_KIND[Number(kind)] === cls) (this.fleetsOf[Number(kind)] ??= [])[style] = f;
       this.group.add(f.mesh);
     }
     this.glow = new Glow(VMAX);
     this.group.add(this.glow.mesh);
   }
 
-  get snapshot(): Readonly<TrafficStats> { return this.stats; }
+  get snapshot(): Readonly<TrafficRenderStats> { return this.stats; }
 
   /** Positions, headings and kinds of up to `n` vehicles drawn in the last frame, for debugging and the smoke test. */
   samplePositions(n: number): VehicleSample[] {
@@ -236,15 +250,17 @@ export class TrafficView {
     this.cap = Math.max(0, Math.min(VMAX, cap));
     const s = this.store.sample(nowMs, this.sample, this.cap, focusX, focusZ, 'vehicles');
     const night = fxU.night.value as number, overcast = fxU.overcast.value as number;
-    const lit = Math.max(night, overcast * 0.45) > LIGHTS_ON_NIGHT;
+    const opacity = glowOpacity(lightLevel(night, overcast));
+    const lit = opacity > 0;
+    const litBit = lit ? 2 : 0;
     const heights = this.mirror.layers.height!, water = this.mirror.layers.waterDepth!, road = this.mirror.layers.road!;
-    for (const f of this.fleets.values()) f.count = 0;
+    for (const f of this.fleets) f.count = 0;
     let braking = 0, glowN = 0, drawn = 0;
     for (let i = 0; i < s.count; i++) {
-      const cls = CLASS_OF_KIND[s.kind[i]!];
-      if (!cls) continue;
+      const styles = this.fleetsOf[s.kind[i]!];
+      if (!styles) continue;
       const key = s.key[i]!;
-      const fleet = this.fleets.get(`${cls}:${styleFor(cls, key)}`)!;
+      const fleet = styles[styleFor(styles[0]!.cls, key)]!;
       const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
       const tx = Math.min(MAP - 1, Math.max(0, Math.floor(x))), tz = Math.min(MAP - 1, Math.max(0, Math.floor(z)));
       const ti = tz * MAP + tx;
@@ -254,27 +270,31 @@ export class TrafficView {
       const n = fleet.count++;
       composeMatrix(this.mat, x, y, z, yaw, grow, grow, grow);
       fleet.matrix.set(this.mat, n * 16);
-      const p = paintFor(cls, key);
+      paintInto(fleet.cls, key, fleet.iPaint, n * 4);
       const brake = s.state[i] === AGENT_STATE.SLOW ? 1 : 0;
-      fleet.iPaint[n * 4] = p[0]; fleet.iPaint[n * 4 + 1] = p[1]; fleet.iPaint[n * 4 + 2] = p[2]; fleet.iPaint[n * 4 + 3] = brake;
+      fleet.iPaint[n * 4 + 3] = brake + litBit;
       braking += brake;
       drawn++;
       if (lit) {
-        const model = generateVehicle(cls, 0);
         const k = glowN++;
         this.glow.pose[k * 4] = x; this.glow.pose[k * 4 + 1] = y; this.glow.pose[k * 4 + 2] = z; this.glow.pose[k * 4 + 3] = yaw;
-        this.glow.fx[k * 4] = brake; this.glow.fx[k * 4 + 1] = (model.width / 0.135) * grow; this.glow.fx[k * 4 + 2] = (model.length / 0.28) * grow;
-        this.glow.fx[k * 4 + 3] = Math.min(1, (night - LIGHTS_ON_NIGHT * 0.6) * 1.6 + overcast * 0.3);
+        this.glow.fx[k * 4] = brake; this.glow.fx[k * 4 + 1] = fleet.widthScale * grow; this.glow.fx[k * 4 + 2] = fleet.lengthScale * grow;
+        this.glow.fx[k * 4 + 3] = opacity;
       }
     }
-    for (const f of this.fleets.values()) f.flush();
+    // The lit count is read back from the instance buffers the GPU will draw from, not from the flag that was meant to set them.
+    let litInstances = 0;
+    for (const f of this.fleets) {
+      for (let n = 0; n < f.count; n++) if (f.iPaint[n * 4 + 3]! >= 2) litInstances++;
+      f.flush();
+    }
     this.glow.count = glowN;
     this.glow.flush();
-    this.stats = { visible: drawn, active: this.store.vehicleCount(), lit: lit ? drawn : 0, braking };
+    this.stats = { visible: drawn, active: this.store.vehicleCount(), lit: litInstances, braking };
   }
 
   dispose(): void {
-    for (const f of this.fleets.values()) f.dispose();
+    for (const f of this.fleets) f.dispose();
     this.glow.dispose();
     this.material.dispose();
   }

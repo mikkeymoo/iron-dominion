@@ -20,6 +20,7 @@ function city() {
   w.ugPower[at(31, 30)] = 1;
   w.waterOn[at(30, 30)] = 1; w.waterOn[at(40, 40)] = 1; w.waterOn[at(41, 40)] = 2;
   w.ugWater[at(42, 40)] = 1; w.waterOn[at(42, 40)] = 1;
+  w.traffic[at(70, 70)] = 255; w.traffic[at(71, 70)] = 40; w.traffic[at(11, 12)] = 200;
   w.pollution[at(50, 50)] = 200; w.pollution[at(51, 50)] = 20; w.pollution[at(11, 11)] = 255;
   return w;
 }
@@ -66,6 +67,15 @@ describe('overlay painter', () => {
     expect(px(pol, 11, 11)[3], 'pollution over water is not painted').toBe(0);
   });
 
+  it('traffic: busy tiles run green to red, empty tiles and water are clear', () => {
+    const out = paint('traffic');
+    const busy = px(out, 70, 70), light = px(out, 71, 70);
+    expect(busy[0]).toBeGreaterThan(busy[1]!);
+    expect(light[1]).toBeGreaterThan(light[0]!);
+    expect(px(out, 72, 70)[3]).toBe(0);
+    expect(px(out, 11, 12)[3], 'water is not painted').toBe(0);
+  });
+
   it('gives every mode a different checksum, and the same mode the same one', () => {
     const sums = OVERLAY_MODES.map((m) => overlayChecksum(paint(m)));
     expect(new Set(sums).size).toBe(OVERLAY_MODES.length);
@@ -108,6 +118,7 @@ describe('view state', () => {
     v.setOverlay('pollution');
     expect(seen).toEqual([1, 2, 3]);
     expect(isOverlayMode('landValue')).toBe(true);
-    expect(isOverlayMode('traffic')).toBe(false);
+    expect(isOverlayMode('traffic')).toBe(true);
+    expect(isOverlayMode('crime')).toBe(false);
   });
 });

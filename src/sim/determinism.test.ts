@@ -13,7 +13,7 @@ interface Golden {
   scripted: { ticks: number; hash: number };
   /** Seed 42, no commands, 200 ticks: what `?seed=42&haltAt=200` must report in the browser worker. */
   idle: { ticks: number; hash: number };
-  /** A completed 6x6 block street grid on flat land (traffic/testkit.ts gridCity) with traffic running: the scripted city builds no completed buildings in 2000 ticks, so this is the golden that covers vehicles. */
+  /** A completed 4x4 block street grid on flat land (traffic/testkit.ts gridCity) with traffic running: the scripted city builds no completed buildings in 2000 ticks, so this is the golden that covers vehicles. */
   traffic: { ticks: number; hash: number };
 }
 
@@ -22,11 +22,17 @@ function compute(): Golden {
   runScripted(sim, scriptedCity(sim.world), 2000);
   const idle = createSim(42);
   runTicks(idle, 200);
-  const town = gridCity({ cols: 6, rows: 6 });
-  runTicks(town, 600);
+  const town = trafficTown();
   return {
-    seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) }, traffic: { ticks: 600, hash: stateHash(town) },
+    seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) }, traffic: { ticks: 300, hash: stateHash(town) },
   };
+}
+
+/** A 4x4 block grid in the morning rush, 300 ticks in: small enough to be quick, busy enough to have vehicles on the road and trips done. */
+function trafficTown(): ReturnType<typeof gridCity> {
+  const town = gridCity({ cols: 4, rows: 4 });
+  runTicks(town, 300);
+  return town;
 }
 
 describe('determinism', () => {
@@ -34,6 +40,11 @@ describe('determinism', () => {
     const got = compute();
     expect(got, `golden.json should become: ${JSON.stringify(got)}`).toEqual(golden);
   }, 30000);
+
+  it('the traffic golden city really carries traffic', () => {
+    const town = trafficTown();
+    expect(town.world.scalars[S.vehicles]! + town.world.scalars[S.tripsDone]!).toBeGreaterThan(5);
+  });
 
   it('executes the scripted city: every command accepted except the deliberate bad one', () => {
     const sim = createSim(42);
