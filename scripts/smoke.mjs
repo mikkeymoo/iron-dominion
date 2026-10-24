@@ -1821,7 +1821,8 @@ async function disasterChecks(page, site) {
   add('a sandbox earthquake reaches the renderer (camera shake effect) even with disasters set to Off', shook ? null : JSON.stringify(await page.evaluate(() => window.__iron.render.fx.disasters)));
   const quakeToast = await until(page, () => window.__iron.tools.toasts.includes('Earthquake!'), null, 10000);
   add('an "Earthquake!" toast appears', quakeToast ? null : JSON.stringify(await page.evaluate(() => window.__iron.tools.toasts)));
-  const jumpBtn = page.locator('[data-testid="toast-jump"]').first();
+  // The quake's own toast: a random fire elsewhere can post its own "Jump to" toast first.
+  const jumpBtn = page.locator('[data-testid="toast"]', { hasText: 'Earthquake!' }).locator('[data-testid="toast-jump"]').first();
   const toastWithJump = await jumpBtn.waitFor({ timeout: 5000 }).then(() => true, () => false);
   add('the toast has a "Jump to" button', toastWithJump ? null : 'no toast-jump button');
   if (toastWithJump) {
