@@ -129,8 +129,15 @@ export class Lighting {
     l.position.set(tx + k.x * LIGHT_DISTANCE, ty + k.y * LIGHT_DISTANCE, tz + k.z * LIGHT_DISTANCE);
     l.target.updateMatrixWorld();
 
-    this.hemi.color.setRGB(look.hemiSky[0], look.hemiSky[1], look.hemiSky[2]);
-    this.hemi.groundColor.setRGB(look.hemiGround[0], look.hemiGround[1], look.hemiGround[2]);
+    // Sky probe: the upper hemisphere borrows the horizon glow near sunrise and sunset, and by day the lower one takes a green bounce
+    // off the grass, so shaded walls and tree undersides are not a neutral grey.
+    const day = 1 - look.night;
+    const warm = Math.min(1, Math.max(0, (look.glow[0] - 0.7) * 0.5)) * day * 0.22;
+    const bounce = 0.32 * day;
+    this.hemi.color.setRGB(look.hemiSky[0] + look.glow[0] * warm, look.hemiSky[1] + look.glow[1] * warm * 0.7, look.hemiSky[2] + look.glow[2] * warm * 0.4);
+    this.hemi.groundColor.setRGB(
+      look.hemiGround[0] + (0.2 - look.hemiGround[0]) * bounce, look.hemiGround[1] + (0.3 - look.hemiGround[1]) * bounce, look.hemiGround[2] + (0.11 - look.hemiGround[2]) * bounce,
+    );
     this.hemi.intensity = look.hemiIntensity;
   }
 

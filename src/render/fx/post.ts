@@ -5,16 +5,19 @@
 //   bloom()               addons BloomNode
 //   fxaa()                addons FXAANode (high)
 //   chromaticAberration() addons (ultra, subtle)
-// Hand-rolled: tilt-shift (spiral blur whose radius is weighted by screen y), sun shafts (screen-space radial march over the
+//   ssr()                 addons SSRNode (WebGPU, high and ultra): wet roads, puddles and glass, from normal + reflect-mask MRT outputs
+// Hand-rolled: contact shadows (a short screen-space march toward the sun, folded into the ao stage), tilt-shift (spiral blur whose radius is weighted by screen y), sun shafts (screen-space radial march over the
 // depth buffer, masked to sky; GodraysNode does not compose with CSM), the colour grade (analytic: saturation, contrast,
 // split toning, vignette; Lut3DNode needs a LUT asset), and the lens dirt that modulates ultra's bloom.
 // The chain runs in linear HDR until renderOutput() applies the tone map and colour space, then works in display space.
 import { RenderPipeline, type PerspectiveCamera, type Scene, type WebGPURenderer } from 'three/webgpu';
 import type { Node } from 'three/webgpu';
 import {
-  Fn, Loop, abs, convertToTexture, cos, dot, float, fract, interleavedGradientNoise, mix, mrt, output, pass, renderOutput, screenCoordinate,
+  Fn, Loop, abs, cameraProjectionMatrix, cameraProjectionMatrixInverse, cameraViewMatrix, convertToTexture, cos, dot, float, fract, getScreenPosition,
+  getViewPosition, interleavedGradientNoise, max, mix, mrt, normalView, normalize, output, pass, perspectiveDepthToViewZ, renderOutput, screenCoordinate,
   sin, smoothstep, sqrt, step, uniform, uv, vec2, vec3, vec4, velocity, floor,
 } from 'three/tsl';
+import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
@@ -23,7 +26,8 @@ import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { chromaticAberration } from 'three/addons/tsl/display/ChromaticAberrationNode.js';
 import { Color, Vector2 } from 'three/webgpu';
 import { NO_POST_LOOK, type PostLook } from '../photoSettings.ts';
-import type { TierSpec } from '../tier.ts';
+import type { Backend, TierSpec } from '../tier.ts';
+import { reflectMask, reflectRough } from './gfxNodes.ts';
 import { fxU } from './uniforms.ts';
 
 // TSL node graphs are built dynamically; the published typings reject most mixed-type chains, so graph code is loosely typed.
@@ -40,6 +44,8 @@ export interface PostParams {
   aspect: number;
   night: number;
   overcast: number;
+  /** Contact-shadow strength 0..1 (the sun's visibility); ignored on tiers without them. */
+  contact?: number;
   /** Photo-mode overrides; absent = the game's own look. */
   look?: PostLook | null;
 }
@@ -91,6 +97,37 @@ function shaftsNode(depth: N, samples: number, u: { sunUv: N; amount: N; color: 
   })();
 }
 
+/**
+ * Screen-space contact shadows: from each pixel, march a short ray toward the sun through the depth buffer; a sample that falls
+ * behind nearer geometry (inside a thickness window) shadows the pixel. It finishes what the cascades cannot resolve at the base of
+ * buildings, fences and kerbs. Returns 0 (lit) .. 1 (occluded).
+ */
+function contactShadowNode(depth: N, camera: PerspectiveCamera, steps: number, u: { sunView: N; reach: N }): N {
+  return Fn(() => {
+    const p = uv();
+    const d0: N = (depth as any).sample(p).r;
+    const occ = float(0).toVar();
+    // Sky (and the cleared far plane) has nothing to shadow.
+    const solid = step(d0, 0.99995);
+    const viewPos: N = getViewPosition(p, d0, cameraProjectionMatrixInverse);
+    const jitter = interleavedGradientNoise(screenCoordinate);
+    Loop(steps, ({ i }: { i: N }) => {
+      const t = float(i).add(jitter).add(0.35).div(steps);
+      const dist = t.mul(u.reach);
+      const sp: N = viewPos.add(u.sunView.mul(dist));
+      const suv: N = getScreenPosition(sp, cameraProjectionMatrix);
+      const inside = step(0, suv.x).mul(step(suv.x, 1)).mul(step(0, suv.y)).mul(step(suv.y, 1));
+      const sd: N = (depth as any).sample(suv).r;
+      const sz: N = perspectiveDepthToViewZ(sd, float(camera.near), float(camera.far));
+      // Positive when the surface at the sample's pixel is nearer the camera than the sample point itself.
+      const gap = sz.sub(sp.z);
+      const hit = step(0.04, gap).mul(step(gap, u.reach.mul(0.45))).mul(inside).mul(float(1).sub(t.mul(0.7)));
+      occ.assign(max(occ, hit));
+    });
+    return occ.mul(solid);
+  })();
+}
+
 function gradeNode(ldr: N, u: { aspect: N; night: N; overcast: N; sat: N; vignette: N; grain: N; seed: N }): N {
   const c = ldr.rgb;
   const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -108,12 +145,13 @@ function gradeNode(ldr: N, u: { aspect: N; night: N; overcast: N; sat: N; vignet
   return vec4(g.clamp(0, 1), 1);
 }
 
-export function createPost(renderer: WebGPURenderer, scene: Scene, camera: PerspectiveCamera, spec: TierSpec): Post {
+export function createPost(renderer: WebGPURenderer, scene: Scene, camera: PerspectiveCamera, spec: TierSpec, backend: Backend = 'webgpu'): Post {
   const p = spec.post, fx = spec.fx;
   const passes: string[] = ['scene'];
   const gameVignette = p.lens ? 0.34 : 0.28;
+  const wantSsr = spec.gfx.ssr !== 'off' && backend === 'webgpu';
   const U = {
-    tilt: uniform(0.7), aspect: uniform(1.6), sunUv: uniform(new Vector2(0.5, 0.9)), shafts: uniform(0), sunColor: uniform(new Color(1, 0.9, 0.7)),
+    contact: uniform(0), tilt: uniform(0.7), aspect: uniform(1.6), sunUv: uniform(new Vector2(0.5, 0.9)), shafts: uniform(0), sunColor: uniform(new Color(1, 0.9, 0.7)),
     focus: uniform(100), focal: uniform(60), night: uniform(0), overcast: uniform(0),
     tiltY: uniform(NO_POST_LOOK.tiltCenter), sat: uniform(NO_POST_LOOK.saturation), vignette: uniform(gameVignette),
     grain: uniform(NO_POST_LOOK.grain), seed: uniform(0), bokeh: uniform(NO_POST_LOOK.bokeh),
@@ -123,10 +161,29 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Persp
   pipeline.outputColorTransform = false;
 
   const scenePass = pass(scene, camera);
-  if (p.aa === 'taa') scenePass.setMRT(mrt({ output, velocity }));
+  // Extra attachments: velocity for temporal AA; view-space normals and a (reflect mask, roughness) pair for SSR. The mask is 0
+  // wherever a material does not publish one (see gfxNodes.writeReflection), so only wet roads, puddles and glass reflect.
+  const outputs: Record<string, N> = { output };
+  if (p.aa === 'taa') outputs.velocity = velocity;
+  if (wantSsr) { outputs.normal = normalView; outputs.mr = vec2(reflectMask, reflectRough); }
+  if (Object.keys(outputs).length > 1) scenePass.setMRT(mrt(outputs));
   const color: N = scenePass.getTextureNode('output');
   const depth: N = scenePass.getTextureNode('depth');
   let c: N = color;
+
+  if (wantSsr) {
+    const mr: N = scenePass.getTextureNode('mr');
+    const full = spec.gfx.ssr === 'full';
+    const node = ssr(color as never, depth as never, scenePass.getTextureNode('normal') as never, {
+      metalnessNode: mr.r, roughnessNode: mr.g, camera,
+    } as never) as N;
+    node.resolutionScale = full ? 0.6 : 0.5;
+    node.quality.value = full ? 0.5 : 0.34;
+    node.maxDistance.value = full ? 22 : 14;
+    node.thickness.value = 0.55;
+    node.intensity.value = full ? 1.0 : 0.85;
+    c = vec4(c.rgb.add(node.getTextureNode().rgb), c.a);
+  }
 
   if (p.ao) {
     const node = ao(depth as never, null as never, camera);
@@ -137,11 +194,22 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Persp
     node.resolutionScale = spec.ao === 'half' ? 0.5 : 1;
     const occ = (node.getTextureNode() as N).r;
     c = vec4(c.rgb.mul(mix(float(1), occ, 0.85)), c.a);
+    if (spec.gfx.contactShadowSteps > 0) {
+      // Rides in the ao stage: both are depth-buffer darkening. The sun's view-space direction comes from the shared sun uniform.
+      const sunView: N = normalize(cameraViewMatrix.mul(vec4(vec3(fxU.sunDir), 0)).xyz);
+      const contact = contactShadowNode(depth, camera, spec.gfx.contactShadowSteps, { sunView, reach: float(spec.gfx.contactShadowSteps > 10 ? 2.6 : 2.0) });
+      c = vec4(c.rgb.mul(float(1).sub(contact.mul(U.contact).mul(0.62))), c.a);
+    }
     passes.push('ao');
   }
 
   if (p.aa === 'taa') {
-    c = traa(c as never, depth as never, scenePass.getTextureNode('velocity') as never, camera) as N;
+    const t = traa(c as never, depth as never, scenePass.getTextureNode('velocity') as never, camera) as N;
+    // Swaying foliage and thin billboards are the main source of temporal shimmer: a wider depth tolerance keeps their history
+    // across the small depth changes of a moving blade instead of re-sampling a noisy neighbourhood every frame.
+    t.depthThreshold = 0.0011;
+    t.edgeDepthDiff = 0.0022;
+    c = t;
     passes.push('taa');
   }
 
@@ -188,6 +256,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Persp
   return {
     passes,
     setParams(v) {
+      U.contact.value = v.contact ?? 0;
       U.tilt.value = v.tilt;
       U.aspect.value = v.aspect;
       U.sunUv.value.set(v.sunUv[0], v.sunUv[1]);

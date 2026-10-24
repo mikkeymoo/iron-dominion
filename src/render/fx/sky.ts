@@ -16,7 +16,7 @@ export class SkyDome {
   private key: string;
 
   constructor(spec: TierSpec) {
-    this.key = `${spec.fx.clouds}|${spec.fx.stars}`;
+    this.key = SkyDome.keyOf(spec);
     this.material = SkyDome.makeMaterial(spec);
     this.mesh = new Mesh(new SphereGeometry(900, 32, 16), this.material);
     this.mesh.name = 'sky';
@@ -24,18 +24,20 @@ export class SkyDome {
     this.mesh.frustumCulled = false;
   }
 
+  private static keyOf(spec: TierSpec): string { return `${spec.fx.clouds}|${spec.fx.stars}|${spec.gfx.clouds}|${spec.gfx.cloudSteps}`; }
+
   private static makeMaterial(spec: TierSpec): MeshBasicNodeMaterial {
     const m = new MeshBasicNodeMaterial();
     m.side = BackSide;
     m.depthWrite = false;
     m.fog = false;
-    m.colorNode = vec4(skyDome(normalize(positionLocal), { clouds: spec.fx.clouds, stars: spec.fx.stars }), 1);
+    m.colorNode = vec4(skyDome(normalize(positionLocal), { clouds: spec.fx.clouds, stars: spec.fx.stars, mode: spec.gfx.clouds, steps: spec.gfx.cloudSteps }), 1);
     return m;
   }
 
   /** Rebuild the material when a tier change alters the dome's node graph. */
   applyTier(spec: TierSpec): void {
-    const key = `${spec.fx.clouds}|${spec.fx.stars}`;
+    const key = SkyDome.keyOf(spec);
     if (key === this.key) return;
     this.key = key;
     this.material.dispose();

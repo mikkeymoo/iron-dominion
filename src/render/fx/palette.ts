@@ -29,8 +29,10 @@ interface Key { e: number; zenith: RGB; horizon: RGB; glow: RGB; sun: RGB; sunI:
 const KEYS: Key[] = [
   { e: -0.30, zenith: [0.004, 0.009, 0.034], horizon: [0.014, 0.024, 0.06], glow: [0, 0, 0], sun: [1, 0.5, 0.25], sunI: 0, hemiSky: [0.16, 0.22, 0.42], hemiGround: [0.05, 0.055, 0.07], hemiI: 0.72 },
   { e: -0.10, zenith: [0.012, 0.03, 0.10], horizon: [0.09, 0.07, 0.13], glow: [0.1, 0.04, 0.05], sun: [1, 0.42, 0.18], sunI: 0, hemiSky: [0.2, 0.22, 0.4], hemiGround: [0.07, 0.06, 0.07], hemiI: 0.62 },
-  { e: 0.00, zenith: [0.06, 0.13, 0.36], horizon: [0.95, 0.42, 0.2], glow: [1.2, 0.5, 0.18], sun: [1, 0.46, 0.2], sunI: 1.4, hemiSky: [0.5, 0.42, 0.55], hemiGround: [0.3, 0.2, 0.15], hemiI: 0.8 },
-  { e: 0.10, zenith: [0.1, 0.22, 0.58], horizon: [0.9, 0.62, 0.45], glow: [1.0, 0.55, 0.28], sun: [1, 0.66, 0.38], sunI: 2.2, hemiSky: [0.52, 0.58, 0.8], hemiGround: [0.42, 0.34, 0.26], hemiI: 0.95 },
+  // Sunrise and sunset: a deeper violet zenith over a hotter, wider horizon band, so low-sun light reads orange and the shade side cool.
+  { e: 0.00, zenith: [0.09, 0.11, 0.37], horizon: [1.22, 0.4, 0.16], glow: [1.75, 0.55, 0.14], sun: [1, 0.42, 0.16], sunI: 1.5, hemiSky: [0.5, 0.4, 0.6], hemiGround: [0.34, 0.2, 0.14], hemiI: 0.95 },
+  { e: 0.05, zenith: [0.09, 0.17, 0.5], horizon: [1.1, 0.52, 0.3], glow: [1.4, 0.58, 0.24], sun: [1, 0.55, 0.26], sunI: 1.95, hemiSky: [0.54, 0.5, 0.72], hemiGround: [0.38, 0.27, 0.2], hemiI: 1.02 },
+  { e: 0.10, zenith: [0.1, 0.22, 0.58], horizon: [0.95, 0.63, 0.44], glow: [1.05, 0.55, 0.28], sun: [1, 0.66, 0.38], sunI: 2.2, hemiSky: [0.52, 0.58, 0.8], hemiGround: [0.42, 0.34, 0.26], hemiI: 0.95 },
   { e: 0.30, zenith: [0.1, 0.27, 0.72], horizon: [0.72, 0.8, 0.9], glow: [0.7, 0.5, 0.3], sun: [1, 0.88, 0.7], sunI: 2.7, hemiSky: [0.6, 0.74, 0.98], hemiGround: [0.5, 0.42, 0.32], hemiI: 0.88 },
   { e: 0.70, zenith: [0.08, 0.24, 0.7], horizon: [0.62, 0.78, 0.95], glow: [0.5, 0.42, 0.3], sun: [1, 0.95, 0.85], sunI: 3.0, hemiSky: [0.62, 0.78, 1.0], hemiGround: [0.5, 0.44, 0.34], hemiI: 0.9 },
   { e: 1.00, zenith: [0.08, 0.24, 0.7], horizon: [0.62, 0.78, 0.95], glow: [0.5, 0.42, 0.3], sun: [1, 0.95, 0.85], sunI: 3.0, hemiSky: [0.62, 0.78, 1.0], hemiGround: [0.5, 0.44, 0.34], hemiI: 0.9 },

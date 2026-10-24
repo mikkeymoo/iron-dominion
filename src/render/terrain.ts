@@ -1,9 +1,10 @@
-import { BufferAttribute, BufferGeometry, Group, Mesh, type Material } from 'three/webgpu';
+import { BufferAttribute, BufferGeometry, Group, Mesh, type Material, type Texture } from 'three/webgpu';
 import { CHUNK, CHUNKS, MAP, ZONE } from '../sim/layers.ts';
 import type { RenderMirror } from './mirror.ts';
 import { buildTerrainMesh, buildWaterMesh, withNeighbours, type MeshData, type TerrainLayers } from './terrainMesh.ts';
 import { buildRoadMesh } from './kit/roads.ts';
 import { createRoadMaterial, createTerrainMaterial, type TerrainSlots } from './terrainMaterial.ts';
+import type { GfxSpec } from './tier.ts';
 
 const SUPER = 4;
 const SUPERS = CHUNKS / SUPER;
@@ -65,7 +66,10 @@ export class TerrainView {
   readonly group = new Group();
   readonly slots: TerrainSlots;
   private readonly terrainMat;
-  private readonly roadMat = createRoadMaterial();
+  private readonly road = createRoadMaterial();
+  private readonly roadMat = this.road.material;
+  private readonly configureTerrain: (g: GfxSpec) => void;
+  private readonly invalidated: ((chunks: number[]) => void)[] = [];
   private readonly layers: TerrainLayers;
   private readonly fine: Slot[] = [];
   private readonly coarse: Slot[] = [];
@@ -79,11 +83,12 @@ export class TerrainView {
   builds = 0;
 
   /** `waterMat` is owned by the atmosphere unit (fx/water.ts), which rebuilds its nodes in place on a tier change. */
-  constructor(private readonly mirror: RenderMirror, private readonly waterMat: Material) {
+  constructor(private readonly mirror: RenderMirror, private readonly waterMat: Material, waterInfo: Texture) {
     this.group.name = 'terrain';
-    const { material, slots } = createTerrainMaterial();
+    const { material, slots, configure } = createTerrainMaterial(waterInfo);
     this.terrainMat = material;
     this.slots = slots;
+    this.configureTerrain = configure;
     const L = mirror.layers;
     this.layers = { height: L.height!, terrain: L.terrain!, waterDepth: L.waterDepth!, road: L.road! };
     for (let c = 0; c < CHUNKS * CHUNKS; c++) this.fine.push(new Slot(this.group, material, `chunk${c}`));
@@ -107,6 +112,15 @@ export class TerrainView {
 
   get cutaway(): boolean { return this.terrainMat.transparent; }
 
+  /** Rebuild the ground and road node graphs for a tier's detail, cloud shadow, caustic and puddle settings. */
+  applyTier(g: GfxSpec): void {
+    this.configureTerrain(g);
+    this.road.configure(g);
+  }
+
+  /** Called with the chunks whose tiles changed (roads, buildings, terrain), so foliage can regrow around an edit. */
+  onInvalidate(fn: (chunks: number[]) => void): void { this.invalidated.push(fn); }
+
   setShadows(on: boolean): void {
     if (on === this.shadows) return;
     this.shadows = on;
@@ -126,6 +140,7 @@ export class TerrainView {
       this.roads[s]!.stale = true;
     }
     for (const c of dirty) this.writeZoneChunk(c);
+    if (dirty.length > 0) for (const fn of this.invalidated) fn(dirty);
     this.slots.zoneTexture.needsUpdate = true;
   }
 
