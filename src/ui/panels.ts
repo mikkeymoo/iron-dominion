@@ -59,19 +59,24 @@ export function useSwipeDown(onClose: () => void): { onPointerDown(e: ReactPoint
 
 /**
  * Closes `anyOpen` panels on an outside tap or Escape. `onOutside` runs for taps outside every `[data-panel]` element, `onEscape`
- * for the Escape key; both only while `active`.
+ * for the Escape key; both only while `active`. With `consume`, the tap that dismisses is stopped before it reaches the map, so it
+ * cannot also start a tool drag (and spend money) or a camera gesture.
  */
-export function useOutsideDismiss(active: boolean, onOutside: () => void, onEscape: () => void): void {
+export function useOutsideDismiss(active: boolean, onOutside: () => void, onEscape: () => void, consume = false): void {
   const latest = useRef({ onOutside, onEscape });
   latest.current = { onOutside, onEscape };
   useEffect(() => {
     if (!active) return;
-    const down = (e: PointerEvent): void => { if (isOutsideTap(e.target)) latest.current.onOutside(); };
+    const down = (e: PointerEvent): void => {
+      if (!isOutsideTap(e.target)) return;
+      latest.current.onOutside();
+      if (consume) e.stopPropagation();
+    };
     const key = (e: KeyboardEvent): void => { if (e.key === 'Escape') latest.current.onEscape(); };
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('keydown', key); };
-  }, [active]);
+  }, [active, consume]);
 }
 
 /** Calls `fire` once after `ms` of no `touch()`; `touch` restarts the wait. Disabled when `enabled` is false. */

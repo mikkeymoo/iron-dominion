@@ -8,9 +8,10 @@ const SPREADS = [8, 16, 32, 10000] as const;
 /**
  * Top-left of the free window of `size` x `size` zonable tiles nearest `near` (default the map centre), preferring the flattest
  * ground: the first height spread (max - min, in 1/16 tile) of 8, 16, 32 that has any window wins. Test and smoke helper that
- * reads only the tile layers, so it works on the mirror.
+ * reads only the tile layers, so it works on the mirror. `clear` keeps the window that many tiles away from any road or building
+ * (the starter depot sits at the map centre of a new city).
  */
-export function findFlatSite(v: TileRead, size: number, near: Tile = { x: MAP / 2, y: MAP / 2 }): Tile | null {
+export function findFlatSite(v: TileRead, size: number, near: Tile = { x: MAP / 2, y: MAP / 2 }, clear = 0): Tile | null {
   const cands: { x: number; y: number; d: number }[] = [];
   for (let y = 2; y + size < MAP - 2; y++) for (let x = 2; x + size < MAP - 2; x++) cands.push({ x, y, d: Math.hypot(x + size / 2 - near.x, y + size / 2 - near.y) });
   cands.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
@@ -24,6 +25,14 @@ export function findFlatSite(v: TileRead, size: number, near: Tile = { x: MAP / 
         if (h < lo) lo = h;
         if (h > hi) hi = h;
         if (hi - lo > maxSpread) { ok = false; break; }
+      }
+      if (ok && clear > 0) {
+        const x0 = Math.max(0, c.x - clear), x1 = Math.min(MAP - 1, c.x + size + clear - 1);
+        const y0 = Math.max(0, c.y - clear), y1 = Math.min(MAP - 1, c.y + size + clear - 1);
+        for (let y = y0; y <= y1 && ok; y++) for (let x = x0; x <= x1; x++) {
+          const i = tileIdx(x, y);
+          if (v.road[i] || v.bId[i]) { ok = false; break; }
+        }
       }
       if (ok) return { x: c.x, y: c.y };
     }

@@ -19,7 +19,7 @@ export function SoundSettings({ settings, onSetting }: Props) {
   );
   return (
     <fieldset className="sound-settings" aria-label="Sound" style={{ border: 0, padding: 0, margin: '0.5rem 0', display: 'grid', gap: '0.4rem' }}>
-      <legend style={{ padding: 0, fontWeight: 600 }}>Sound</legend>
+      <legend className="sr-only">Sound</legend>
       <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <input type="checkbox" checked={a.muted} onChange={(e) => onSetting('audio', { ...a, muted: e.target.checked })} />Mute all sound
       </label>

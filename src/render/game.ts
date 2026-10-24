@@ -12,7 +12,7 @@ import { tourCandidates } from './tourSites.ts';
 import { blockGestureZoom, createRenderContext, parseBackend, type RenderContext } from './context.ts';
 import type { RenderDebug } from './debug.ts';
 import { surfaceHeight } from './heightfield.ts';
-import { bindCameraInput } from './input.ts';
+import { bindCameraInput, type RadialHost } from './input.ts';
 import type { RenderMirror } from './mirror.ts';
 import { pickPoint, pickTile } from './picking.ts';
 import { computeViewRect } from './viewrect.ts';
@@ -46,6 +46,8 @@ export interface GameDeps {
   onTier?: (tier: Tier) => void;
   /** A tap (not a drag) on the map while no tool is active: the robot, vehicle or building under the finger, or `none`. */
   onTap?: (target: TapTarget) => void;
+  /** The radial build menu a long press or right-click on the map opens. */
+  radial?: RadialHost;
 }
 
 /** Phone-class device: a coarse pointer on a small screen, or any window 600 CSS px wide or less. */
@@ -213,8 +215,17 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     return true;
   };
 
+  // A press that opened the radial menu is never also a tap (the long-press timer and TAP_MS are both 450 ms).
+  let radialOpened = false;
+  const radialHost: RadialHost | undefined = deps.radial && {
+    isOpen: () => deps.radial!.isOpen(),
+    open: (px, py, source) => { const ok = deps.radial!.open(px, py, source); if (ok) radialOpened = true; return ok; },
+    move: (x, y) => deps.radial!.move(x, y),
+    release: (x, y) => deps.radial!.release(x, y),
+    close: () => deps.radial!.close(),
+  };
   const input = bindCameraInput({
-    element: host, rig, groundAt,
+    element: host, rig, groundAt, radial: radialHost,
     tool: toolInput ? { ...toolInput, active: () => !photo.active && toolInput.active() } : undefined,
   });
 
@@ -289,6 +300,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   let busyAtDown = false;
   const onTapDown = (e: PointerEvent): void => {
     downIds.add(e.pointerId);
+    if (downIds.size === 1) radialOpened = false;
     busyAtDown = cinematic.active || rig.following || photo.active;
     taps.down(e.pointerId, e.clientX, e.clientY, performance.now(), !!deps.onTap && !(deps.tools?.active) && e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0));
   };
@@ -297,7 +309,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     downIds.delete(e.pointerId);
     const tap = e.type === 'pointercancel' ? null : taps.up(e.pointerId, e.clientX, e.clientY, performance.now(), downIds.size === 0);
     if (e.type === 'pointercancel') taps.cancel();
-    if (!tap || busyAtDown) return;
+    if (!tap || busyAtDown || radialOpened) return;
     const r = host.getBoundingClientRect();
     deps.onTap?.(pickTarget(tap.x - r.left, tap.y - r.top));
   };

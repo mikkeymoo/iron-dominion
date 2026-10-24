@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
 import type { ServiceKindStats, ServiceStats } from '../sim/protocol.ts';
+import { Panel } from './Panel';
 
 const ROWS: { key: 'fire' | 'police' | 'health' | 'edu'; label: string }[] = [
   { key: 'fire', label: 'Fire' },
@@ -30,20 +30,8 @@ function Row({ label, s }: { label: string; s: ServiceKindStats }) {
  * times a second; nothing here sends a command.
  */
 export function ServicesPanel({ stats, onClose }: { stats: ServiceStats; onClose(): void }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { closeRef.current?.focus(); }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   return (
-    <div className="budget services-panel" role="dialog" aria-label="City services" data-panel="services" data-testid="services-panel">
-      <div className="budget-head">
-        <h2>City services</h2>
-        <button ref={closeRef} type="button" className="tb" onClick={onClose}>Close</button>
-      </div>
+    <Panel id="services" title="City services" className="budget services-panel" panelAttr="services" testId="services-panel" onClose={onClose}>
       <table className="services-table">
         <thead><tr><th scope="col">Service</th><th scope="col">Working</th><th scope="col">Capacity</th><th scope="col">Coverage</th></tr></thead>
         <tbody>{ROWS.map((r) => <Row key={r.key} label={r.label} s={stats[r.key]} />)}</tbody>
@@ -55,6 +43,6 @@ export function ServicesPanel({ stats, onClose }: { stats: ServiceStats; onClose
         <dt>Repair bays</dt><dd>{stats.repairBays}</dd>
       </dl>
       <p className="hint">Coverage follows the roads: a service reaches only the buildings its roads reach. A service at capacity covers less, and a dark or dry one does not work.</p>
-    </div>
+    </Panel>
   );
 }

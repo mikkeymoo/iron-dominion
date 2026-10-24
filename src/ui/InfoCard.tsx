@@ -1,6 +1,7 @@
 import { useEffect, useReducer } from 'react';
 import type { AgentInfo, BuildingInfo, Thought } from '../sim/protocol.ts';
 import { isEditableTarget } from '../render/editable.ts';
+import { Panel } from './Panel';
 import { PANEL_ATTR } from './panels';
 import type { WhyStore } from './whyStore.ts';
 import './why.css';
@@ -84,9 +85,11 @@ export function InfoCard({ why, onJump, onFollow }: Props) {
   if (!sel) return null;
   return (
     <aside className="info-card" {...{ [PANEL_ATTR]: 'info' }} data-testid="info-card" data-kind={sel.kind} aria-label="Details">
-      {!info && <p className="info-loading">Asking the sim...</p>}
-      {info && info.kind === 'building' && <BuildingBody info={info} why={why} onJump={onJump} />}
-      {info && info.kind === 'agent' && <AgentBody info={info} why={why} gone={why.gone} onFollow={onFollow} onJump={onJump} />}
+      <Panel id="info" kind="section" title="Details" remember={false}>
+        {!info && <p className="info-loading">Asking the sim...</p>}
+        {info && info.kind === 'building' && <BuildingBody info={info} why={why} onJump={onJump} />}
+        {info && info.kind === 'agent' && <AgentBody info={info} why={why} gone={why.gone} onFollow={onFollow} onJump={onJump} />}
+      </Panel>
     </aside>
   );
 }

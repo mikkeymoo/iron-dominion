@@ -5,6 +5,7 @@ import type { SimClient } from '../sim/client.ts';
 import type { CommandBody } from '../sim/commands.ts';
 import type { BudgetMsg, BudgetRecord, LoanInfo } from '../sim/protocol.ts';
 import type { SimEvent } from '../sim/world.ts';
+import { Panel } from './Panel';
 import { reasonText } from './toolsStore.ts';
 
 const PENDING_MS = 3000;
@@ -57,7 +58,6 @@ export function Budget({ client, events, stats, onClose }: Props) {
   const [data, setData] = useState<BudgetMsg | null>(null);
   const [error, setError] = useState('');
   const [pending, setPending] = useState<Partial<Record<0 | 1 | 2, number>>>({});
-  const closeRef = useRef<HTMLButtonElement>(null);
 
   const [notice, setNotice] = useState('');
   const asked = useRef(0);
@@ -106,12 +106,6 @@ export function Budget({ client, events, stats, onClose }: Props) {
     return () => window.clearInterval(id);
   }, [refresh]);
   useEffect(() => { refresh(); }, [refresh, stats.month, stats.loans.length, stats.taxRates[0], stats.taxRates[1], stats.taxRates[2]]);
-  useEffect(() => { closeRef.current?.focus(); }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
   useEffect(() => {
     setPending((p) => {
       const next = { ...p };
@@ -132,11 +126,7 @@ export function Budget({ client, events, stats, onClose }: Props) {
   };
 
   return (
-    <div className="budget" data-panel="budget" role="dialog" aria-label="Budget" aria-modal="false" data-testid="budget">
-      <div className="budget-head">
-        <h2>Budget</h2>
-        <button ref={closeRef} type="button" className="tb" onClick={onClose} aria-label="Close budget">Close</button>
-      </div>
+    <Panel id="budget" title="Budget" className="budget" panelAttr="budget" testId="budget" onClose={onClose}>
       {notice && <p className="budget-warn" role="alert" data-testid="budget-notice">{notice}</p>}
       {stats.debtMonths >= BANKRUPT_MONTHS && (
         <p className="budget-warn" role="alert" data-testid="bankruptcy">Bankruptcy warning: the treasury has been below zero for {stats.debtMonths} months. Raise taxes, cut roads or repay loans.</p>
@@ -216,6 +206,6 @@ export function Budget({ client, events, stats, onClose }: Props) {
           </table>
         </div>
       </section>
-    </div>
+    </Panel>
   );
 }

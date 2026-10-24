@@ -295,7 +295,7 @@ export class ToolsRuntime {
         return out;
       },
       disaster: (kind, x, y) => rt.triggerDisaster(kind, x, y),
-      findSite: (size = 14) => findFlatSite(tileReadOf(w.layers), size),
+      findSite: (size = 14) => findFlatSite(tileReadOf(w.layers), size, undefined, 6),
       findWater: () => findWaterTile(tileReadOf(w.layers)),
       tileFor: (name, topLeft) => {
         const sel = selectionFrom('service', { name });

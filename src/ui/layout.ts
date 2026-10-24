@@ -32,11 +32,12 @@ export const TOP_BAR: Record<Layout, readonly TopControl[]> = {
   desktop: ['speeds', 'clock', 'money', 'population', 'net', 'workforce', 'rci', 'utilities', 'follow', 'budget', 'save', 'menu'],
 };
 
-/** The phone's collapsed strip: pause and speed, money, and the chevron that opens the rest. */
-export const PHONE_STRIP: readonly TopControl[] = ['playPause', 'speedCycle', 'money', 'chevron'];
+/** The phone's collapsed strip, the minimal HUD: pause and speed, money, population, and the chevron that opens the rest. The advisor chip slot sits beside them. */
+export const PHONE_STRIP: readonly TopControl[] = ['playPause', 'speedCycle', 'money', 'population', 'chevron'];
 
-/** The controls drawn for a layout; only a phone collapses. */
-export const topBarControls = (layout: Layout, open: boolean): readonly TopControl[] => (layout === 'phone' && !open ? PHONE_STRIP : TOP_BAR[layout]);
+/** The controls drawn for a layout; only a phone collapses, and focus mode draws none. */
+export const topBarControls = (layout: Layout, open: boolean, focus = false): readonly TopControl[] =>
+  focus ? [] : layout === 'phone' && !open ? PHONE_STRIP : TOP_BAR[layout];
 
 /** Controls the phone moves into the menu drawer (the desktop keeps them in the bar), and those the status popover holds. */
 export const PHONE_MENU: readonly TopControl[] = ['budget', 'follow', 'save'];

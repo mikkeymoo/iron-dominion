@@ -3,6 +3,7 @@ import { MEGA_ARCHS, megaOf } from '../sim/megaprojects.ts';
 import type { MilestoneStats, ProjectStatus, RequirementStatus } from '../sim/protocol.ts';
 import { TIERS, unlockList } from '../sim/unlocks.ts';
 import { archetype } from '../sim/catalog.ts';
+import { Panel } from './Panel';
 import { money, projectBlurb, projectLabel, unlockText } from './projects.ts';
 import type { ToolsRuntime } from './toolsStore.ts';
 
@@ -85,11 +86,8 @@ export function MilestonesPanel({ stats, population, runtime, onClose }: PanelPr
     onClose();
   };
   return (
-    <div className="panel milestones" role="dialog" aria-label="Milestones and projects" data-panel="projects" data-testid="milestones">
-      <div className="panel-head">
-        <h2>{TIERS[tier]!.name}</h2>
-        <button type="button" className="tb" onClick={onClose}>Close</button>
-      </div>
+    <Panel id="projects" title="Milestones and projects" className="milestones" panelAttr="projects" testId="milestones" onClose={onClose}>
+      <h2 className="tier-name">{TIERS[tier]!.name}</h2>
       <p className="tier-line">Population {fmt(population)}{next === null ? ' (highest milestone reached)' : `, next milestone ${TIERS[tier + 1]!.name} at ${fmt(next)}`}</p>
       <div className="meter" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Progress to the next milestone"><i style={{ width: `${pct}%` }} /></div>
 
@@ -113,6 +111,6 @@ export function MilestonesPanel({ stats, population, runtime, onClose }: PanelPr
           return p ? <Project key={arch} p={p} tier={tier} onStart={start} /> : null;
         })}
       </ul>
-    </div>
+    </Panel>
   );
 }

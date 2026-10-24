@@ -4,6 +4,7 @@ import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { DEFAULT_SETTINGS } from '../platform/settings.ts';
 import type { Speed } from '../sim/protocol.ts';
 import { emptyServiceStats } from '../sim/services/coverage.ts';
+import { gesture } from '../test/pointer';
 import { Hud, NO_WORKFORCE, type HudStats } from './Hud';
 import type { Layout } from './layout';
 import { NO_FACTS } from './progress';
@@ -121,11 +122,12 @@ describe('phone HUD', () => {
 });
 
 describe('collapsible phone top bar', () => {
-  it('shows only pause, speed, money and a chevron when collapsed', () => {
+  it('shows only pause, speed, money, population, the advisor slot and a chevron when collapsed', () => {
     mount('phone', { topOpen: false, onTopOpen: vi.fn() });
     expect(topNames()).toEqual(['Pause', 'Speed 1x. Tap to change.', 'Expand top bar']);
     expect(screen.getByTestId('money')).toBeTruthy();
-    expect(screen.queryByTestId('population')).toBeNull();
+    expect(screen.getByTestId('population')).toBeTruthy();
+    expect(bar().querySelector('[data-slot="advisor"]')).not.toBeNull();
     expect(screen.queryByTestId('demand')).toBeNull();
     expect(screen.queryByTestId('menu-button')).toBeNull();
     expect(screen.queryByTestId('status-chip')).toBeNull();
@@ -221,6 +223,48 @@ describe('desktop HUD', () => {
     mount('desktop', { notice: 'Saved' });
     expect(screen.getByTestId('notice').textContent).toBe('Saved');
     expect(screen.getByTestId('notice').className).toBe('notice');
+  });
+});
+
+describe('focus mode and the grab headers', () => {
+  it('hides the whole top bar in focus mode on both layouts', () => {
+    for (const layout of ['phone', 'desktop'] as const) {
+      const { unmount } = mount(layout, { settings: { ...DEFAULT_SETTINGS, focus: true } });
+      expect(screen.queryByTestId('topbar')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('turns focus mode on from the menu and closes the menu', () => {
+    const { calls } = mount('phone');
+    fireEvent.click(screen.getByTestId('menu-button'));
+    fireEvent.click(screen.getByTestId('focus-toggle'));
+    expect(calls.setting).toHaveBeenCalledWith('focus', true);
+  });
+
+  it('offers the handedness choice in settings', () => {
+    const { calls } = mount('phone');
+    fireEvent.click(screen.getByTestId('menu-button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.change(screen.getByTestId('handedness-select'), { target: { value: 'left' } });
+    expect(calls.setting).toHaveBeenCalledWith('handedness', 'left');
+  });
+
+  it('closes the menu popover from its header and collapses a menu section from its chevron', () => {
+    const onPanel = vi.fn();
+    mount('phone', { panel: 'menu', onPanel });
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse City' }));
+    expect(screen.getByRole('button', { name: 'Expand City' }).getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Menu' }));
+    expect(onPanel).toHaveBeenCalledWith(null);
+  });
+
+  it('tapping the readouts expands and collapses the phone top bar', () => {
+    const onTopOpen = vi.fn();
+    mount('phone', { topOpen: false, onTopOpen });
+    const r = screen.getByTestId('readouts');
+    gesture(r, { x: 50, y: 20 });
+    expect(onTopOpen).toHaveBeenLastCalledWith(true);
   });
 });
 

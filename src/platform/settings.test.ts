@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, disasterModeOf, haltDisasterMode, loadSettings } from './settings.ts';
+import { DEFAULT_SETTINGS, disasterModeOf, haltDisasterMode, loadSettings, saveSetting } from './settings.ts';
 import type { PlatformDb } from './db.ts';
 
 const dbWith = (raw: Record<string, unknown>): PlatformDb => ({ allSettings: async () => ({ ok: true, value: raw }), setSetting: async () => ({ ok: true, value: undefined }) }) as unknown as PlatformDb;
@@ -12,6 +12,39 @@ describe('haltAt debug runs', () => {
     expect(haltDisasterMode('bogus')).toBe(disasterModeOf('rare'));
     expect(haltDisasterMode('off')).toBe(disasterModeOf('off'));
     expect(haltDisasterMode('normal')).toBe(disasterModeOf('normal'));
+  });
+});
+
+describe('handedness, focus and panel state settings', () => {
+  it('default to right-handed, no focus mode and no remembered panel state', () => {
+    expect(DEFAULT_SETTINGS.handedness).toBe('right');
+    expect(DEFAULT_SETTINGS.focus).toBe(false);
+    expect(DEFAULT_SETTINGS.panelStates).toEqual({});
+  });
+
+  it('round-trip what the player set', async () => {
+    const s = await loadSettings(dbWith({ handedness: 'left', focus: true, panelStates: { budget: true, 'menu-city': false } }), undefined);
+    expect(s.handedness).toBe('left');
+    expect(s.focus).toBe(true);
+    expect(s.panelStates).toEqual({ budget: true, 'menu-city': false });
+  });
+
+  it('fall back to the defaults for damaged values and drop non-boolean panel flags', async () => {
+    const s = await loadSettings(dbWith({ handedness: 'both', focus: 'yes', panelStates: { a: true, b: 'x', c: 1, [`${'k'.repeat(60)}`]: true } }), undefined);
+    expect(s.handedness).toBe('right');
+    expect(s.focus).toBe(false);
+    expect(s.panelStates).toEqual({ a: true });
+    expect((await loadSettings(dbWith({ panelStates: 'nope' }), undefined)).panelStates).toEqual({});
+  });
+
+  it('persist each key through the store', async () => {
+    const written: Record<string, unknown> = {};
+    const db = { allSettings: async () => ({ ok: true, value: { ...written } }), setSetting: async (k: string, v: unknown) => { written[k] = v; return { ok: true, value: undefined }; } } as unknown as PlatformDb;
+    await saveSetting(db, undefined, 'handedness', 'left');
+    await saveSetting(db, undefined, 'panelStates', { budget: true });
+    const s = await loadSettings(db, undefined);
+    expect(s.handedness).toBe('left');
+    expect(s.panelStates).toEqual({ budget: true });
   });
 });
 

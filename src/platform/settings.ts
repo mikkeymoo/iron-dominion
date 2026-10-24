@@ -14,6 +14,13 @@ export const disasterModeOf = (s: DisastersSetting): number => DISASTER_MODES.in
 export const haltDisasterMode = (param: string | null): number =>
   disasterModeOf(isDisastersSetting(param) ? param : DEFAULT_SETTINGS.disasters);
 
+/** Which thumb the phone layout is built around: the build dock and its button sit on that side. */
+export type Handedness = 'right' | 'left';
+export const HANDEDNESS: readonly Handedness[] = ['right', 'left'];
+export const isHandedness = (v: unknown): v is Handedness => HANDEDNESS.includes(v as Handedness);
+
+const PANEL_STATE_CAP = 40;
+
 export interface Settings {
   tier: TierOverride;
   graphics: { shadows: boolean; bloom: boolean; resolutionScale: number };
@@ -29,6 +36,11 @@ export interface Settings {
   autoTier: Tier | null;
   /** HUD panel state: top bar expanded, tool bar expanded (phones start collapsed), and whether the tool bar folds itself after idle. */
   panels: { topOpen: boolean; autoCollapse: boolean };
+  handedness: Handedness;
+  /** Focus mode: the HUD hides everything except the build button. */
+  focus: boolean;
+  /** Collapsed flag per panel id (see ui/Panel.tsx); a missing id uses the panel's own default. */
+  panelStates: Record<string, boolean>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +53,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showPerf: null,
   autoTier: null,
   panels: { topOpen: false, autoCollapse: true },
+  handedness: 'right',
+  focus: false,
+  panelStates: {},
 };
 
 export const isTierOverride = (v: unknown): v is TierOverride => v === 'auto' || isTier(v);
@@ -61,6 +76,11 @@ function sanitize(raw: Record<string, unknown>): Settings {
     showPerf: typeof raw.showPerf === 'boolean' ? raw.showPerf : d.showPerf,
     autoTier: isTier(raw.autoTier) ? raw.autoTier : d.autoTier,
     panels: { topOpen: bool(obj(raw.panels).topOpen, d.panels.topOpen), autoCollapse: bool(obj(raw.panels).autoCollapse, d.panels.autoCollapse) },
+    handedness: isHandedness(raw.handedness) ? raw.handedness : d.handedness,
+    focus: bool(raw.focus, d.focus),
+    panelStates: Object.fromEntries(
+      Object.entries(obj(raw.panelStates)).filter((e): e is [string, boolean] => typeof e[1] === 'boolean' && e[0].length <= 48).slice(0, PANEL_STATE_CAP),
+    ),
     tier: isTierOverride(raw.tier) ? raw.tier : d.tier,
     graphics: { shadows: bool(g.shadows, d.graphics.shadows), bloom: bool(g.bloom, d.graphics.bloom), resolutionScale: num(g.resolutionScale, d.graphics.resolutionScale, 0.25, 2) },
     audio: { muted: bool(a.muted, d.audio.muted), volume: num(a.volume, d.audio.volume, 0, 1) },
