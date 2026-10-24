@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CouncilStats, DirectiveStats, FirmwareStats, LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { CouncilStats, DirectiveStats, FirmwareStats, LoanInfo, MilestoneStats, ScenarioStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { ApprovalChip } from './Council';
 import { DemandBars } from './DemandBars';
@@ -64,6 +64,8 @@ export interface HudStats {
   firmware?: FirmwareStats;
   /** Approval, council requests and festivals from the newest Stats message. */
   council?: CouncilStats;
+  /** Goal progress of a scenario or challenge city; null or absent in the sandbox. */
+  scenario?: ScenarioStats | null;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };

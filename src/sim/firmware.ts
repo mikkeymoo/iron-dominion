@@ -1,7 +1,9 @@
 import { ARCH, BFLAG, isRci } from './catalog.ts';
 import { approvalBuild } from './council/effects.ts';
-import { BMAX, DAY_TICKS, F, S, type World } from './layers.ts';
+import { BMAX, DAY_TICKS, F, S, SC, type World } from './layers.ts';
 import type { FirmwareStats } from './protocol.ts';
+import { TAX_MAX } from './economy/tables.ts';
+import { HAULER_SLOW_PCT, MEGA_REQ_PCT, MOD, MOD_MASK, TAX_CAP_PCT } from './scenarios.ts';
 import { BUILDERS_PER_DEPOT, DEPOT_WORK_RADIUS, HAULERS_PER_DEPOT, HAUL_CAP, MAX_BUILDERS_PER_JOB } from './robots/constants.ts';
 import { TAXI_SHARE } from './traffic/constants.ts';
 
@@ -327,20 +329,35 @@ export interface Mods {
   greenUpkeep: number;
   /** Points added to the monthly approval target (council/approval.ts). */
   approval: number;
+  /**
+   * Scenario modifiers (sim/scenarios.ts MOD). Defaults are the sandbox: no restriction, whole requirements, no floor on the disasters setting.
+   * `taxCap` is the highest tax percent a command may set; `megaReq` scales a megaproject's population, power and water requirements.
+   */
+  noBridges: boolean;
+  noPowerPlant: boolean;
+  inlandPumps: boolean;
+  taxCap: number;
+  megaReq: number;
+  /** Lowest disasters mode the city can be set to (0 off, 1 rare, 2 normal). */
+  disasterFloor: number;
+  stormsMonthly: boolean;
+  meteorSeason: boolean;
 }
 
 const pct = (v: number): number => v / 100;
 
-export function computeMods(research: number, edicts: number): Mods {
+export function computeMods(research: number, edicts: number, scenario = 0): Mods {
   const has = (n: number): boolean => ((research >> n) & 1) === 1;
   const on = (e: number): boolean => ((edicts >> e) & 1) === 1;
+  const sc = (m: number): boolean => (scenario & m) !== 0;
+  const half = (n: number): number => (sc(MOD.HALF_ROBOTS) ? Math.ceil(n / 2) : n);
   let edictCost = 0;
   for (const e of EDICTS) if (on(e.id)) edictCost += e.cost;
   return {
     haulCap: HAUL_CAP + (has(NODE.HEAVY_LIFTERS) ? Math.floor(HAUL_CAP / 2) : 0),
-    haulerSpeed: (has(NODE.ROTOR_UPGRADE) ? 1.2 : 1) * (on(EDICT.OVERCLOCK) ? 1 + pct(N.haulerSpeedPct) : 1),
-    buildersPerDepot: BUILDERS_PER_DEPOT,
-    haulersPerDepot: HAULERS_PER_DEPOT + (has(NODE.DEPOT_FAB) ? 1 : 0),
+    haulerSpeed: (has(NODE.ROTOR_UPGRADE) ? 1.2 : 1) * (on(EDICT.OVERCLOCK) ? 1 + pct(N.haulerSpeedPct) : 1) * (sc(MOD.HAULER_SLOW) ? pct(HAULER_SLOW_PCT) : 1),
+    buildersPerDepot: half(BUILDERS_PER_DEPOT),
+    haulersPerDepot: half(HAULERS_PER_DEPOT + (has(NODE.DEPOT_FAB) ? 1 : 0)),
     workRadius: has(NODE.LONG_RANGE) ? Math.floor(DEPOT_WORK_RADIUS * 1.5) : DEPOT_WORK_RADIUS,
     buildRate: has(NODE.QUICK_SET) ? 1.25 : 1,
     buildersPerJob: MAX_BUILDERS_PER_JOB + (has(NODE.CREW_COORD) ? 1 : 0),
@@ -368,26 +385,39 @@ export function computeMods(research: number, edicts: number): Mods {
     greenUpkeep: on(EDICT.GREEN_ROOFS) ? N.greenUpkeepPerBuilding : 0,
     approval: (on(EDICT.NIGHT_SHIFT) ? N.approvalNightShift : 0) + (on(EDICT.ROBO_TAXIS) ? N.approvalRoboTaxis : 0) + (on(EDICT.SMOG_PERMIT) ? N.approvalSmog : 0)
       + (on(EDICT.CURFEW) ? N.approvalCurfew : 0) + (on(EDICT.GREEN_ROOFS) ? N.approvalGreenRoofs : 0) + (on(EDICT.TAX_HOLIDAY) ? N.approvalTaxHoliday : 0),
+    noBridges: sc(MOD.NO_BRIDGES),
+    noPowerPlant: sc(MOD.NO_POWER_PLANT),
+    inlandPumps: sc(MOD.INLAND_PUMPS),
+    taxCap: sc(MOD.TAX_CAP) ? TAX_CAP_PCT : TAX_MAX,
+    megaReq: sc(MOD.EASY_MEGA) ? pct(MEGA_REQ_PCT) : 1,
+    disasterFloor: sc(MOD.DISASTERS_UP) ? 2 : sc(MOD.STORMS_MONTHLY) ? 1 : 0,
+    stormsMonthly: sc(MOD.STORMS_MONTHLY),
+    meteorSeason: sc(MOD.METEOR_SEASON),
   };
 }
-
 /** Share of its speed a robot loses on a road tile at full traffic heat; Priority lanes removes it. */
 export const JAM_SLOW = 0.4;
 
 const modCache = new Map<number, Mods>();
 const BASE_MODS = computeMods(0, 0);
 
-/** The modifiers in force for this world. Cached by the two masks, so the call is a map lookup. */
+function cachedMods(research: number, edicts: number, scenario: number): Mods {
+  if (research === 0 && edicts === 0 && scenario === 0) return BASE_MODS;
+  const key = research + edicts * 4096 + scenario * 1048576;
+  let m = modCache.get(key);
+  if (!m) { m = computeMods(research, edicts, scenario); modCache.set(key, m); }
+  return m;
+}
+
+/** The modifiers in force for this world. Cached by the three masks (research, edicts, scenario), so the call is a map lookup. */
 export function mods(w: World): Mods {
   const fw = w.firmware;
   if (!fw) return BASE_MODS;
-  const research = fw[F.RESEARCH]! | 0, edicts = fw[F.EDICTS]! | 0;
-  if (research === 0 && edicts === 0) return BASE_MODS;
-  const key = research | (edicts << 12);
-  let m = modCache.get(key);
-  if (!m) { m = computeMods(research, edicts); modCache.set(key, m); }
-  return m;
+  return cachedMods(fw[F.RESEARCH]! | 0, fw[F.EDICTS]! | 0, (w.scenario?.[SC.MODS] ?? 0) & MOD_MASK);
 }
+
+/** The modifiers a scenario mask alone gives, for the main thread's ghost estimate, which reads the mask from the render mirror instead of a World. */
+export const scenarioMods = (mask: number): Mods => cachedMods(0, 0, mask & MOD_MASK);
 
 export const researched = (w: World, n: number): boolean => ((w.firmware[F.RESEARCH]! | 0) >> n & 1) === 1;
 export const edictActive = (w: World, e: number): boolean => ((w.firmware[F.EDICTS]! | 0) >> e & 1) === 1;

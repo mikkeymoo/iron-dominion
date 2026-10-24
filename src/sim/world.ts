@@ -22,6 +22,10 @@ export type SimEvent =
   /** UNIT-0 directive `index` (sim/directives.ts) was met for the first time; its reward is paid by claimDirective. */
   | { type: 'directiveReady'; tick: number; index: number }
   | { type: 'directiveClaimed'; tick: number; index: number; reward: number }
+  /** The scenario goal reached `stars` stars (once per level). */
+  | { type: 'scenarioStar'; tick: number; stars: number }
+  /** The scenario ended: won (at least one star) or failed (the clock ran out with none). */
+  | { type: 'scenarioEnd'; tick: number; won: boolean; stars: number; score: number }
   /** The first grown building was finished; the footprint is in tiles. Fires once per city. */
   | { type: 'firstBuilding'; tick: number; x: number; y: number; w: number; h: number }
   /**

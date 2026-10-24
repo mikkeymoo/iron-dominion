@@ -1209,6 +1209,58 @@ async function councilChecks(open) {
 }
 // ---- end council block ----
 
+// ---- Scenarios: title screens, the goal chip, a debug-satisfied goal and the results screen (webgl2 low; desktop) ----
+// Starts "First Light" from the title's Scenarios panel, checks the goal chip, satisfies the goal through the debugScenario command (the
+// real star and ending logic, from a chosen metric), and checks the results screen shows three stars, then Retry opens a fresh scenario.
+async function scenarioChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`scenario: ${name}`, problem]);
+  const page = await open('?debug=1&backend=webgl2&tier=low&governor=off');
+  const buttons = await until(page, () => [...document.querySelectorAll('button')].some((b) => b.textContent === 'Scenarios') && [...document.querySelectorAll('button')].some((b) => b.textContent === 'Daily / Weekly'), null, 30000);
+  add('the title has Scenarios and Daily / Weekly next to New city', buttons && (await page.getByRole('button', { name: 'New city', exact: true }).count()) === 1 ? null : 'buttons missing');
+  if (!buttons) { await page.close(); return out; }
+
+  await page.getByRole('button', { name: 'Daily / Weekly', exact: true }).click();
+  const daily = await until(page, () => !!document.querySelector('[data-testid="challenge-daily"]') && !!document.querySelector('[data-testid="challenge-weekly"]'), null, 5000);
+  const dailyText = daily ? (await page.locator('[data-testid="challenge-daily"]').innerText()).replace(/\s+/g, ' ') : '';
+  const today = new Date().toISOString().slice(0, 10);
+  add("the Daily / Weekly screen shows today's challenge by UTC date, modifiers and best score", daily && dailyText.includes(today) && /Best|No best yet/.test(dailyText) && (await page.locator('[data-testid="challenge-daily"] .scn-mods li').count()) >= 2 ? null : dailyText || 'no cards');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Scenarios', exact: true }).click();
+  const tabs = await until(page, () => document.querySelectorAll('[role="tab"]').length === 3 && !!document.querySelector('[data-testid="scn-first-light"]'), null, 5000);
+  add('the Scenarios panel has the Beginner, Challenging and Expert tabs and a First Light card', tabs ? null : 'tabs or card missing');
+  const small = await page.evaluate(() => [...document.querySelectorAll('[data-testid="scenarios-panel"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, w: r.width, h: r.height }; }).filter((t) => t.h < 43.5 || t.w < 43.5));
+  add('every Scenarios panel button is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
+
+  await page.locator('[data-testid="scn-play-first-light"]').click();
+  const chip = await until(page, () => !!document.querySelector('[data-testid="goal-chip"]') && !!window.__iron?.economy, null, 120000);
+  add('Play First Light enters the game with the goal chip showing', chip ? null : 'no goal chip');
+  if (!chip) { await page.close(); return out; }
+  const brief = (await page.locator('[data-testid="goal-brief"]').innerText()).replace(/\s+/g, ' ');
+  add('the chip shows no stars yet and 12 months left', /☆☆☆/.test(brief) && /12 months left/.test(brief) ? null : brief);
+  await page.getByRole('button', { name: 'Expand First Light' }).click();
+  const line = await page.locator('[data-testid="goal-line"]').innerText().catch(() => '');
+  add('opened, it names the goal and the next target', /Population: .* of 1,000/.test(line) ? null : line);
+
+  await page.evaluate(() => window.__iron.economy.command({ type: 'debugScenario', value: 3000 }));
+  const results = await until(page, () => !!document.querySelector('[data-testid="results"]'), null, 15000);
+  add('satisfying the goal opens the results screen', results ? null : 'no results screen');
+  if (results) {
+    const stars = await page.locator('[data-testid="results-stars"]').innerText();
+    add('it shows three stars', stars.trim() === '★★★' ? null : stars);
+    const names = await page.evaluate(() => [...document.querySelectorAll('[data-testid="results"] button')].map((b) => b.textContent));
+    add('it offers Retry, Next, Keep playing and Back to title', ['Retry', 'Next: Dry Spell', 'Keep playing', 'Back to title'].every((n) => names.includes(n)) ? null : JSON.stringify(names));
+    add('the chip behind it shows the three earned stars', /★★★/.test((await page.locator('[data-testid="goal-brief"]').innerText())) ? null : 'chip stars wrong');
+    await page.locator('[data-testid="results-retry"]').click();
+    const fresh = await until(page, () => !document.querySelector('[data-testid="results"]') && /12 months left/.test(document.querySelector('[data-testid="goal-brief"]')?.textContent ?? ''), null, 120000);
+    add('Retry starts First Light again: no results, a fresh chip with 12 months left', fresh ? null : 'still on results or chip stale');
+  }
+  await page.close();
+  return out;
+}
+// ---- end scenarios block ----
+
 // ---- Why is this happening: advisor chip, jump to an issue, tap for details (webgl2 low; desktop) ----
 // A debug city with a power plant and one house that has no line to it: the sim names the house as an unpowered building, the advisor
 // chip shows a power issue, tapping the issue flies the camera to the house within a few tiles, and tapping the house shows its card.
@@ -1642,6 +1694,7 @@ try {
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await starterChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await firmwareChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await councilChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await scenarioChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

@@ -1,6 +1,7 @@
 import { BUILD_HASH } from '../sim/buildinfo.ts';
 import { createSimClient, type ClientState, type SimClient } from '../sim/client.ts';
 import type { Stats } from '../sim/protocol.ts';
+import type { ScenarioChoice } from '../sim/scenarios.ts';
 import { AgentStore } from '../render/agentStore.ts';
 import { RenderMirror } from '../render/mirror.ts';
 import { ViewState } from '../render/viewState.ts';
@@ -38,6 +39,8 @@ export interface SessionOptions {
   debug?: boolean;
   /** The Disasters setting the city opens with (0 off, 1 rare, 2 normal). */
   disasters?: number;
+  /** Open this scenario or challenge instead of a sandbox city. */
+  scenario?: ScenarioChoice;
   getDb(): PlatformDb | undefined;
   onState(state: ClientState): void;
   onStats(s: Stats): void;
@@ -54,6 +57,7 @@ export function openSession(o: SessionOptions): Session {
     seed: o.seed,
     debug: o.debug,
     disasters: o.disasters,
+    scenario: o.scenario,
     haltAt: o.haltAt,
     hashEvery: HASH_EVERY,
     buildHash: BUILD_HASH,

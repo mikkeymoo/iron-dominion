@@ -168,6 +168,9 @@ export const SPEC = {
   // Approval, council requests and festivals (sim/council), indexed by C. A layer of its own (not scalars) so a save from before this
   // existed still loads: a missing layer reads as zeros, which is approval 50 with nothing open (the approval slot holds its offset from 50).
   council: L(Float64Array, 64, false, 'none'),
+  // Scenario state (sim/scenarios.ts, indexed by SC): which scenario or challenge runs, its modifier mask, goal, star thresholds and progress. All zeros in the
+  // sandbox. A render layer only so the ghost estimate on the main thread can read the modifier mask; it never changes after the city is created.
+  scenario: L(Float64Array, 24, true, 'none'),
 
   scalars: L(Float64Array, 48, false, 'none'),
   rng: L(Uint32Array, 4, false, 'none'),
@@ -240,6 +243,15 @@ export const S = {
   // UNIT-0 directive chain (sim/directives.ts): bit i of directiveDone is set once directive i's condition has been met (it never clears),
   // bit i of directiveClaimed once its reward was paid. `firsts` holds one-time celebrations that already fired (bit 0: the first finished building).
   directiveDone: 44, directiveClaimed: 45, firsts: 46,
+} as const;
+
+/**
+ * Indices into the `scenario` layer. ID is 0 in the sandbox, 1..SCENARIO_COUNT for a table scenario, DAILY or WEEKLY for a challenge (KEY is then its date key).
+ * T1..T3 are the goal's thresholds for one, two and three stars. STATE: 0 playing, 1 won, 2 failed. VALUE is the goal metric as last measured.
+ */
+export const SC = {
+  ID: 0, KEY: 1, MODS: 2, KIND: 3, T1: 4, T2: 5, T3: 6, LIMIT: 7, STATE: 8, STARS: 9, VALUE: 10, DONE_AT: 11, LAST_MONTH: 12,
+  STRIKES: 13, PEAK: 14, SCORE: 15, OVERRIDE: 16, ENDED_AT: 17, START_POP: 18,
 } as const;
 
 /** Indices into the `firmware` layer. */

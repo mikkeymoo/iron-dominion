@@ -1,4 +1,5 @@
 import type { Command } from './commands.ts';
+import type { ScenarioChoice } from './scenarios.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
@@ -26,6 +27,8 @@ export interface Hello {
   hashEvery?: number;
   /** The Disasters setting the city opens with: 0 off, 1 rare, 2 normal. Absent means off. */
   disasters?: number;
+  /** Open a scenario or daily/weekly challenge (sim/scenarios.ts); its seed replaces `seed`. */
+  scenario?: ScenarioChoice;
 }
 export interface Ready { type: 'ready'; protocolVersion: number; hash: number }
 export interface ErrorMsg { type: 'error'; message: string }
@@ -225,6 +228,25 @@ export interface CouncilStats {
   completed: number;
   failed: number;
 }
+/** Scenario progress for the goal chip and the results screen; null in the sandbox. `state` is 0 playing, 1 won, 2 failed (time out). */
+export interface ScenarioStats {
+  id: number;
+  /** Date key of a daily or weekly challenge, else 0. */
+  key: number;
+  kind: number;
+  mods: number;
+  state: number;
+  stars: number;
+  /** The goal metric now (the last measured one once the scenario has ended); a large sentinel when a lower-is-better goal has no figure yet. */
+  value: number;
+  /** Thresholds for one, two and three stars. */
+  targets: [number, number, number];
+  limit: number;
+  month: number;
+  monthsLeft: number;
+  score: number;
+  endedAt: number;
+}
 export interface Stats {
   type: 'stats';
   /** Up to 8 ranked problems, refreshed about every 2 s of sim time. */
@@ -271,6 +293,7 @@ export interface Stats {
   directives: DirectiveStats;
   firmware: FirmwareStats;
   council: CouncilStats;
+  scenario: ScenarioStats | null;
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }
