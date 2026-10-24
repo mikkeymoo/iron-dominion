@@ -46,6 +46,7 @@ for (const a of CATALOG) {
 const SERVICE: [number, number, number][] = [
   [ARCH.DEPOT, 90, 8], [ARCH.POWER_PLANT, 70, 70], [ARCH.WATER_PUMP, 0, 0], [ARCH.FIRE_STATION, 40, 6],
   [ARCH.SOLAR_FARM, 30, 6], [ARCH.WATER_TOWER, 0, 0], [ARCH.FUSION_REACTOR, 0, 0], [ARCH.ROBOTICS_LAB, 40, 6],
+  [ARCH.MINE, 20, 4], [ARCH.SMELTER, 60, 10], [ARCH.FACTORY, 60, 10],
 ];
 for (const [id, flam, risk] of SERVICE) { FLAMMABILITY[id] = flam; BASE_RISK[id] = risk; }
 

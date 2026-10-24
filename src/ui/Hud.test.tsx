@@ -191,7 +191,8 @@ describe('desktop HUD', () => {
     mount('desktop');
     expect(bar().getAttribute('data-layout')).toBe('desktop');
     for (const name of ['1x', '2x', '4x', 'Max', 'Follow a robot', 'Budget', 'Save', 'Menu']) expect(within(bar()).getByRole('button', { name })).toBeTruthy();
-    expect(screen.getByTestId('workforce').textContent).toMatch(/Builders 0\/2Haulers 0\/0Jobs 0Material 0/);
+    expect(screen.getByTestId('workforce').textContent).toMatch(/Builders 0\/2Haulers 0\/0Jobs 0ResourcesOre0Alloy0Components0/);
+    expect(screen.getAllByTestId('res-chip').map((c) => c.getAttribute('data-res'))).toEqual(['0', '1', '2']);
     expect(screen.getByTestId('monthly-net').textContent).toBe('+$120/mo');
     expect(screen.queryByTestId('speed-cycle')).toBeNull();
     expect(screen.queryByTestId('status-chip')).toBeNull();

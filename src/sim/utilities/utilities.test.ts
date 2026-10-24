@@ -393,6 +393,7 @@ describe('economy effects', () => {
     grow(sim, 106, 100, R1);
     grow(sim, 108, 105, R1);
     grow(sim, 108, 110, R1);
+    grow(sim, 109, 105, rciId(2, 0, 1));
     for (const [x, y] of [[104, 100], [106, 100], [108, 105], [108, 110]] as const) w.landValue[y * MAP + x] = 200;
     w.scalars[S.demandR] = 0.8;
     solveUtilities(sim);
@@ -697,6 +698,6 @@ describe('registry', () => {
       }
     }
     expect(powerUseOf(ARCH.FIRE_STATION)).toBeGreaterThan(0);
-    expect(CATALOG.filter((a) => a.unlock !== undefined).map((a) => a.name)).toEqual(['fusionReactor', 'fusionSpire', 'arcology', 'mechArena', 'spaceElevator', 'roboticsLab']);
+    expect(CATALOG.filter((a) => a.unlock !== undefined).map((a) => a.name)).toEqual(['fusionReactor', 'fusionSpire', 'arcology', 'mechArena', 'spaceElevator', 'roboticsLab', 'mine', 'smelter', 'factory']);
   });
 });

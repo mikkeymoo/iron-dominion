@@ -9,6 +9,7 @@ const SERVICE_NAMES: Record<number, string> = {
   [ARCH.CLINIC]: 'clinic', [ARCH.HOSPITAL]: 'hospital', [ARCH.SCHOOL]: 'school', [ARCH.UNIVERSITY]: 'university', [ARCH.PARK_SMALL]: 'small park',
   [ARCH.PARK_LARGE]: 'large park', [ARCH.REPAIR_BAY]: 'repair bay', [ARCH.FUSION_SPIRE]: 'fusion spire', [ARCH.ARCOLOGY]: 'arcology',
   [ARCH.MECH_ARENA]: 'mech arena', [ARCH.SPACE_ELEVATOR]: 'space elevator', [ARCH.ROBOTICS_LAB]: 'robotics lab',
+  [ARCH.MINE]: 'mine', [ARCH.SMELTER]: 'smelter', [ARCH.FACTORY]: 'component factory',
 };
 
 /** Names by zone (R, C, I) and density row (low, medium, high). High-density industry is the steel works the smog comes from. */

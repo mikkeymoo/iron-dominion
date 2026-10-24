@@ -197,6 +197,11 @@ function estimateBuilding(v: TileRead, c: Extract<CommandBody, { type: 'placeBui
   if (isLocked(tierOf(v), a.unlock ?? 0)) return fail('locked');
   const e = estimateSite(v, a, c.x, c.y, c.rot, a.cost, treasury);
   if (!e.reason && isMega(a.id) && !touchesRoad(v, a, c.x, c.y, c.rot)) e.reason = 'no-road';
+  if (!e.reason && a.needsOre) {
+    let ore = 0;
+    for (const i of e.validTiles) if (v.terrain[i] === TERRAIN.ORE) ore++;
+    if (ore * 2 < e.validTiles.length) e.reason = 'noOre';
+  }
   return e;
 }
 

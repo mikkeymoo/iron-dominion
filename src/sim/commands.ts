@@ -3,6 +3,7 @@ import { DEPOT_START_STOCK } from './robots/constants.ts';
 import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
 import { grantRp, invalidateModuleCache, researchNode, setModule, toggleEdictCard } from './firmware.ts';
 import { clearJob } from './robots/pool.ts';
+import { isChainArch, used } from './robots/stock.ts';
 import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
 import { TAX_SCALAR } from './economy/demand.ts';
@@ -180,6 +181,9 @@ export function clearBuilding(sim: Sim, slot: number): void {
   }
   w.bArch[slot] = 0; w.bX[slot] = 0; w.bY[slot] = 0; w.bW[slot] = 0; w.bH[slot] = 0;
   w.bRot[slot] = 0; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0; w.bAband[slot] = 0;
+  // Stock left in a torn-down building is gone; the chain ledger books it as used so created - used still equals what exists.
+  used(w, 0, w.bStock[slot]! + w.bIn[slot * 3]!); used(w, 1, w.bAlloy[slot]! + w.bIn[slot * 3 + 1]!); used(w, 2, w.bParts[slot]! + w.bIn[slot * 3 + 2]!);
+  w.bAlloy[slot] = 0; w.bParts[slot] = 0; w.bIn[slot * 3] = 0; w.bIn[slot * 3 + 1] = 0; w.bIn[slot * 3 + 2] = 0;
   w.bStock[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0; w.bDmg[slot] = 0; w.bHeat[slot] = 0;
   if (w.bMod[slot] !== 0) { w.bMod[slot] = 0; invalidateModuleCache(w); }
   clearJob(w, slot);
@@ -357,9 +361,11 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
   if (kind === UNDO.BUILDING) {
     const b = w.uArg[slot]!;
     if (w.bArch[b] === 0 || w.bGen[b] !== w.uGen[slot] || w.bProg[b] !== 0 || w.bLevel[b] !== 0) reject('consumed');
+    // A chain building that has produced, or been fed, holds stock a refund would print.
+    if (isChainArch(w.bArch[b]!) && (w.bStock[b]! + w.bAlloy[b]! + w.bParts[b]! + w.bIn[b * 3]! + w.bIn[b * 3 + 1]! > 0)) reject('consumed');
     // A depot whose starting stock was touched, or that already has robots, cannot be refunded: placing, using and undoing it would print material.
     if (w.bArch[b] === ARCH.DEPOT && w.bAux[b] === 1) {
-      if (w.bStock[b] !== DEPOT_START_STOCK || w.bMod[b] !== 0) reject('consumed');
+      if (w.bStock[b] !== DEPOT_START_STOCK || w.bAlloy[b] !== 0 || w.bParts[b] !== 0 || w.bMod[b] !== 0) reject('consumed');
       const ref = ((b + 1) | (w.bGen[b]! << 16)) >>> 0;
       for (let a = 0; a < RMAX; a++) if (w.aKind[a] !== 0 && w.aHome[a] === ref) reject('consumed');
     }

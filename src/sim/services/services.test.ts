@@ -255,6 +255,8 @@ describe('effects on the city', () => {
     const sim = flatSim();
     grow(sim, 100, 100, R1);
     grow(sim, 140, 100, R1);
+    grow(sim, 110, 100, rciId(2, 0, 1));
+    grow(sim, 150, 100, rciId(2, 0, 1));
     const w = sim.world;
     w.scalars[S.demandR] = 0.5;
     w.landValue[at(100, 100)] = 110; w.landValue[at(140, 100)] = 110;

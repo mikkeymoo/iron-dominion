@@ -888,7 +888,7 @@ async function workforceChecks(open, phone) {
   if (phone) { await expandTop(page); await page.locator('[data-testid="status-chip"]').click(); }
   const hud =(await page.locator('[data-testid="workforce"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
   if (phone) await page.locator('[data-testid="status-chip"]').click();
-  add('the HUD shows the workforce readout', /Builders \d+\/\d+/.test(hud) && /Haulers \d+\/\d+/.test(hud) && /Jobs \d+/.test(hud) && /Material \d+/.test(hud) ? null : JSON.stringify(hud));
+  add('the HUD shows the workforce readout', /Builders \d+\/\d+/.test(hud) && /Haulers \d+\/\d+/.test(hud) && /Jobs \d+/.test(hud) && /Ore \d+/.test(hud) && /Alloy \d+/.test(hud) && /Components \d+/.test(hud) ? null : JSON.stringify(hud));
 
   // Follow a robot: the button toggles the chase camera, the camera moves with the robot, Escape (desktop) or a tap (phone) ends it.
   const active = await until(page, () => window.__iron.render.robots.visible > 0, null, ROBOT_LIMIT_MS);
@@ -1165,6 +1165,56 @@ async function firmwareChecks(open) {
   return out;
 }
 // ---- end firmware block ----
+
+// ---- Production chain: the three HUD resource chips, a Mine on ore and a Smelter placed with the debug command, the Smelter's card (webgl2 low; desktop) ----
+async function chainChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`chain: ${name}`, problem]);
+  const page = await open(TRAFFIC_QUERY(0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
+  const site = up ? await (async () => { await until(page, () => window.__iron.tools.findSite(26) !== null, null, 20000); return page.evaluate(() => window.__iron.tools.findSite(26)); })() : null;
+  if (!site) { add('city boots with a build site', 'renderer, tools or site missing'); await page.close(); return out; }
+  const chips = await until(page, () => document.querySelectorAll('[data-testid="res-chip"]').length === 3, null, 10000);
+  const chipText = (await page.locator('[data-testid="resources"]').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+  add('the HUD shows three resource chips: Ore, Alloy and Components', chips && /Ore \d+/.test(chipText) && /Alloy \d+/.test(chipText) && /Components \d+/.test(chipText) && (await visible(page, '[data-testid="res-chip"]')) ? null : JSON.stringify(chipText));
+
+  // A 3x3 patch of ore ground if the map has one near the site (the Mine's real placement rule), else the flat site.
+  const ore = await page.evaluate(() => {
+    const t = window.__iron.tools, M = 256;
+    for (let y = 2; y < M - 4; y++) for (let x = 2; x < M - 4; x++) {
+      let n = 0, free = true;
+      for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) { if (t.peek('terrain', x + dx, y + dy) === 5) n++; if (t.peek('bId', x + dx, y + dy) !== 0 || t.peek('road', x + dx, y + dy) !== 0) free = false; }
+      if (n === 9 && free) return { x, y };
+    }
+    return null;
+  });
+  const mine = ore ?? { x: site.x + 2, y: site.y + 2 };
+  const smelter = { x: site.x + 8, y: site.y + 2 };
+  await page.evaluate(({ m, s }) => {
+    window.__iron.economy.command({ type: 'debugGrow', x: m.x, y: m.y, archetype: 48, progress: 1 });
+    window.__iron.economy.command({ type: 'debugGrow', x: s.x, y: s.y, archetype: 49, progress: 1 });
+  }, { m: mine, s: smelter });
+  const placed = await until(page, () => window.__iron.tools.buildings().filter((b) => b.arch === 48 || b.arch === 49).length === 2, null, 15000);
+  add(`a Mine (${ore ? 'on a patch of ore' : 'no 3x3 ore patch on this map, on the flat site'}) and a Smelter are placed with the debug command`, placed ? null : JSON.stringify(await page.evaluate(() => window.__iron.tools.buildings())));
+  await page.waitForTimeout(1500);
+
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 1.5, z: s.y + 1.5, dist: 36, pitch: 1.0 }), smelter);
+  const f0 = await frames(page);
+  await waitFrames(page, f0 + 6, 8000);
+  // The camera target sits on the ground at the smelter's height, so project the footprint centre at that height.
+  const at = await page.evaluate((s) => window.__iron.render.project(s.x + 1.5, window.__iron.render.camera.ty + 0.2, s.y + 1.5), smelter);
+  const box = await page.locator('canvas').first().boundingBox();
+  if (at) await page.mouse.click(box.x + at.px, box.y + at.py);
+  const card = await until(page, () => document.querySelector('[data-testid="info-card"][data-kind="building"] [data-testid="info-name"]')?.textContent === 'Smelter', null, 10000);
+  add('tapping the Smelter opens its card', card ? null : `card ${await page.locator('[data-testid="info-card"]').first().textContent().catch(() => 'missing')}, projected ${JSON.stringify(at)}`);
+  const bars = await page.locator('[data-testid="stock-bar"]').allTextContents();
+  add('the card shows stock bars for the Ore input and the Alloy output', bars.length === 2 && /Ore input/.test(bars[0]) && /Alloy output/.test(bars[1]) ? null : JSON.stringify(bars));
+  const needs = (await page.locator('[data-testid="needs"]').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+  add('and a needs line: power, ore for a batch, room for alloy', /Power/.test(needs) && /Ore: \d+ of 4 for a batch/.test(needs) && /Room for Alloy/.test(needs) ? null : JSON.stringify(needs));
+  await page.close();
+  return out;
+}
+// ---- end chain block ----
 
 // ---- Why is this happening: advisor chip, jump to an issue, tap for details (webgl2 low; desktop) ----
 // A debug city with a power plant and one house that has no line to it: the sim names the house as an unpowered building, the advisor
@@ -1598,6 +1648,7 @@ try {
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await advisorChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await starterChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await firmwareChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await chainChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

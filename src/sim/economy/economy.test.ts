@@ -498,6 +498,7 @@ describe('abandonment and level-up candidates', () => {
     grow(sim, 102, 100, R1);
     grow(sim, 104, 100, rciId(1, 0, 3));
     grow(sim, 106, 100, R1, 0.5);
+    grow(sim, 110, 100, C1);
     for (const x of [100, 102, 104, 106]) w.landValue[100 * MAP + x] = 150;
     w.landValue[100 * MAP + 102] = 180;
     w.scalars[S.demandR] = 0.5;
@@ -518,6 +519,7 @@ describe('abandonment and level-up candidates', () => {
     grow(sim, 100, 100, R1);
     grow(sim, 102, 100, R1);
     grow(sim, 104, 100, R1);
+    grow(sim, 110, 100, C1);
     for (const x of [100, 102, 104]) w.landValue[100 * MAP + x] = 150;
     w.scalars[S.demandR] = 0.5;
     expect(levelUpCandidates(sim, ZONE.R, 10).map((c) => c.x)).toEqual([100, 102, 104]);

@@ -26,6 +26,8 @@ function holdEconomy(sim: ReturnType<typeof flatSim>, demandR: number, landValue
 describe('level-up and demolition jobs', () => {
   it('rebuilds a finished building as the next level: scaffold around it, progress up, level 2 at the end', () => {
     const sim = houseTown();
+    // A home grows only with a working shop within 20 tiles.
+    expect(run(sim, { type: 'debugGrow', x: 110, y: 105, archetype: rciId(2, 0, 1), progress: 1 })).toBe(true);
     const w = sim.world;
     const slot = w.bId[105 * MAP + 100]! - 1;
     const progress: number[] = [];

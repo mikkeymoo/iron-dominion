@@ -99,8 +99,11 @@ export interface Workforce {
   builders: number; haulers: number; activeBuilders: number; activeHaulers: number;
   /** Construction, level-up and demolition jobs in progress. */
   jobs: number;
-  /** Material units held by depots and industry. */
+  /** Ore units held by depots, mines and industry (the old "material"). */
   stock: number;
+  /** Alloy and Components held by depots and the Smelters and Factories that make them (production chain, sim/robots/chain.ts). */
+  alloy: number;
+  parts: number;
 }
 /** Traffic numbers for the HUD: vehicles on the road, smoothed congestion 0..1 (1 - mean speed / free-flow speed), percent of recent commutes that failed, and trip totals. */
 export interface TrafficStats { vehicles: number; congestion: number; failedPct: number; trips: number; failedTrips: number }
@@ -144,7 +147,7 @@ export interface MilestoneStats {
 }
 /** What the advisor can ask the player to look at. 'budget' issues have no tile worth flying to. */
 export type IssueKind =
-  | 'fire' | 'budget' | 'depot' | 'power' | 'water' | 'stuck' | 'jobs' | 'commute' | 'crime' | 'noFire' | 'noLand' | 'abandoned';
+  | 'fire' | 'budget' | 'depot' | 'power' | 'water' | 'stuck' | 'jobs' | 'commute' | 'crime' | 'noFire' | 'noLand' | 'abandoned' | 'resource' | 'needs';
 export type IssueCategory = 'safety' | 'economy' | 'utilities' | 'robots' | 'growth' | 'services';
 /** Overlay modes an issue can switch the view to (a subset of render/viewState OverlayMode). */
 export type IssueOverlay = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | 'traffic' | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks';
@@ -244,6 +247,10 @@ export interface RequestInfo { type: 'requestInfo'; id: number; kind: InfoKind; 
 export type ThoughtTone = 'good' | 'warn' | 'bad';
 /** One named cause or fact shown on a building card; `overlay` is the view that shows it on the map. */
 export interface Thought { text: string; tone: ThoughtTone; overlay?: IssueOverlay }
+/** One stock gauge on a building card: units held of resource `res` (0 Ore, 1 Alloy, 2 Components) out of `cap`. `in` is an input buffer, `out` finished output, `stock` a depot's store. */
+export interface StockBar { res: number; role: 'in' | 'out' | 'stock'; have: number; cap: number }
+/** One line of a building's needs checklist: what it asks of the city to work or to grow, and whether the city provides it now. */
+export interface NeedItem { text: string; ok: boolean }
 export interface BuildingInfo {
   kind: 'building';
   slot: number;
@@ -260,6 +267,10 @@ export interface BuildingInfo {
   residents: number;
   jobs: number;
   thoughts: Thought[];
+  /** Mines, Smelters, Factories and depots: what they hold, as gauges. */
+  stocks?: StockBar[];
+  /** Mines, Smelters, Factories: what they need to run now. Grown buildings below level 3: what they need to level up. */
+  needs?: NeedItem[];
   /** Depots only: the road distance robots work from it, and who lives there. */
   depot?: { radius: number; builders: number; haulers: number; stock: number; /** Robots the depot keeps (base, firmware and modules), and its two module codes (sim/firmware.ts MODULE). */ builderCap: number; haulerCap: number; droneCap: number; modules: [number, number] };
 }

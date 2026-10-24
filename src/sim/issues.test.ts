@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, BFLAG } from './catalog.ts';
+import { ARCH, BFLAG, rciId } from './catalog.ts';
 import { createSim, restore, snapshot, stateHash } from './engine.ts';
 import { deriveIssues, ISSUE_PERIOD, issuesOf, invalidateIssues, MAX_ISSUES } from './issues.ts';
 import { BMAX, MAP, RMAX, S } from './layers.ts';
@@ -37,6 +37,7 @@ function healthyTown(): Sim {
   depot(sim, 98, 100);
   expect(run(sim, { type: 'placeBuilding', arch: ARCH.POWER_PLANT, x: 100, y: 100, rot: 0 })).toBe(true);
   for (const x of [104, 105, 106, 113, 114]) grow(sim, x, 100);
+  grow(sim, 115, 100, rciId(2, 0, 1));
   expect(run(sim, { type: 'placeBuilding', arch: ARCH.FIRE_STATION, x: 107, y: 100, rot: 0 })).toBe(true);
   expect(run(sim, { type: 'placeBuilding', arch: ARCH.POLICE, x: 110, y: 100, rot: 0 })).toBe(true);
   expect(run(sim, { type: 'placeBuilding', arch: ARCH.WATER_PUMP, x: 104, y: 104, rot: 0 })).toBe(true);

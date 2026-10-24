@@ -51,6 +51,44 @@ export const PRODUCE_PERIOD = 40;
 export const INDUSTRY_STOCK_CAP = 60;
 export const HAUL_CAP = 4;
 
+// ---- Production chains (robots/chain.ts) ----
+/** Resource ids: Ore is the old "material" (bStock), Alloy and Components have layers of their own. A job asks ceil(materialFor / 2^res) units. */
+export const RES = { ORE: 0, ALLOY: 1, PARTS: 2 } as const;
+export const RES_COUNT = 3;
+export const RES_NAMES = ['Ore', 'Alloy', 'Components'] as const;
+/** aRes bit: the hauler is moving stock between buildings (a transfer) rather than delivering to a job. The low bits are the resource. */
+export const TRANSFER_BIT = 0x80;
+export const resUnits = (material: number, res: number): number => Math.ceil(material / (1 << res));
+/** Resource a level-up into `level` consumes: Ore for 1, Alloy for 2, Components for 3. */
+export const resOfLevel = (level: number): number => (level >= 3 ? RES.PARTS : level === 2 ? RES.ALLOY : RES.ORE);
+/** Indices into the `chain` layer. */
+export const CH = { EXPORT: 0, MADE: 1, USED: 4 } as const;
+export const CHAIN_PERIOD = 40;
+export const MINE_OUT = 6;
+export const SMELT_IN = 4;
+export const SMELT_OUT = 2;
+export const FACTORY_IN = 2;
+export const FACTORY_OUT = 1;
+export const OUTPUT_CAP = 40;
+/** Input buffer capacity by resource, for the Smelter (Ore) and the Factory (Alloy). */
+export const SMELTER_BUFFER = 16;
+export const FACTORY_BUFFER = 8;
+/** Per-resource money for a unit that overflows a full output (sold), and for a unit a depot imports when robots lack it. */
+export const SELL_PRICE = [2, 6, 14] as const;
+export const IMPORT_PRICE = [IMPORT_COST, 10, 28] as const;
+/** Restocking: a Smelter asks for Ore up to SMELTER_TARGET, a Factory for Alloy up to FACTORY_TARGET, a depot for each resource up to DEPOT_TARGET. */
+export const SMELTER_TARGET = 12;
+export const FACTORY_TARGET = 6;
+export const DEPOT_TARGET = 32;
+/** A depot gives up stock for transfers only above this reserve (jobs may still drain it). */
+export const DEPOT_RESERVE = 24;
+export const GOODS_PERIOD = 600;
+/** Manhattan reach of a commercial lot to its goods supplier, and of a home to a shop (zone needs). */
+export const GOODS_REACH = 40;
+export const NEEDS_REACH = 20;
+/** Level-ups needing a scarce resource start only while fewer than this many jobs of that kind are live (or stock covers the need). */
+export const CHAIN_JOBS_FREE = 2;
+
 /**
  * Road tiles a depot works from. Advisory only (the robots path anywhere connected): jobs beyond it are called slow, and the
  * depot tool tints the reach. Changing it never changes the sim.

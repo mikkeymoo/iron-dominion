@@ -3,6 +3,7 @@
 import { ARCH, RCI_BASE } from '../../sim/catalog.ts';
 import { CELL, cellUv } from './atlas.ts';
 import { Geo, hex, Rng, shade, SLOT, type Rect, type RGB } from './geo.ts';
+import { CHAIN_RECIPES } from './chainRecipes.ts';
 import { MEGA_RECIPES } from './mega.ts';
 import {
   acUnit, antenna, awning, bush, coolingTower, cornice, dockDoors, FACE, facade, fence, flatRoof, groundPatch, helipad, pipeRack,
@@ -898,6 +899,7 @@ const roboticsLab: Recipe = (c) => {
 
 export const RECIPES: Readonly<Record<number, Recipe>> = {
   ...MEGA_RECIPES,
+  ...CHAIN_RECIPES,
   [ARCH.ROBOTICS_LAB]: roboticsLab,
   [ARCH.DEPOT]: depot, [ARCH.POWER_PLANT]: powerPlant, [ARCH.WATER_PUMP]: waterPump, [ARCH.FIRE_STATION]: fireStation,
   [ARCH.SOLAR_FARM]: solarFarm, [ARCH.WATER_TOWER]: waterTower, [ARCH.FUSION_REACTOR]: fusionReactor,

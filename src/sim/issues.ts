@@ -1,13 +1,14 @@
 import { ARCH, BFLAG } from './catalog.ts';
 import {
-  BANKRUPT_MONTHS, CRIME_TOLERANCE, computeBudget, footprintMean, growthCandidates, isOperating, reachAnchors, zoneDemand, zoneOfArch,
+  BANKRUPT_MONTHS, CRIME_TOLERANCE, computeBudget, footprintMean, growthCandidates, isOperating, needsOf, reachAnchors, shopCentres, zoneDemand, zoneOfArch,
 } from './economy/index.ts';
 import { mods } from './firmware.ts';
 import { archLabel, capitalise } from './labels.ts';
 import { BMAX, MAP, RMAX, S, TILES, type World } from './layers.ts';
 import type { Issue, IssueCategory, IssueKind, IssueOverlay } from './protocol.ts';
-import { AKIND, AST, BUILDER_COST, DEPOT_WORK_RADIUS, SPAWN_RESERVE } from './robots/constants.ts';
+import { AKIND, AST, BUILDER_COST, DEPOT_WORK_RADIUS, JOB, RES, RES_COUNT, RES_NAMES, SPAWN_RESERVE } from './robots/constants.ts';
 import { available, countAgents, disasterOwned, nearestTileOf } from './robots/pool.ts';
+import { reachableStock } from './robots/stock.ts';
 import { nearestRoad, roadFlow, roadsOf, UNREACHED, type RoadNet } from './roads/index.ts';
 import { COVERED_MIN, crimeOf, footprintMax } from './services/index.ts';
 import type { Sim } from './world.ts';
@@ -35,7 +36,9 @@ const GAP_REACH = 12;
 /** Months of cash left (at the running month's net) under which the advisor warns before the treasury goes negative. */
 const RUNWAY_MONTHS = 4;
 
-const KIND_ORDER: readonly IssueKind[] = ['fire', 'budget', 'depot', 'power', 'water', 'stuck', 'jobs', 'commute', 'crime', 'noFire', 'noLand', 'abandoned'];
+const KIND_ORDER: readonly IssueKind[] = ['fire', 'budget', 'depot', 'power', 'water', 'stuck', 'jobs', 'resource', 'commute', 'crime', 'noFire', 'noLand', 'abandoned', 'needs'];
+/** Buildings stuck for the same missing thing before the advisor says so. */
+const NEEDS_MIN = 3;
 const ZONE_WORD = ['', 'homes', 'shops', 'industry'] as const;
 const ZONE_BUILDING = ['', 'residential', 'commercial', 'industrial'] as const;
 
@@ -215,7 +218,7 @@ function jobsIssue(sim: Sim, net: RoadNet, c: Census, anchors: readonly number[]
     const wants = w.jKind[s] !== 3 && w.jNeed[s]! > w.jHave[s]! + w.jInbound[s]!;
     let cause: StallCause | null = null;
     if (w.jStuck[s]! > 0) cause = 'road';
-    else if (wants && stock === 0) cause = 'material';
+    else if (wants && w.jRes[s] === 0 && stock === 0) cause = 'material';
     else if (crew.builders === 0) cause = 'builders';
     else if (wants && crew.haulers === 0) cause = 'haulers';
     else if (reach[w.jAccess[s]!] === UNREACHED) cause = 'far';
@@ -236,6 +239,54 @@ function jobsIssue(sim: Sim, net: RoadNet, c: Census, anchors: readonly number[]
   }[cause];
   const severity = { road: 55, material: 50, builders: broke ? 55 : 45, haulers: broke ? 55 : 45, far: 30 }[cause];
   return make('jobs', 'robots', severity + Math.min(20, n * 2), n, centreOf(w, site), text, 'none');
+}
+
+/** One issue per scarce resource (Alloy, Components): the jobs that still want more than the depots and producers hold. */
+function resourceIssues(w: World): Issue[] {
+  const out: Issue[] = [];
+  for (let res = RES.ALLOY; res < RES_COUNT; res++) {
+    let n = 0, first = -1, short = 0;
+    for (let s = 0; s < BMAX; s++) {
+      if (w.bArch[s] === 0 || w.jGen[s] !== w.bGen[s] || (w.jKind[s] !== JOB.BUILD && w.jKind[s] !== JOB.LEVEL) || w.jRes[s] !== res) continue;
+      const left = w.jNeed[s]! - w.jHave[s]! - w.jInbound[s]!;
+      if (left <= 0) continue;
+      n++; short += left;
+      if (first < 0) first = s;
+    }
+    if (n === 0 || reachableStock(w, res) >= short) continue;
+    const fix = res === RES.ALLOY ? 'Build a Mine and a Smelter' : 'Build a Factory';
+    out.push(make('resource', 'robots', 52 + Math.min(20, n * 2), n, centreOf(w, first), `${RES_NAMES[res]} shortage blocks ${plural(n, 'upgrade', 'upgrades')}. ${fix}, or depots import it slowly.`, 'none', `resource-${res}`));
+  }
+  return out;
+}
+
+const NEED_TEXT: Record<string, [string, string, IssueOverlay]> = {
+  services: ['home wants a clinic or school', 'homes want a clinic or school', 'health'],
+  shop: ['home wants a shop nearby', 'homes want a shop nearby', 'none'],
+  goods: ['shop needs components for its goods', 'shops need components for their goods: build a Factory or stock a depot', 'none'],
+};
+
+/** Buildings that cannot level up for want of something the city could build (a clinic, a shop, a Factory): grouped by what is missing. */
+function needsIssues(w: World): Issue[] {
+  const shops = shopCentres(w);
+  const count: Record<string, number> = { services: 0, shop: 0, goods: 0 }, first: Record<string, number> = { services: -1, shop: -1, goods: -1 };
+  const hit = (key: string, s: number): void => { count[key]!++; if (first[key]! < 0) first[key] = s; };
+  for (let s = 0; s < BMAX; s++) {
+    const z = zoneOfArch(w.bArch[s]!);
+    if ((z !== 1 && z !== 2) || !finished(w, s) || !isOperating(w, s) || w.bLevel[s]! >= 3) continue;
+    for (const n of needsOf(w, s, shops)) {
+      if (n.ok || n.id === 'power' || n.id === 'water') continue;
+      hit(n.id === 'shop' ? 'shop' : n.id === 'goods' ? 'goods' : 'services', s);
+    }
+  }
+  const out: Issue[] = [];
+  for (const key of ['services', 'shop', 'goods']) {
+    const n = count[key]!;
+    if (n < NEEDS_MIN) continue;
+    const [one, many, overlay] = NEED_TEXT[key]!;
+    out.push(make('needs', 'growth', 28 + Math.min(20, n), n, centreOf(w, first[key]!), `${n} ${n === 1 ? one : many}.`, overlay, `needs-${key}`));
+  }
+  return out;
 }
 
 function commuteIssue(w: World): Issue | null {
@@ -320,7 +371,7 @@ export function deriveIssues(sim: Sim): Issue[] {
     fireIssue(w), budgetIssue(w), depotIssue(sim, c, anchors),
     outageIssue(w, BFLAG.UNPOWERED, w.powerOn, 'power'), outageIssue(w, BFLAG.UNWATERED, w.waterOn, 'water'),
     stuckIssue(sim, net), jobsIssue(sim, net, c, anchors), commuteIssue(w), crimeIssue(w), fireCoverIssue(w), abandonedIssue(w),
-    ...landIssues(sim, c),
+    ...landIssues(sim, c), ...resourceIssues(w), ...needsIssues(w),
   ];
   const list = found.filter((i): i is Issue => i !== null);
   list.sort((a, b) => b.severity - a.severity || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || (a.y * MAP + a.x) - (b.y * MAP + b.x) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

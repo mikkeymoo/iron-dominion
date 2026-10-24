@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DirectiveStats, FirmwareStats, LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { DemandBars } from './DemandBars';
+import { ResourceChips } from './ChainUi';
 import { FirmwareMenuRows } from './FirmwarePanels';
 import { UtilityBars } from './UtilityBars';
 import { InstallMenuItem } from './PwaUi';
@@ -63,7 +64,7 @@ export interface HudStats {
   firmware?: FirmwareStats;
 }
 
-export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
+export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0, alloy: 0, parts: 0 };
 
 interface Props {
   lifecycle: Lifecycle;
@@ -125,7 +126,7 @@ function WorkforceReadout({ w, depots }: { w: Workforce; depots: number }) {
       <span>Builders {w.activeBuilders}/{w.builders}</span>
       <span>Haulers {w.activeHaulers}/{w.haulers}</span>
       <span>Jobs {w.jobs}</span>
-      <span>Material {w.stock}</span>
+      <ResourceChips workforce={w} />
     </div>
   );
 }

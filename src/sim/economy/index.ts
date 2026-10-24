@@ -11,6 +11,7 @@ import { refreshTotals } from './totals.ts';
 export * from './budget.ts';
 export * from './demand.ts';
 export * from './lots.ts';
+export * from './needs.ts';
 export * from './overlays.ts';
 export * from './tables.ts';
 export * from './totals.ts';

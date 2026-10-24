@@ -166,6 +166,19 @@ export const SPEC = {
   // A layer of its own (not scalars) so a save from before this existed still loads: a missing layer reads as zeros.
   firmware: L(Float64Array, 8, false, 'none'),
 
+  // Production chains (sim/robots/chain.ts). Resource 0 is Ore (bStock, as before), 1 Alloy, 2 Components. A layer missing from an older
+  // save reads as zeros, so a city that never builds a Mine, Smelter or Factory plays exactly as it did.
+  // jRes: resource a job asks for. aRes: resource a hauler carries (bit 7 set = a transfer between buildings, not a job delivery).
+  jRes: L(Uint8Array, BMAX, false, 'none'),
+  aRes: L(Uint8Array, RMAX, false, 'none'),
+  bAlloy: L(Uint16Array, BMAX, false, 'none'),
+  bParts: L(Uint16Array, BMAX, false, 'none'),
+  // Input buffer of a Smelter (Ore) or Factory (Alloy): index slot * 3 + resource.
+  bIn: L(Uint16Array, BMAX * 3, false, 'none'),
+  // [0] export income accrued in the running month (paid into industrial income at month close), [1..3] units ever created per
+  // resource, [4..6] units ever consumed or sold per resource: stock + carried = created - consumed, which the tests check every tick.
+  chain: L(Float64Array, 8, false, 'none'),
+
   scalars: L(Float64Array, 48, false, 'none'),
   rng: L(Uint32Array, 4, false, 'none'),
   // Disasters (sim/disasters): the mode and the pending meteor live in `disaster` (see D), randomness in its own stream so that

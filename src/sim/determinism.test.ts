@@ -24,8 +24,8 @@ interface Golden {
   traffic: { ticks: number; hash: number };
 }
 
-/** The two layers firmware added (bMod, firmware). */
-const FIRMWARE_LAYERS = new Set(['bMod', 'firmware']);
+/** The two layers firmware added (bMod, firmware), and the production chain's six (jRes, aRes, bAlloy, bParts, bIn, chain). */
+const FIRMWARE_LAYERS = new Set(['bMod', 'firmware', 'jRes', 'aRes', 'bAlloy', 'bParts', 'bIn', 'chain']);
 const legacyHash = (sim: Sim): number => hashWorld(sim.world, (name) => !FIRMWARE_LAYERS.has(name));
 
 function compute(): Golden & { legacy: { scripted: number; idle: number; traffic: number } } {

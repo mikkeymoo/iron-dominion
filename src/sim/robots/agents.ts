@@ -6,18 +6,20 @@ import { lotAccess, nearestRoad, type RoadNet } from '../roads/index.ts';
 import type { Sim } from '../world.ts';
 import { buildSpeed, depotCaps, mods } from '../firmware.ts';
 import {
-  AKIND, AST, BUILDER_COST, DEMOLISH_SPEED, HAULER_COST, HOMELESS_TICKS, JOB, JOB_MAX,
-  DISPATCH_MAX, REASSIGN_PERIOD, SITE_WALK, SPAWN_RESERVE, rateFor,
+  AKIND, AST, BUILDER_COST, DEMOLISH_SPEED, DEPOT_RESERVE, DEPOT_STOCK_CAP, DEPOT_TARGET, FACTORY_TARGET, HAULER_COST, HOMELESS_TICKS, JOB, JOB_MAX,
+  DISPATCH_MAX, REASSIGN_PERIOD, RES, RES_COUNT, SITE_WALK, SMELTER_TARGET, SPAWN_RESERVE, TRANSFER_BIT, rateFor,
 } from './constants.ts';
+import { bufferCap } from './chain.ts';
 import { dropPath, startTrip, stepAgent } from './move.ts';
 import { SPEND, available, despawnAgent, homeSlot, jobSlot, liveSlot, nearestTileOf, refOf, spawnAgent } from './pool.ts';
+import { finishedStore, isChainArch, producedBy, stockLayer, used } from './stock.ts';
 
 const manhattan = (a: number, b: number): number => Math.abs((a & (MAP - 1)) - (b & (MAP - 1))) + Math.abs((a >> 8) - (b >> 8));
 
 export const depotAccess = (net: RoadNet, w: World, s: number): number => lotAccess(net, w.bX[s]!, w.bY[s]!, w.bW[s]!, w.bH[s]!);
 
 function park(w: World, a: number, depot: number): void {
-  w.aState[a] = AST.IDLE; w.aTarget[a] = 0; w.aCarry[a] = 0; w.aSrc[a] = 0; w.aWait[a] = 0; w.aTry[a] = 0;
+  w.aState[a] = AST.IDLE; w.aTarget[a] = 0; w.aCarry[a] = 0; w.aSrc[a] = 0; w.aWait[a] = 0; w.aTry[a] = 0; w.aRes[a] = 0;
   dropPath(w, a);
   if (depot >= 0) {
     w.aX[a] = w.bX[depot]! + w.bW[depot]! / 2; w.aY[a] = w.bY[depot]! + w.bH[depot]! / 2;
@@ -46,15 +48,25 @@ function adoptiveDepot(net: RoadNet, w: World, from: number): number {
 
 /** Drop the current task and head for a depot: the home depot, or the nearest connected one when home is gone. */
 export function goHome(net: RoadNet, w: World, a: number): void {
-  // Material still on board was reserved for its job: release the reservation and put the units back where they came from.
+  // Material still on board was reserved for its job (or for a transfer): release the reservation and put the units back where they came from.
+  // Units with nowhere to go back to (the source was torn down) are gone; the ledger books them as used.
   const carried = w.aCarry[a]!;
   if (carried > 0) {
-    const j = jobSlot(w, a);
-    if (j >= 0) w.jInbound[j] = Math.max(0, w.jInbound[j]! - carried);
+    const res = w.aRes[a]! & 3;
+    if ((w.aRes[a]! & TRANSFER_BIT) === 0) {
+      const j = jobSlot(w, a);
+      if (j >= 0 && w.jRes[j] === res) w.jInbound[j] = Math.max(0, w.jInbound[j]! - carried);
+    }
     const src = liveSlot(w, w.aSrc[a]!);
-    if (src >= 0) w.bStock[src] = Math.min(0xffff, w.bStock[src]! + carried);
+    let back = 0;
+    if (src >= 0) {
+      const layer = stockLayer(w, res);
+      back = Math.min(carried, 0xffff - layer[src]!);
+      layer[src]! += back;
+    }
+    used(w, res, carried - back);
   }
-  w.aTarget[a] = 0; w.aCarry[a] = 0; w.aSrc[a] = 0;
+  w.aTarget[a] = 0; w.aCarry[a] = 0; w.aSrc[a] = 0; w.aRes[a] = 0;
   const from = roadUnder(net, w, a);
   if (from < 0) { park(w, a, -1); w.aWait[a] = 0; return; }
   // Step off the lot onto the road at once so a robot in transit is never drawn on the building.
@@ -112,6 +124,40 @@ function work(sim: Sim, net: RoadNet, w: World, a: number): void {
   if (w.jProg[j]! < limit) w.jProg[j] = Math.min(limit, w.jProg[j]! + rate);
 }
 
+/**
+ * Road tile a hauler is delivering to, or -1 when its destination is gone: the job it serves ended, or the building it restocks was
+ * torn down or has no road. A job delivery heads for the job's access road, a transfer for its target building's door.
+ */
+function destinationOf(net: RoadNet, w: World, a: number): number {
+  if ((w.aRes[a]! & TRANSFER_BIT) === 0) {
+    const j = jobSlot(w, a);
+    return j < 0 ? -1 : w.jAccess[j]!;
+  }
+  const t = liveSlot(w, w.aTarget[a]!);
+  return t < 0 || !finishedStore(w, t) ? -1 : lotAccess(net, w.bX[t]!, w.bY[t]!, w.bW[t]!, w.bH[t]!);
+}
+
+/** destinationOf without the road search, for the per-tick check that a loaded hauler still has somewhere to go. */
+function destinationAlive(w: World, a: number): boolean {
+  if ((w.aRes[a]! & TRANSFER_BIT) === 0) return jobSlot(w, a) >= 0;
+  const t = liveSlot(w, w.aTarget[a]!);
+  return t >= 0 && finishedStore(w, t);
+}
+
+/** Put what a transfer hauler carries into the target building, as far as it fits; returns the units taken. The rest goes back with the hauler. */
+function deposit(w: World, t: number, res: number, n: number): number {
+  const arch = w.bArch[t]!;
+  if (arch === ARCH.DEPOT) {
+    const layer = stockLayer(w, res), take = Math.max(0, Math.min(n, DEPOT_STOCK_CAP - layer[t]!));
+    layer[t]! += take;
+    return take;
+  }
+  const cap = bufferCap(arch, res);
+  const take = Math.max(0, Math.min(n, cap - w.bIn[t * 3 + res]!));
+  w.bIn[t * 3 + res]! += take;
+  return take;
+}
+
 /** A trip that cannot find a path this many times in a row is abandoned and the robot goes home instead. */
 const GIVE_UP_TRIES = 6;
 
@@ -141,21 +187,28 @@ export function updateAgent(sim: Sim, net: RoadNet, a: number): void {
     case AST.TO_PICKUP: {
       if (w.aTry[a]! >= GIVE_UP_TRIES) { goHome(net, w, a); break; }
       if (stepAgent(net, w, a) !== 'arrived') break;
-      const j = jobSlot(w, a);
-      if (j < 0) { goHome(net, w, a); break; }
+      const dest = destinationOf(net, w, a);
+      if (dest < 0) { goHome(net, w, a); break; }
       w.aState[a] = AST.HAUL;
-      startTrip(net, w, a, w.aGoal[a]!, w.jAccess[j]!);
+      startTrip(net, w, a, w.aGoal[a]!, dest);
       break;
     }
     case AST.HAUL: {
-      if (jobSlot(w, a) < 0 || w.aTry[a]! >= GIVE_UP_TRIES) { goHome(net, w, a); break; }
+      if (!destinationAlive(w, a) || w.aTry[a]! >= GIVE_UP_TRIES) { goHome(net, w, a); break; }
       if (stepAgent(net, w, a) !== 'arrived') break;
-      const j = jobSlot(w, a);
-      if (j >= 0 && (w.jKind[j] === JOB.BUILD || w.jKind[j] === JOB.LEVEL)) {
-        const c = w.aCarry[a]!;
-        w.jHave[j] = Math.min(0xffff, w.jHave[j]! + c);
-        w.jInbound[j] = Math.max(0, w.jInbound[j]! - c);
-        w.aCarry[a] = 0;
+      const res = w.aRes[a]! & 3;
+      if ((w.aRes[a]! & TRANSFER_BIT) !== 0) {
+        const t = liveSlot(w, w.aTarget[a]!);
+        if (t >= 0) w.aCarry[a] = w.aCarry[a]! - deposit(w, t, res, w.aCarry[a]!);
+      } else {
+        const j = jobSlot(w, a);
+        if (j >= 0 && (w.jKind[j] === JOB.BUILD || w.jKind[j] === JOB.LEVEL) && w.jRes[j] === res) {
+          const c = w.aCarry[a]!;
+          w.jHave[j] = Math.min(0xffff, w.jHave[j]! + c);
+          w.jInbound[j] = Math.max(0, w.jInbound[j]! - c);
+          w.aCarry[a] = 0;
+          used(w, res, c);
+        }
       }
       goHome(net, w, a);
       break;
@@ -201,6 +254,8 @@ export function dispatch(sim: Sim, net: RoadNet): void {
   const w = sim.world, m = mods(w);
   const idleB: number[] = [], idleH: number[] = [];
   const assigned = new Map<number, number>();
+  // Units already on their way to a building that restocks (target slot * 3 + resource), so one shortfall is not served twice.
+  const inbound = new Map<number, number>();
   for (let a = 0; a < RMAX; a++) {
     const k = w.aKind[a]!, st = w.aState[a]!;
     if (k !== AKIND.BUILDER && k !== AKIND.HAULER) continue;
@@ -210,12 +265,15 @@ export function dispatch(sim: Sim, net: RoadNet): void {
     } else if (k === AKIND.BUILDER && (st === AST.TO_SITE || st === AST.WORK)) {
       const j = jobSlot(w, a);
       if (j >= 0) assigned.set(j, (assigned.get(j) ?? 0) + 1);
+    } else if (k === AKIND.HAULER && (w.aRes[a]! & TRANSFER_BIT) !== 0 && (st === AST.TO_PICKUP || st === AST.HAUL)) {
+      const t = liveSlot(w, w.aTarget[a]!);
+      if (t >= 0) { const key = t * 3 + (w.aRes[a]! & 3); inbound.set(key, (inbound.get(key) ?? 0) + w.aCarry[a]!); }
     }
   }
   if (idleB.length === 0 && idleH.length === 0) return;
   const jobs: number[] = [];
   for (let s = 0; s < BMAX; s++) if (w.jKind[s] !== 0) jobs.push(s);
-  if (jobs.length === 0) return;
+  if (jobs.length === 0 && idleH.length === 0) return;
   let budget = DISPATCH_MAX;
   const doors = new Map<number, number>();
   const doorOf = (depot: number): number => {
@@ -247,18 +305,22 @@ export function dispatch(sim: Sim, net: RoadNet): void {
   }
   if (idleH.length === 0 || budget <= 0) return;
 
-  let sources: Source[] | undefined;
-  const sourcesNow = (): Source[] => {
-    if (sources) return sources;
-    sources = [];
+  // Buildings a hauler may take a resource from for a job: depots, the producer of that resource and, for Ore, working industry.
+  const sources: (Source[] | undefined)[] = [];
+  const sourcesFor = (res: number): Source[] => {
+    const have = sources[res];
+    if (have) return have;
+    const out: Source[] = [], layer = stockLayer(w, res);
     for (let s = 0; s < BMAX; s++) {
       const arch = w.bArch[s]!;
-      if (w.bStock[s] === 0 || arch === 0) continue;
-      if (arch !== ARCH.DEPOT && !(zoneOfArch(arch) === ZONE.I && isOperating(w, s))) continue;
+      if (layer[s] === 0 || arch === 0) continue;
+      const ok = arch === ARCH.DEPOT || (producedBy(arch) === res && finishedStore(w, s)) || (res === RES.ORE && zoneOfArch(arch) === ZONE.I && isOperating(w, s));
+      if (!ok) continue;
       const acc = depotAccess(net, w, s);
-      if (acc >= 0) sources.push({ slot: s, acc });
+      if (acc >= 0) out.push({ slot: s, acc });
     }
-    return sources;
+    sources[res] = out;
+    return out;
   };
 
   // A hauler serves sites within the depot work radius. A site no depot reaches that way is served by anyone, so nothing is stranded.
@@ -270,7 +332,7 @@ export function dispatch(sim: Sim, net: RoadNet): void {
 
   for (const j of jobs) {
     if (w.jKind[j] === JOB.DEMOLISH) continue;
-    const target = w.jAccess[j]!;
+    const target = w.jAccess[j]!, res = w.jRes[j]!, layer = stockLayer(w, res);
     let covered: boolean | undefined;
     while (budget > 0 && idleH.length > 0) {
       const remaining = w.jNeed[j]! - w.jHave[j]! - w.jInbound[j]!;
@@ -281,8 +343,8 @@ export function dispatch(sim: Sim, net: RoadNet): void {
         const home = doorOf(homeSlot(w, idleH[i]!));
         if (home < 0 || !net.connected(home, target)) continue;
         if (manhattan(home, target) > m.workRadius && (covered ??= nearDepot(target))) continue;
-        for (const src of sourcesNow()) {
-          if (w.bStock[src.slot] === 0 || !net.connected(home, src.acc)) continue;
+        for (const src of sourcesFor(res)) {
+          if (layer[src.slot] === 0 || !net.connected(home, src.acc)) continue;
           const c = manhattan(home, src.acc) + manhattan(src.acc, target);
           if (c < bestCost) { bestCost = c; bi = i; bestSrc = src; bestHome = home; }
         }
@@ -290,13 +352,80 @@ export function dispatch(sim: Sim, net: RoadNet): void {
       if (bi < 0 || !bestSrc) break;
       const a = idleH.splice(bi, 1)[0]!;
       budget--;
-      const units = Math.min(m.haulCap, remaining, w.bStock[bestSrc.slot]!);
+      const units = Math.min(m.haulCap, remaining, layer[bestSrc.slot]!);
       const toPickup = bestSrc.acc !== bestHome;
       if (!startTrip(net, w, a, bestHome, toPickup ? bestSrc.acc : target)) continue;
-      w.bStock[bestSrc.slot]! -= units;
+      layer[bestSrc.slot]! -= units;
       w.jInbound[j]! += units;
       w.aState[a] = toPickup ? AST.TO_PICKUP : AST.HAUL;
-      w.aTarget[a] = refOf(w, j); w.aCarry[a] = units; w.aSrc[a] = refOf(w, bestSrc.slot);
+      w.aTarget[a] = refOf(w, j); w.aCarry[a] = units; w.aSrc[a] = refOf(w, bestSrc.slot); w.aRes[a] = res;
+    }
+  }
+  if (budget > 0 && idleH.length > 0) restock(sim, net, idleH, budget, inbound, doorOf, sourcesFor);
+}
+
+interface Want { slot: number; res: number; units: number }
+
+/**
+ * Transfers, after construction has been served: producers and depots above their reserve send stock to the buildings that run low.
+ * A Smelter wants Ore up to SMELTER_TARGET, a Factory Alloy up to FACTORY_TARGET, a depot every resource up to DEPOT_TARGET; a
+ * depot takes only from producers, never from another depot. Nothing happens in a city without a Mine, Smelter or Factory.
+ */
+function restock(
+  sim: Sim, net: RoadNet, idleH: number[], budget: number, inbound: Map<number, number>,
+  doorOf: (depot: number) => number, sourcesFor: (res: number) => Source[],
+): void {
+  const w = sim.world, m = mods(w);
+  const chain: Want[] = [], depots: Want[] = [];
+  let anyChain = false;
+  for (let s = 0; s < BMAX; s++) {
+    const arch = w.bArch[s]!;
+    if (arch === 0) continue;
+    if (isChainArch(arch)) anyChain = true;
+    if (!finishedStore(w, s)) continue;
+    if (arch === ARCH.SMELTER || arch === ARCH.FACTORY) {
+      const res = arch === ARCH.SMELTER ? RES.ORE : RES.ALLOY, target = arch === ARCH.SMELTER ? SMELTER_TARGET : FACTORY_TARGET;
+      const units = target - w.bIn[s * 3 + res]! - (inbound.get(s * 3 + res) ?? 0);
+      if (units > 0) chain.push({ slot: s, res, units });
+    } else if (arch === ARCH.DEPOT) {
+      for (let res = 0; res < RES_COUNT; res++) {
+        const units = DEPOT_TARGET - stockLayer(w, res)[s]! - (inbound.get(s * 3 + res) ?? 0);
+        if (units > 0) depots.push({ slot: s, res, units });
+      }
+    }
+  }
+  if (!anyChain) return;
+  for (const want of [...chain, ...depots]) {
+    if (budget <= 0 || idleH.length === 0) return;
+    const { slot: t, res } = want;
+    const door = depotAccess(net, w, t);
+    if (door < 0) continue;
+    const layer = stockLayer(w, res), toDepot = w.bArch[t] === ARCH.DEPOT;
+    // What a source can spare: a producer all it holds, a depot (only when the target is not a depot) what it holds above its reserve.
+    const spare = (s: number): number => (w.bArch[s] === ARCH.DEPOT ? Math.max(0, layer[s]! - DEPOT_RESERVE) : layer[s]!);
+    let units = want.units;
+    while (units > 0 && budget > 0 && idleH.length > 0) {
+      let bi = -1, bestCost = Infinity, bestSrc: Source | undefined, bestHome = -1;
+      const tryCount = Math.min(idleH.length, 32);
+      for (let i = 0; i < tryCount; i++) {
+        const home = doorOf(homeSlot(w, idleH[i]!));
+        if (home < 0 || !net.connected(home, door)) continue;
+        for (const src of sourcesFor(res)) {
+          if (src.slot === t || spare(src.slot) === 0 || (toDepot && w.bArch[src.slot] === ARCH.DEPOT) || !net.connected(home, src.acc)) continue;
+          const c = manhattan(home, src.acc) + manhattan(src.acc, door);
+          if (c < bestCost) { bestCost = c; bi = i; bestSrc = src; bestHome = home; }
+        }
+      }
+      if (bi < 0 || !bestSrc) break;
+      const a = idleH.splice(bi, 1)[0]!;
+      budget--;
+      const take = Math.min(m.haulCap, units, spare(bestSrc.slot));
+      const toPickup = bestSrc.acc !== bestHome;
+      if (!startTrip(net, w, a, bestHome, toPickup ? bestSrc.acc : door)) continue;
+      layer[bestSrc.slot]! -= take;
+      units -= take;
+      w.aState[a] = toPickup ? AST.TO_PICKUP : AST.HAUL;
+      w.aTarget[a] = refOf(w, t); w.aCarry[a] = take; w.aSrc[a] = refOf(w, bestSrc.slot); w.aRes[a] = res | TRANSFER_BIT;
     }
   }
 }

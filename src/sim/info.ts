@@ -3,10 +3,15 @@ import {
   CRIME_TOLERANCE, LEVELUP_DEMAND, LEVELUP_LV, LEVELUP_SVC_SHIFT, emissionOf, footprintMean, isOperating, occupancyOf, reachAnchors, zoneDemand, zoneOfArch,
 } from './economy/index.ts';
 import { depotDistances, materialStock } from './issues.ts';
+import { needsOf } from './economy/needs.ts';
 import { archLabel, capitalise } from './labels.ts';
 import { AMAX, BMAX, MAP, PATH_CAP, RMAX, ROAD, S, ZONE, type World } from './layers.ts';
-import type { AgentInfo, BuildingInfo, InfoMsg, IssueOverlay, RequestInfo, Thought, ThoughtTone } from './protocol.ts';
-import { AKIND, AST, BUILDER_SPEED, FIREFIGHTER_SPEED, HAULER_SPEED, JOB, JOB_MAX } from './robots/constants.ts';
+import type { AgentInfo, BuildingInfo, InfoMsg, IssueOverlay, NeedItem, RequestInfo, StockBar, Thought, ThoughtTone } from './protocol.ts';
+import {
+  AKIND, AST, BUILDER_SPEED, DEPOT_STOCK_CAP, FACTORY_BUFFER, FACTORY_IN, FIREFIGHTER_SPEED, HAULER_SPEED, JOB, JOB_MAX, OUTPUT_CAP, RES, RES_COUNT, RES_NAMES,
+  SMELTER_BUFFER, SMELT_IN, TRANSFER_BIT,
+} from './robots/constants.ts';
+import { chainRunning, isChainArch, reachableStock, stockLayer } from './robots/stock.ts';
 import { depotCaps, mods, moduleAt } from './firmware.ts';
 import { pathOf } from './robots/move.ts';
 import { homeSlot, jobSlot, liveSlot, nearestTileOf, refOf } from './robots/pool.ts';
@@ -98,22 +103,39 @@ function jobThoughts(sim: Sim, net: RoadNet, slot: number, out: Weighted[]): voi
   }
   const kind = w.jKind[slot]!, need = w.jNeed[slot]!, have = w.jHave[slot]!;
   if (kind === JOB.DEMOLISH) { out.push(thought(10, 'good', `Being torn down: ${100 - Math.round((w.jProg[slot]! * 100) / JOB_MAX)}% cleared.`)); }
-  else out.push(thought(10, 'good', `${kind === JOB.LEVEL ? 'Upgrading' : 'Under construction'}: ${pct}% built, ${have} of ${need} material delivered.`));
+  else out.push(thought(10, 'good', `${kind === JOB.LEVEL ? 'Upgrading' : 'Under construction'}: ${pct}% built, ${have} of ${need} ${w.jRes[slot] === RES.ORE ? 'material' : RES_NAMES[w.jRes[slot]!]!.toLowerCase()} delivered.`));
   const anchors = reachAnchors(sim, net);
   if (anchors === null) { out.push(thought(50, 'bad', 'No depot yet: robots need one to start work.')); return; }
   if (anchors.length === 0) { out.push(thought(50, 'bad', 'The depot has no road at its door, so its robots cannot leave.')); return; }
   if (w.jStuck[slot]! > 0) { out.push(thought(45, 'bad', 'No road from a depot reaches this site.')); return; }
   const wants = kind !== JOB.DEMOLISH && need > have + w.jInbound[slot]!;
-  if (wants && materialStock(w) === 0) out.push(thought(40, 'bad', 'Waiting for material: no depot or factory has any in stock.'));
+  const res = w.jRes[slot]!;
+  if (wants && res === RES.ORE && materialStock(w) === 0) out.push(thought(40, 'bad', 'Waiting for material: no depot or factory has any in stock.'));
+  else if (wants && res !== RES.ORE && reachableStock(w, res) === 0) {
+    out.push(thought(40, 'bad', `Waiting for ${RES_NAMES[res]!.toLowerCase()}: none in stock. Build a ${res === RES.ALLOY ? 'smelter' : 'component factory'}, or a depot will import some.`));
+  }
   const radius = mods(w).workRadius;
   if (depotDistances(net, anchors, radius)[w.jAccess[slot]!] === UNREACHED) out.push(thought(30, 'warn', `Slow: no nearby depot (robots work within ${radius} road tiles of one).`));
   if (builderCrew(w, slot) === 0 && (flags & BFLAG.CONSTRUCTING) !== 0) out.push(thought(20, 'warn', 'No builder bot has reached it yet.'));
 }
 
+const NEED_THOUGHT = {
+  power: 'No power: it cannot level up.', water: 'No water: it cannot level up.',
+  shop: "No working shop within 20 tiles - can't level up.",
+  health: "No clinic or hospital in reach - can't reach level 3.",
+  school: "No school or university in reach - can't reach level 3.",
+  goods: "No goods supply: a factory, or a depot holding components, must be within 40 tiles - can't level up.",
+} as const;
+
 function levelThoughts(w: World, slot: number, out: Weighted[]): void {
   const zone = zoneOfArch(w.bArch[slot]!), level = w.bLevel[slot]!;
   if (level >= 3) { out.push(thought(5, 'good', 'Fully grown.')); return; }
   if ((w.bFlags[slot]! & BFLAG.UNWATERED) !== 0) return;
+  const unmet = needsOf(w, slot).find((n) => !n.ok);
+  if (unmet) {
+    out.push(thought(41, 'warn', NEED_THOUGHT[unmet.id], unmet.id === 'health' ? 'health' : unmet.id === 'school' ? 'education' : undefined));
+    return;
+  }
   const demand = Math.round(zoneDemand(w, zone) * 1024);
   if (demand < LEVELUP_DEMAND) { out.push(thought(12, 'warn', 'Not enough demand to grow bigger yet.')); return; }
   const lv = footprintMean(w, w.landValue, slot);
@@ -127,6 +149,32 @@ function levelThoughts(w: World, slot: number, out: Weighted[]): void {
   else if (healthCov < COVERED_MIN && need - gainNow <= gainHealth) out.push(thought(39, 'warn', "No clinic nearby - can't level up.", 'health'));
   else if (need - gainNow <= gainEdu + gainHealth) out.push(thought(38, 'warn', "No school or clinic nearby - can't level up.", 'education'));
   else out.push(thought(37, 'warn', `Land value is too low to level up (${lv}, needs ${LEVELUP_LV}).`, 'landValue'));
+}
+
+/** Gauges, the run-now checklist and a plain-words status for a finished Mine, Smelter or Factory. */
+function chainFacts(w: World, slot: number): { stocks: StockBar[]; needs: NeedItem[]; thoughts: Weighted[] } {
+  const arch = w.bArch[slot]!, flags = w.bFlags[slot]!, out: Weighted[] = [];
+  const powered = (flags & BFLAG.UNPOWERED) === 0;
+  const needs: NeedItem[] = [{ text: 'Power', ok: powered }];
+  const stocks: StockBar[] = [];
+  let made = '', inRes = -1, inNeed = 0, outRes: number = RES.ORE;
+  if (arch === ARCH.MINE) { outRes = RES.ORE; made = 'Digs 6 ore every 4 s.'; }
+  else if (arch === ARCH.SMELTER) { outRes = RES.ALLOY; inRes = RES.ORE; inNeed = SMELT_IN; made = 'Turns 4 ore into 2 alloy.'; }
+  else { outRes = RES.PARTS; inRes = RES.ALLOY; inNeed = FACTORY_IN; made = 'Turns 2 alloy into 1 component.'; }
+  const have = stockLayer(w, outRes)[slot]!;
+  if (inRes >= 0) {
+    const buf = w.bIn[slot * 3 + inRes]!;
+    stocks.push({ res: inRes, role: 'in', have: buf, cap: inRes === RES.ORE ? SMELTER_BUFFER : FACTORY_BUFFER });
+    needs.push({ text: `${RES_NAMES[inRes]}: ${buf} of ${inNeed} for a batch`, ok: buf >= inNeed });
+  }
+  stocks.push({ res: outRes, role: 'out', have, cap: OUTPUT_CAP });
+  needs.push({ text: have >= OUTPUT_CAP ? `${RES_NAMES[outRes]} output full, the extra is sold` : `Room for ${RES_NAMES[outRes]}`, ok: have < OUTPUT_CAP });
+  if (chainRunning(w, slot)) {
+    if (inRes >= 0 && w.bIn[slot * 3 + inRes]! < inNeed) out.push(thought(30, 'warn', `Starved: waiting for ${RES_NAMES[inRes]!.toLowerCase()} from haulers.`));
+    else if (have >= OUTPUT_CAP) out.push(thought(25, 'warn', `Output is full: the extra ${RES_NAMES[outRes]!.toLowerCase()} is sold.`));
+    else out.push(thought(8, 'good', made));
+  }
+  return { stocks, needs, thoughts: out };
 }
 
 function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
@@ -205,6 +253,9 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
     }
   }
 
+  const chain = done && isChainArch(arch) ? chainFacts(w, slot) : null;
+  if (chain) out.push(...chain.thoughts);
+
   if (out.every((x) => x.t.tone === 'good') && done && zone !== 0) out.push(thought(1, 'good', 'Everything is fine here.'));
   out.sort((p, q) => q.w - p.w);
   const thoughts = out.slice(0, 3).map((x) => x.t);
@@ -217,7 +268,10 @@ function buildingInfo(sim: Sim, slot: number): BuildingInfo | null {
     progress: constructing ? Math.round((w.bProg[slot]! * 100) / 255) : 100,
     residents: zone === ZONE.R ? occ : 0, jobs: zone === ZONE.C || zone === ZONE.I ? occ : 0, thoughts,
   };
+  if (chain) { info.stocks = chain.stocks; info.needs = chain.needs; }
+  else if (done && zone !== 0 && w.bLevel[slot]! < 3 && isOperating(w, slot)) info.needs = needsOf(w, slot).map((n) => ({ text: n.text, ok: n.ok }));
   if (arch === ARCH.DEPOT) {
+    info.stocks = Array.from({ length: RES_COUNT }, (_, res): StockBar => ({ res, role: 'stock', have: stockLayer(w, res)[slot]!, cap: DEPOT_STOCK_CAP }));
     let builders = 0, haulers = 0;
     for (let k = 0; k < RMAX; k++) {
       if (w.aKind[k] === 0 || homeSlot(w, k) !== slot) continue;
@@ -265,6 +319,9 @@ function robotInfo(sim: Sim, a: number): Omit<AgentInfo, 'kind' | 'key' | 'akind
   const carry = w.aCarry[a]!;
   const verb = j >= 0 ? (w.jKind[j] === JOB.DEMOLISH ? 'tear down' : w.jKind[j] === JOB.LEVEL ? 'upgrade' : 'build') : 'build';
   const etaPart = eta !== undefined ? `, ${etaText(eta)}` : '';
+  const res = w.aRes[a]! & 3, unit = res === RES.ORE ? 'material' : RES_NAMES[res]!.toLowerCase();
+  const transferTo = (w.aRes[a]! & TRANSFER_BIT) !== 0 ? liveSlot(w, w.aTarget[a]!) : -1;
+  const toWhere = transferTo >= 0 ? where(w, transferTo) : site;
   switch (st) {
     case AST.IDLE: job = home >= 0 ? `Resting in ${where(w, home)}.` : 'Idle, with no depot to go home to.'; break;
     case AST.TO_SITE: job = `Walking to ${verb} ${site}${etaPart}.`; break;
@@ -279,10 +336,10 @@ function robotInfo(sim: Sim, a: number): Omit<AgentInfo, 'kind' | 'key' | 'akind
     case AST.RETURN: job = `Heading back to ${home >= 0 ? where(w, home) : 'a depot'}${etaPart}.`; break;
     case AST.TO_PICKUP: {
       const src = liveSlot(w, w.aSrc[a]!);
-      job = `Fetching ${carry} material from ${src >= 0 ? where(w, src) : 'a depot'}${etaPart}.`;
+      job = `Fetching ${carry} ${unit} from ${src >= 0 ? where(w, src) : 'a depot'}${etaPart}.`;
       break;
     }
-    case AST.HAUL: job = `Hauling ${carry} material to ${site}${etaPart}.`; break;
+    case AST.HAUL: job = `Hauling ${carry} ${unit} to ${toWhere}${etaPart}.`; break;
     case AST.FF_GO: { const f = liveSlot(w, w.aTarget[a]!); job = f >= 0 ? `Rushing to the fire at ${where(w, f)}.` : 'Rushing to a fire.'; break; }
     case AST.FF_SPRAY: { const f = liveSlot(w, w.aTarget[a]!); job = f >= 0 ? `Spraying water on ${where(w, f)}.` : 'Spraying water on a fire.'; break; }
     case AST.REPAIR_GO: case AST.REPAIR_WORK: job = 'Repairing a cracked road.'; break;

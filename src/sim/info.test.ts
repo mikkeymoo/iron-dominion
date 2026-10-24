@@ -120,6 +120,7 @@ describe('requestInfo answers for buildings', () => {
   it('says what stops a house from levelling up: a missing school', () => {
     const sim = flatSim(42, true);
     grow(sim, 110, 100);
+    grow(sim, 114, 100, 25);
     const w = sim.world, s = slotAt(sim, 110, 100);
     w.scalars[S.demandR] = 0.8;
     w.landValue.fill(100);
@@ -131,6 +132,21 @@ describe('requestInfo answers for buildings', () => {
     expect(info.thoughts.find((t) => t.text.startsWith('No school'))!.overlay).toBe('education');
     w.covEdu.fill(255);
     expect(texts(building(sim, s))).toContain('Ready to grow: it can level up.');
+  });
+
+  it('lists what a house needs to grow, and names a missing shop', () => {
+    const sim = flatSim(42, true);
+    grow(sim, 110, 100);
+    const w = sim.world, s = slotAt(sim, 110, 100);
+    w.scalars[S.demandR] = 0.8;
+    w.landValue.fill(150);
+    let info = building(sim, s);
+    expect(info.needs).toEqual([{ text: 'Power', ok: true }, { text: 'Water', ok: true }, { text: 'A working shop within 20 tiles', ok: false }]);
+    expect(texts(info)).toContain("No working shop within 20 tiles - can't level up.");
+    grow(sim, 114, 100, 25);
+    info = building(sim, s);
+    expect(info.needs!.every((n) => n.ok)).toBe(true);
+    expect(texts(info)).toContain('Ready to grow: it can level up.');
   });
 
   it('blames the steel works for smog near a home', () => {

@@ -136,7 +136,7 @@ export function packAgents(sim: Sim, pos: Float32Array, ids: Uint32Array, view?:
     if (view && (x < view.x0 || x > view.x1 || y < view.y0 || y > view.y1)) continue;
     pos[n * 3] = x; pos[n * 3 + 1] = y; pos[n * 3 + 2] = w.aHead[s]!;
     ids[n * 2] = (s | (w.aGen[s]! << 16)) >>> 0;
-    ids[n * 2 + 1] = w.aKind[s]! | (w.aState[s]! << 8) | (w.aCarry[s]! > 0 && w.aState[s] === 5 ? 1 << 16 : 0);
+    ids[n * 2 + 1] = w.aKind[s]! | (w.aState[s]! << 8) | (w.aCarry[s]! > 0 && w.aState[s] === 5 ? (1 + (w.aRes[s]! & 3)) << 16 : 0);
     n++;
   }
   return n;

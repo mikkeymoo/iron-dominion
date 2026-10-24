@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, BFLAG, rciId } from '../catalog.ts';
 import { restore, snapshot, stateHash, step } from '../engine.ts';
-import { AMAX, MAP, ROAD, S } from '../layers.ts';
+import { AMAX, MAP, ROAD, S, TERRAIN } from '../layers.ts';
 import { roadsOf } from '../roads/index.ts';
 import { runTicks } from '../testkit.ts';
 import { SYSTEMS } from '../tick.ts';
@@ -258,6 +258,45 @@ describe('perf', () => {
     console.log(`perf: ${agents(sim).length} robots, avg ${Math.round(activeSum / N)} active, robots system ${robots.toFixed(3)} ms/tick, whole tick ${(Object.values(ms).reduce((x, y) => x + y, 0) / N).toFixed(3)} ms`);
     expect(activeSum / N).toBeGreaterThan(1500);
     // The target is 2 ms; the gate is double that so a busy CI machine does not flake it.
+    expect(robots).toBeLessThan(4);
+  });
+
+  it('runs the same 2000 robots with a Mine, a Smelter and a Factory restocking (prints)', () => {
+    const sim = flatSim();
+    const w = sim.world;
+    w.scalars[S.treasury] = 1e9;
+    w.scalars[S.tier] = 5;
+    road(sim, 4, 50, 251, 50);
+    for (let k = 0; k < 123; k++) { depot(sim, 4 + 2 * k, 48); depot(sim, 4 + 2 * k, 51); }
+    // A second street joined at the east end, with the chain along it, so the restocking has somewhere to haul.
+    road(sim, 251, 50, 251, 60); road(sim, 4, 60, 251, 60);
+    for (let y = 61; y < 64; y++) for (let x = 100; x < 103; x++) w.terrain[y * MAP + x] = TERRAIN.ORE;
+    for (const [arch, x] of [[ARCH.MINE, 100], [ARCH.SMELTER, 110], [ARCH.FACTORY, 120]] as const) expect(run(sim, { type: 'placeBuilding', arch, x, y: 61, rot: 0 })).toBe(true);
+    const net = roadsOf(sim);
+    const kick = (): void => {
+      for (let a = 0; a < AMAX; a++) {
+        if (w.aKind[a] === 0 || w.aState[a] !== AST.IDLE) continue;
+        const home = (w.aHome[a]! & 0xffff) - 1;
+        if (home < 0 || w.bArch[home] !== ARCH.DEPOT) continue;
+        const far = 50 * MAP + (((a * 37) % 240) + 8);
+        if (startTrip(net, w, a, depotAccess(net, w, home), far)) w.aState[a] = AST.RETURN;
+      }
+    };
+    for (let t = 0; t < 400; t++) { step(sim); kick(); }
+    const ms: Record<string, number> = {};
+    let transfers = 0;
+    const N = 200;
+    for (let t = 0; t < N; t++) {
+      for (const sys of SYSTEMS) {
+        const t0 = performance.now();
+        sys.run(sim);
+        ms[sys.name] = (ms[sys.name] ?? 0) + performance.now() - t0;
+      }
+      kick();
+      for (let a = 0; a < AMAX; a++) if ((w.aRes[a]! & 0x80) !== 0 && w.aCarry[a]! > 0) transfers++;
+    }
+    const robots = ms.growth! / N;
+    console.log(`perf: chain city, ${agents(sim).length} robots, robots system ${robots.toFixed(3)} ms/tick, ${(transfers / N).toFixed(1)} loaded transfer haulers on average, whole tick ${(Object.values(ms).reduce((x, y) => x + y, 0) / N).toFixed(3)} ms`);
     expect(robots).toBeLessThan(4);
   });
 });

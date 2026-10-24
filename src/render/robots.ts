@@ -98,12 +98,16 @@ function robotMaterial(kind: 'builder' | 'hauler', livery = false): MeshStandard
   const isGlass: any = step(0.5, slot).mul(step(slot, 1.5));
   const isAccent: any = step(3.5, slot).mul(step(slot, 4.5));
   // Fire robots wear red: everything but the visor and the lights is pulled toward fire-engine red.
-  const painted: any = livery ? mix(base, vec3(0.62, 0.025, 0.02), float(1).sub(isGlass).sub(isAccent).clamp(0, 1).mul(0.82)) : base;
+  // A hauler's crate wears the colour of its cargo: `mode` is 0 ore (amber), 1 alloy (cyan), 2 components (magenta).
+  const cargo: any = mix(mix(vec3(0.95, 0.62, 0.14), vec3(0.12, 0.85, 0.95), step(0.5, mode)), vec3(0.92, 0.2, 0.78), step(1.5, mode));
+  const crateMix: any = kind === 'hauler' && !livery ? isCrate.mul(0.9) : float(0);
+  const tinted: any = mix(base, cargo, crateMix);
+  const painted: any = livery ? mix(base, vec3(0.62, 0.025, 0.02), float(1).sub(isGlass).sub(isAccent).clamp(0, 1).mul(0.82)) : tinted;
   m.colorNode = painted.mul(ao.mul(0.55).add(0.45));
   m.aoNode = ao;
   // Visors and rotor lights always glow a little and blaze at night, so the workforce sparkles across the dark city.
   const night: any = fxU.night;
-  m.emissiveNode = base.mul(isGlass).mul(night.mul(2.4).add(0.7)).add(base.mul(isAccent).mul(night.mul(3.2).add(1.0)));
+  m.emissiveNode = base.mul(isGlass).mul(night.mul(2.4).add(0.7)).add(base.mul(isAccent).mul(night.mul(3.2).add(1.0))).add(cargo.mul(crateMix).mul(0.3));
   m.roughness = 0.5;
   m.metalness = 0.25;
   return m;
@@ -263,7 +267,7 @@ export class RobotsView {
       } else {
         composeMatrix(this.mat, x, gy + HOVER, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.haulers.matrix.set(this.mat, nh * 16);
-        this.haulers.iBot.set([phase, s.carry[i] ? 1 : 0, 0, yaw], nh * 4);
+        this.haulers.iBot.set([phase, s.carry[i] ? 1 : 0, Math.max(0, s.carry[i]! - 1), yaw], nh * 4);
         nh++;
       }
     }

@@ -14,9 +14,12 @@ import type { Sim } from '../world.ts';
 import { markDirty } from '../world.ts';
 import {
   CANDIDATES, DEPOT_START_STOCK, REBUILD_EXTRA_DEMOLITIONS, DEPOT_STOCK_CAP, DEPOT_TRICKLE_CAP, GROWTH_MIN_DEMAND, GROWTH_PERIOD, IMPORT_COST, IMPORT_PERIOD,
-  IMPORT_UNITS, INDUSTRY_STOCK_CAP, JOB, JOB_MAX, JOB_PENALTY, JOB_STUCK_TICKS, MAX_DEMOLITIONS, MAX_JOBS, PRODUCE_PERIOD, materialFor,
+  IMPORT_UNITS, INDUSTRY_STOCK_CAP, JOB, JOB_MAX, JOB_PENALTY, JOB_STUCK_TICKS, MAX_DEMOLITIONS, MAX_JOBS, PRODUCE_PERIOD, CHAIN_JOBS_FREE, RES, materialFor,
+  resOfLevel, resUnits,
 } from './constants.ts';
+import { liveChainJobs, outstandingNeed } from './chain.ts';
 import { SPEND, available, clearJob } from './pool.ts';
+import { made, reachableStock } from './stock.ts';
 
 /** Drop job rows whose building was freed or reused since the job began. */
 export function sanitizeJobs(sim: Sim): void {
@@ -26,9 +29,10 @@ export function sanitizeJobs(sim: Sim): void {
   }
 }
 
-function openJob(sim: Sim, slot: number, kind: number, need: number, prog: number, access: number): void {
+function openJob(sim: Sim, slot: number, kind: number, need: number, prog: number, access: number, res: number = RES.ORE): void {
   const w = sim.world;
   clearJob(w, slot);
+  w.jRes[slot] = res;
   w.jKind[slot] = kind; w.jGen[slot] = w.bGen[slot]!; w.jNeed[slot] = need; w.jProg[slot] = prog; w.jAccess[slot] = access;
   sim.dirty.buildings.add(slot);
 }
@@ -94,7 +98,8 @@ export function startLevelUp(sim: Sim, slot: number, nextArch: number, access: n
   w.bArch[slot] = next.id; w.bLevel[slot] = next.level ?? 1; w.bProg[slot] = 0;
   w.bFlags[slot] = BFLAG.CONSTRUCTING;
   w.bDmg[slot] = 0; w.bHeat[slot] = 0;
-  openJob(sim, slot, JOB.LEVEL, materialFor(next.w * next.h, next.level ?? 1), 0, access);
+  const res = resOfLevel(next.level ?? 1);
+  openJob(sim, slot, JOB.LEVEL, resUnits(materialFor(next.w * next.h, next.level ?? 1), res), 0, access, res);
   w.jPrev[slot] = prevArch; w.jPrevSz[slot] = prevSize;
   return true;
 }
@@ -179,7 +184,9 @@ function finishDemolition(sim: Sim, s: number): void {
     const depot = nearestReadyDepot(w, s);
     if (depot >= 0) {
       const units = Math.floor(materialFor(w.bW[s]! * w.bH[s]!, w.bLevel[s]!) * m.recycle);
-      w.bStock[depot] = Math.max(w.bStock[depot]!, Math.min(DEPOT_STOCK_CAP, w.bStock[depot]! + units));
+      const before = w.bStock[depot]!;
+      w.bStock[depot] = Math.max(before, Math.min(DEPOT_STOCK_CAP, before + units));
+      made(w, RES.ORE, w.bStock[depot]! - before);
     }
   }
   releaseLot(sim, s);
@@ -219,15 +226,19 @@ export function materialSystem(sim: Sim): void {
     const arch = w.bArch[s]!;
     if (arch === 0) continue;
     if (arch === ARCH.DEPOT) {
-      if (w.bAux[s] === 0) { w.bAux[s] = 1; w.bStock[s] = DEPOT_START_STOCK; }
+      if (w.bAux[s] === 0) { w.bAux[s] = 1; made(w, RES.ORE, DEPOT_START_STOCK - w.bStock[s]!); w.bStock[s] = DEPOT_START_STOCK; }
       else if (trickle && w.bStock[s]! < DEPOT_TRICKLE_CAP && available(w) >= IMPORT_UNITS * IMPORT_COST) {
-        w.bStock[s] = Math.min(DEPOT_STOCK_CAP, w.bStock[s]! + IMPORT_UNITS);
+        const before = w.bStock[s]!;
+        w.bStock[s] = Math.min(DEPOT_STOCK_CAP, before + IMPORT_UNITS);
+        made(w, RES.ORE, w.bStock[s]! - before);
         w.spend[SPEND.IMPORTS]! += IMPORT_UNITS * IMPORT_COST;
       }
     } else if (produce && zoneOfArch(arch) === ZONE.I && isOperating(w, s)) {
       // A multiplier on the output (Smog Permit) is paid in whole units by carrying the fraction: floor(x * (n + 1)) - floor(x * n) for the nth period.
       const x = (1 + w.bLevel[s]!) * m.industryOutput, n = tick / PRODUCE_PERIOD;
-      w.bStock[s] = Math.min(INDUSTRY_STOCK_CAP, w.bStock[s]! + Math.floor(x * (n + 1)) - Math.floor(x * n));
+      const before = w.bStock[s]!;
+      w.bStock[s] = Math.min(INDUSTRY_STOCK_CAP, before + Math.floor(x * (n + 1)) - Math.floor(x * n));
+      made(w, RES.ORE, w.bStock[s]! - before);
     }
   }
 }
@@ -333,6 +344,9 @@ export function growthDirector(sim: Sim, builders: number): void {
     for (const { z } of order) {
       for (const up of levelUpCandidates(sim, z, 4)) {
         if (!canLevelUp(sim, up.slot, up.nextArch)) continue;
+        // A level-up needing Alloy or Components waits for stock to exist: with two such jobs already live and nothing spare, a third would only stall.
+        const res = resOfLevel(up.level + 1);
+        if (res !== RES.ORE && reachableStock(w, res) - outstandingNeed(sim, res) <= 0 && liveChainJobs(sim) >= CHAIN_JOBS_FREE) continue;
         const access = reachableAccess(net, anchors, up.x, up.y, w.bW[up.slot]!, w.bH[up.slot]!);
         if (access >= 0 && startLevelUp(sim, up.slot, up.nextArch, access)) return;
       }

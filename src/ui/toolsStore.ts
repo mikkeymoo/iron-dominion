@@ -38,6 +38,7 @@ const REASONS: Record<string, string> = {
   'no-loan': 'That loan has already been repaid.',
   locked: 'That is not unlocked yet. Grow the city to the next milestone.',
   'no-road': 'A project needs a road along one edge so the robots can reach it.',
+  noOre: 'A mine needs ore ground under at least half of it.',
   exists: 'That project is already built or under construction.',
   requirements: 'The city does not meet that project\'s requirements yet. See the Projects panel.',
 };

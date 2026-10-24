@@ -148,6 +148,20 @@ describe('info card', () => {
     expect(screen.getByTestId('info-bulldoze')).toBeTruthy();
   });
 
+  it('shows a tapped Smelter\'s stock bars and its needs line', async () => {
+    const smelter: BuildingInfo = {
+      ...house, slot: 9, arch: ARCH.SMELTER, name: 'Smelter', level: 0, maxLevel: 0, residents: 0, thoughts: [{ text: 'Starved: waiting for ore from haulers.', tone: 'warn' }],
+      stocks: [{ res: 0, role: 'in', have: 2, cap: 16 }, { res: 1, role: 'out', have: 6, cap: 40 }],
+      needs: [{ text: 'Power', ok: true }, { text: 'Ore: 2 of 4 for a batch', ok: false }],
+    };
+    const { why } = setup(smelter);
+    render(<InfoCard why={why} onJump={vi.fn()} />);
+    act(() => why.tap({ kind: 'building', slot: 9, x: 112, y: 105 }));
+    await flush();
+    expect(screen.getAllByTestId('stock-bar')).toHaveLength(2);
+    expect(screen.getByTestId('needs').textContent).toContain('Ore: 2 of 4 for a batch');
+  });
+
   it('switches the overlay from a thought, flies to the building, and bulldozes it through the tool path', async () => {
     const { why, view, submitted, tools, mirror } = setup(house);
     mirror.layers.bId![100 * MAP + 110] = 5;

@@ -6,6 +6,9 @@ import type { Sim } from '../world.ts';
 import { LOT_NO_POWER, LOT_NO_WATER } from '../utilities/tables.ts';
 import { lotService } from '../utilities/index.ts';
 import { zoneDemand } from './demand.ts';
+import { needsMet, shopCentres, type ShopIndex } from './needs.ts';
+
+const EMPTY_SHOPS: ShopIndex = { cells: [], count: 0 };
 import {
   ABANDON_AT, ABANDON_CLEAR, ABANDON_DEMAND, ABANDON_DESIRABILITY, CRIME_DESIRABILITY_SHIFT, CRIME_TOLERANCE, LEVELUP_DEMAND, LEVELUP_LV,
   LEVELUP_SVC_SHIFT, LEVELUP_SVC_W, LOT_SVC_C, LOT_SVC_R, ONE,
@@ -125,11 +128,12 @@ export function levelUpCandidates(sim: Sim, zone: number, max: number): LevelUp[
   const demand = Math.round(zoneDemand(w, zone) * ONE);
   if (max <= 0 || demand < LEVELUP_DEMAND) return [];
   const out: LevelUp[] = [];
+  const shops = zone === ZONE.R ? shopCentres(w) : EMPTY_SHOPS;
   for (let s = 0; s < BMAX; s++) {
     const arch = w.bArch[s]!;
     if (zoneOfArch(arch) !== zone || !isOperating(w, s) || w.bLevel[s]! >= 3) continue;
-    // Growing past level 1 needs both services: isOperating already excludes the unpowered, and a building the water misses stays put.
-    if ((w.bFlags[s]! & BFLAG.UNWATERED) !== 0) continue;
+    // Growing past level 1 needs power and water, and what needsOf lists for the zone (a shop nearby, services, goods).
+    if (!needsMet(w, s, shops)) continue;
     // startLevelUp rebuilds from a foundation and clears flags and damage, so a burning or damaged building would be healed for free.
     if ((w.bFlags[s]! & BFLAG.BURNING) !== 0 || w.bDmg[s]! > 0) continue;
     const lv = footprintMean(w, w.landValue, s);

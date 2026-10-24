@@ -79,6 +79,7 @@ powerUse[ARCH.FIRE_STATION] = POWER_USE_FIRE; waterUse[ARCH.FIRE_STATION] = WATE
 const SERVICE_USE: readonly (readonly [number, number, number])[] = [
   [ARCH.POLICE, 3, 2], [ARCH.CLINIC, 2, 3], [ARCH.HOSPITAL, 12, 14], [ARCH.SCHOOL, 4, 3], [ARCH.UNIVERSITY, 14, 12],
   [ARCH.PARK_SMALL, 0, 1], [ARCH.PARK_LARGE, 0, 3], [ARCH.REPAIR_BAY, 3, 0], [ARCH.ROBOTICS_LAB, 6, 0],
+  [ARCH.MINE, 4, 0], [ARCH.SMELTER, 8, 0], [ARCH.FACTORY, 12, 0],
 ];
 for (const [arch, p, q] of SERVICE_USE) { powerUse[arch] = p; waterUse[arch] = q; }
 for (const a of CATALOG) {

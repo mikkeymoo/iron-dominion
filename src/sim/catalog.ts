@@ -31,6 +31,8 @@ export interface Archetype {
   service?: ServiceSpec;
   /** Population tier (unlocks.ts TIERS index) the city must have reached before this can be placed; placeBuilding and its estimate refuse with `locked` until then. */
   unlock?: number;
+  /** Placement needs at least half the footprint on TERRAIN.ORE (`noOre` otherwise). */
+  needsOre?: boolean;
 }
 
 export const ARCH = {
@@ -40,6 +42,8 @@ export const ARCH = {
   FUSION_SPIRE: 43, ARCOLOGY: 44, MECH_ARENA: 45, SPACE_ELEVATOR: 46,
   /** Produces research points while powered (sim/firmware.ts). Placed after the megaprojects so every existing id stays put. */
   ROBOTICS_LAB: 47,
+  /** Production chain (sim/robots/chain.ts): Mine makes Ore on ore ground, Smelter turns Ore into Alloy, Factory turns Alloy into Components. */
+  MINE: 48, SMELTER: 49, FACTORY: 50,
 } as const;
 
 /**
@@ -110,6 +114,9 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.MECH_ARENA, name: 'mechArena', w: 6, h: 6, cost: 80000, placeable: true, upkeep: 600, unlock: 4 },
   { id: ARCH.SPACE_ELEVATOR, name: 'spaceElevator', w: 6, h: 6, cost: 400000, placeable: true, upkeep: 2500, unlock: 5 },
   { id: ARCH.ROBOTICS_LAB, name: 'roboticsLab', w: 3, h: 3, cost: 4000, placeable: true, upkeep: 80, unlock: 1 },
+  { id: ARCH.MINE, name: 'mine', w: 3, h: 3, cost: 1500, placeable: true, upkeep: 40, unlock: 1, needsOre: true },
+  { id: ARCH.SMELTER, name: 'smelter', w: 3, h: 3, cost: 2500, placeable: true, upkeep: 80, unlock: 2 },
+  { id: ARCH.FACTORY, name: 'factory', w: 4, h: 4, cost: 6000, placeable: true, upkeep: 160, unlock: 3 },
   ...rciArchetypes(),
 ];
 

@@ -2,6 +2,7 @@ import { useEffect, useReducer } from 'react';
 import type { AgentInfo, BuildingInfo, Thought } from '../sim/protocol.ts';
 import { isEditableTarget } from '../render/editable.ts';
 import { Panel } from './Panel';
+import { BuildingChain } from './ChainUi';
 import { DepotModules, type DepotModuleControls } from './DepotModules';
 import { PANEL_ATTR } from './panels';
 import type { WhyStore } from './whyStore.ts';
@@ -47,6 +48,7 @@ function BuildingBody({ info, why, onJump, modules }: { info: BuildingInfo; why:
         {info.depot && <span>{info.depot.builders} builders, {info.depot.haulers} haulers, {info.depot.stock} material</span>}
       </p>
       <Thoughts list={info.thoughts} why={why} />
+      <BuildingChain info={info} />
       {info.depot && modules && info.status !== 'constructing' && <DepotModules slot={info.slot} depot={info.depot} controls={modules} />}
       <div className="info-actions">
         <button type="button" className="tb" data-testid="info-look" onClick={() => onJump(info.x + (info.w >> 1), info.y + (info.h >> 1))}>Look</button>

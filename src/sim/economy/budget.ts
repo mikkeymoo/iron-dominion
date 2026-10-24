@@ -3,6 +3,7 @@ import { accrueResearch, edictUpkeep, mods } from '../firmware.ts';
 import { BMAX, BUDGET_FIELDS, BUDGET_MONTHS, MAX_LOANS, ROAD, S, TILES, ZONE, type World } from '../layers.ts';
 import { isMega, megaSums } from '../megaprojects.ts';
 import type { BudgetRecord, LoanInfo } from '../protocol.ts';
+import { CH } from '../robots/constants.ts';
 import type { Sim } from '../world.ts';
 import { taxRate } from './demand.ts';
 import {
@@ -55,6 +56,8 @@ export function computeBudget(world: World, month: number): BudgetRecord {
   services += edictUpkeep(world);
   // Megaprojects pay a flat monthly sum (tourism, cargo, residents' rates) booked with the commercial income.
   inc[1]! += megaSums(world).income;
+  // Overflow the production chain sold this month (robots/chain.ts) is industrial income.
+  inc[2]! += world.chain[CH.EXPORT]!;
   let roads = 0;
   for (let i = 0; i < TILES; i++) {
     const r = world.road[i]!, cls = r & ROAD.CLASS_MASK;
@@ -76,10 +79,11 @@ export function computeBudget(world: World, month: number): BudgetRecord {
  * standing charges (roads, services, interest) scale by the ticks elapsed. Robot costs are real spending and are not scaled.
  * `elapsed` is 0 when the record is closed by hand (tests), which counts as a full month.
  */
-function prorate(r: BudgetRecord, elapsed: number, treasuryBefore: number): BudgetRecord {
+function prorate(r: BudgetRecord, elapsed: number, treasuryBefore: number, exports: number): BudgetRecord {
   if (elapsed <= 0 || elapsed >= MONTH_TICKS) return r;
   const k = (v: number): number => Math.floor((v * elapsed) / MONTH_TICKS);
-  const incomeR = k(r.incomeR), incomeC = k(r.incomeC), incomeI = k(r.incomeI);
+  // Exports were really sold during the part of the month that ran, so they are not scaled.
+  const incomeR = k(r.incomeR), incomeC = k(r.incomeC), incomeI = k(r.incomeI - exports) + exports;
   const roads = k(r.roads), services = k(r.services), interest = k(r.interest);
   const income = incomeR + incomeC + incomeI;
   const expenses = roads + services + interest + r.robotUpkeep + r.imports + r.robotPurchases;
@@ -100,10 +104,11 @@ function writeRecord(world: World, r: BudgetRecord): void {
 /** Close the month in progress: pay it into the treasury, store the record, count consecutive negative months. */
 export function closeMonth(sim: Sim): BudgetRecord {
   const w = sim.world, sc = w.scalars, month = sc[S.month]!;
-  const r = prorate(computeBudget(w, month), w.spend[3]!, sc[S.treasury]!);
+  const r = prorate(computeBudget(w, month), w.spend[3]!, sc[S.treasury]!, w.chain[CH.EXPORT]!);
   sc[S.treasury] = r.treasury;
   writeRecord(w, r);
   w.spend.fill(0);
+  w.chain[CH.EXPORT] = 0;
   sc[S.month] = month + 1;
   accrueResearch(w);
   sc[S.lowMonths] = r.treasury < 0 ? sc[S.lowMonths]! + 1 : 0;
