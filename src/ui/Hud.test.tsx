@@ -41,7 +41,7 @@ describe('phone HUD', () => {
   it('draws one row: play/pause, a speed cycle, money, population, RCI bars, the status chip and the menu', () => {
     mount('phone');
     expect(bar().getAttribute('data-layout')).toBe('phone');
-    expect(topNames()).toEqual(['Pause', 'Speed 1x. Tap to change.', 'City status', 'Menu', 'Collapse top bar']);
+    expect(topNames()).toEqual(['Pause', 'Speed 1x. Tap to change.', 'City status', 'Sound on', 'Menu', 'Collapse top bar']);
     expect(screen.getByTestId('money').textContent).toBe('$48,230');
     expect(screen.getByTestId('population').textContent).toBe('Pop 1,250');
     expect(screen.getByTestId('demand')).toBeTruthy();

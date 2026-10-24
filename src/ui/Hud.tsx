@@ -6,6 +6,7 @@ import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { DEFAULT_SETTINGS, TIER_OVERRIDES, type Settings, type TierOverride } from '../platform/settings.ts';
 import type { FailReason } from '../platform/db.ts';
 import { isEditableTarget } from '../render/editable.ts';
+import { SoundSettings, SpeakerToggle } from '../audio/ui.tsx';
 import { IconChevron, IconMenu, IconPause, IconPlay, IconRobot } from './icons';
 import { nextSpeed, speedLabel, topBarControls, useLayout, type Layout, type TopControl } from './layout';
 import { PANEL_ATTR, useSwipeDown, usePresence, type PanelId } from './panels';
@@ -236,11 +237,13 @@ export function Hud({
         )}
         {has('budget') && <button type="button" className="tb coin" aria-label="Budget" aria-expanded={budgetOpen} aria-haspopup="dialog" title="Budget" onClick={onBudget}>$</button>}
         {has('save') && <button type="button" className="tb wide" onClick={onSave} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
+        {!phone && has('menu') && <SpeakerToggle settings={settings} onSetting={onSetting} />}
         {!phone && has('menu') && menuEl}
         {phone && extraPresence.mounted && (
           <div className="top-extra" data-state={extraPresence.state}>
             {rciEl}
             {statusEl}
+            <SpeakerToggle settings={settings} onSetting={onSetting} />
             {menuEl}
           </div>
         )}
@@ -306,6 +309,7 @@ export function Hud({
               </label>
               {activeTier && <p className="hint" data-testid="tier-now">Running at {activeTier}{settings.tier === 'auto' ? ' (auto: the game raises or lowers it to keep the frame rate up)' : ' (pinned)'}.</p>}
               <p className="hint">A pinned tier takes effect the next time a city starts.</p>
+              <SoundSettings settings={settings} onSetting={onSetting} />
               <button type="button" className="tb row" onClick={() => setMode('main')}>Back</button>
             </div>
           )}

@@ -8,6 +8,7 @@ import { createLifecycle, type Lifecycle } from '../platform/lifecycle.ts';
 import { createPlatformService, type PlatformService, type SaveInfo } from '../platform/service.ts';
 import { fail, ok, type Outcome, type PlatformDb } from '../platform/db.ts';
 import { ToolsRuntime } from './toolsStore.ts';
+import { attachSessionAudio } from '../audio/index.ts';
 
 // Debug query: ?seed=42&haltAt=200 runs the sim from that seed and halts at tick 200, reporting the state hash.
 // A halting run uses max speed. Without haltAt the worker still includes the hash in Stats every HASH_EVERY ticks.
@@ -54,9 +55,10 @@ export function openSession(o: SessionOptions): Session {
     // The store copies what it needs, so the client hands the ping-pong buffers straight back to the worker.
     onAgents: (m) => { agents.ingest(m, performance.now()); return false; },
     // The mirror queues lightning strikes for the renderer; the tools runtime tracks command outcomes.
-    onEvents: (m) => { mirror.apply(m); tools.handleEvents(m.events); },
+    onEvents: (m) => { mirror.apply(m); tools.handleEvents(m.events); sound.events(m.events); },
     onStats: (s) => {
       mirror.apply(s);
+      sound.stats(s);
       o.onStats(s);
     },
   });
@@ -71,7 +73,8 @@ export function openSession(o: SessionOptions): Session {
     hasSlot: () => service.current !== null,
     write: (data, _why, opt) => service.writeSnapshot(data, opt),
   }, { initialSpeed: o.haltAt !== undefined ? 'max' : 1 });
-  return { client, mirror, agents, tools, view, service, lifecycle, seed: o.seed, dispose: () => { tools.dispose(); client.terminate(); } };
+  const sound = attachSessionAudio({ mirror, agents, tools, lifecycle });
+  return { client, mirror, agents, tools, view, service, lifecycle, seed: o.seed, dispose: () => { sound.dispose(); tools.dispose(); client.terminate(); } };
 }
 
 /** Manual Save (or Save as, with a name) through the lifecycle's single write queue. */
