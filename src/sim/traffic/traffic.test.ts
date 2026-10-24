@@ -482,6 +482,7 @@ describe('traffic overlay and stats', () => {
 
   it('reports loadHeat as the busiest direction against lane capacity', () => {
     const sim = flatSim();
+    expect(run(sim, { type: 'debugTier', tier: 2 })).toBe(true);
     road(sim, 100, 100, 110, 100, 2);
     const i = tile(105, 100);
     sim.world.tLoad[i * 4 + 1] = 3;

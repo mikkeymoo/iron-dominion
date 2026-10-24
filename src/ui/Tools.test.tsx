@@ -43,7 +43,8 @@ describe('icon tool bar', () => {
     fireEvent.click(screen.getByTestId('tool-zone'));
     const strip = screen.getByTestId('optstrip');
     expect(within(strip).getByRole('button', { name: 'Cancel' })).toBeTruthy();
-    for (const n of ['Residential', 'Commercial', 'Industrial', 'Low', 'Medium', 'High']) expect(within(strip).getByRole('button', { name: n })).toBeTruthy();
+    for (const n of ['Residential', 'Commercial', 'Industrial', 'Low', 'Medium']) expect(within(strip).getByRole('button', { name: n })).toBeTruthy();
+    expect(within(strip).getByRole('button', { name: /^High/ })).toBeTruthy();
     fireEvent.click(within(strip).getByRole('button', { name: 'Cancel' }));
     expect(rt.controller.sel).toBeNull();
     expect(screen.queryByTestId('optstrip')).toBeNull();

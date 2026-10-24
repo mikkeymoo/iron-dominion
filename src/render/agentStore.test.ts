@@ -83,7 +83,7 @@ describe('AgentStore', () => {
     expect(Array.from(out.state.slice(0, 3))).toEqual([10, 11, 10]);
     expect(s.sample(0, out, 8, 0, 0, 'robots').count).toBe(2);
     expect(Array.from(out.kind.slice(0, 2))).toEqual([1, 2]);
-    expect(s.counts()).toEqual({ builders: 1, haulers: 1 });
+    expect(s.counts()).toEqual({ builders: 1, haulers: 1, fighters: 0 });
     expect(s.vehicleCount()).toBe(3);
     expect(s.activeKeys()).toHaveLength(2);
     expect(s.activeKeys(5)).toEqual([4101]);

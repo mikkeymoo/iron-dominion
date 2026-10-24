@@ -401,6 +401,7 @@ describe('earthquake', () => {
 
   it('a road that is replaced by the player stops being cracked', () => {
     const sim = flatSim(42, true);
+    expect(run(sim, { type: 'debugTier', tier: 2 })).toBe(true);
     road(sim, 96, 104, 130, 104);
     const w = sim.world, i = 104 * MAP + 110;
     w.road[i] = w.road[i]! | ROAD.DAMAGED;

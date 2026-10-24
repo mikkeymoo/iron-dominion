@@ -139,6 +139,6 @@ describe('view state', () => {
     expect(seen).toEqual([1, 2, 3]);
     expect(isOverlayMode('landValue')).toBe(true);
     expect(isOverlayMode('traffic')).toBe(true);
-    expect(isOverlayMode('crime')).toBe(false);
+    expect(isOverlayMode('noise')).toBe(false);
   });
 });

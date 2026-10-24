@@ -944,6 +944,9 @@ async function trafficChecks(open, phone) {
   const sent = await page.evaluate(async (s) => {
     const t = window.__iron.tools, eco = window.__iron.economy;
     const ids = [];
+    // Avenues (class 2) open at the Settlement tier; the debug sim jumps there so the grid keeps its avenue spine.
+    eco.command({ type: 'debugTier', tier: 2 });
+    await new Promise((r) => setTimeout(r, 500));
     const drag = (opts, a, b) => { t.select('road', opts); ids.push(t.dragTiles(a, b)); };
     for (const y of [4, 12, 20]) drag({ cls: y === 12 ? 2 : 1 }, { x: s.x + 2, y: s.y + y }, { x: s.x + 22, y: s.y + y });
     for (const x of [2, 12, 22]) drag({ cls: x === 12 ? 2 : 1 }, { x: s.x + x, y: s.y + 4 }, { x: s.x + x, y: s.y + 20 });
@@ -961,7 +964,7 @@ async function trafficChecks(open, phone) {
   add('the buildings finish: population and jobs appear in the stats', grown ? null : JSON.stringify(await page.evaluate(() => { const s = window.__iron.economy.stats; return s && { population: s.population, jobsC: s.jobsC, jobsI: s.jobsI }; })));
   if (!grown) { await page.close(); return out; }
 
-  await page.getByRole('button', { name: 'Max' }).click();
+  await setSpeedUi(page, 'Max');
   const active = await until(page, () => (window.__iron.sim.traffic?.vehicles ?? 0) > 0 && window.__iron.render.traffic.visible > 0, null, TRAFFIC_LIMIT_MS);
   const sim1 = await page.evaluate(() => ({ ...window.__iron.sim.traffic }));
   add('vehicles are active in the sim (Stats traffic.vehicles > 0)', active ? null : JSON.stringify(sim1));
@@ -1004,6 +1007,8 @@ async function trafficChecks(open, phone) {
     const braked = await until(page, () => window.__iron.render.traffic.braking > 0, null, 60000);
     add('a slowed vehicle lights its brake lights (render.traffic.braking > 0)', braked ? null : 'no vehicle ever braked in 60 s');
   } else {
+    // Commutes come in waves, so the road can be empty for a moment; wait for a drawn vehicle before judging its lights.
+    await until(page, () => window.__iron.render.traffic.visible > 0, null, 30000);
     const t2 = await page.evaluate(() => ({ ...window.__iron.render.traffic, sample: undefined }));
     add('at noon no vehicle has its lights on (render.traffic.lit === 0)', t2.visible > 0 && t2.lit === 0 ? null : JSON.stringify(t2));
   }
@@ -1332,7 +1337,13 @@ try {
     if (vp.name === 'desktop' && full) buildChecks.push(...await roadGraphChecks(open));
     if (vp.name === 'desktop' && full) buildChecks.push(...await economyChecks(open));
     if (vp.name === 'desktop' && full) buildChecks.push(...await utilitiesChecks(open));
-    if (full) buildChecks.push(...await hudChecks(open, vp.name));
+    if (full) {
+      // The earlier pages in this context leave the phone top bar expanded in the saved settings; the HUD checks assert the first-run state, so they get a fresh context.
+      const hudCtx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
+      const hudOpen = async (query) => { const p = await hudCtx.newPage(); watch(p); await p.goto(url + query, { waitUntil: 'load' }); return p; };
+      buildChecks.push(...await hudChecks(hudOpen, vp.name));
+      await hudCtx.close();
+    }
     if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     if (onlyBlock === 'traffic' || full) buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
     if (quick && vp.name === 'desktop') buildChecks.push(...await trafficQuickChecks(open));

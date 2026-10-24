@@ -122,6 +122,8 @@ button.primary.danger { background: #7c1d1d; border-color: #a53a3a; }
 .checklist li.done .tick { background: #3fb950; border-color: #3fb950; color: #0b1116; }
 .checklist .step-go { flex: 0 0 auto; background: #1d4c7c; border-color: #6fb0ff; }
 .checklist-chip { position: absolute; top: calc(env(safe-area-inset-top) + 64px); left: calc(env(safe-area-inset-left) + 6px); min-height: 44px; padding: 0 14px; font: 600 0.85rem system-ui, sans-serif; color: #e6edf3; background: rgba(29, 76, 124, 0.92); border: 1px solid rgba(111, 176, 255, 0.7); border-radius: 22px; cursor: pointer; }
+/* The desktop top bar wraps to a second row (Follow, Budget, Save, speaker, Menu); the checklist sits below both rows. */
+.hud[data-layout="desktop"] > .checklist, .hud[data-layout="desktop"] > .checklist-chip { top: calc(env(safe-area-inset-top) + 114px); }
 .hud > .tool-cost { position: absolute; display: grid; gap: 2px; max-width: 12rem; padding: 4px 8px; background: rgba(11, 17, 22, 0.88); border: 1px solid rgba(111, 176, 255, 0.6); border-radius: 6px; font-size: 0.8rem; pointer-events: none; }
 .hud > .tool-cost.bad { border-color: #e05a50; }
 .hud > .tool-cost.bad span { color: #ffb3ab; }
