@@ -2,7 +2,7 @@ import type { Command } from './commands.ts';
 import type { SimEvent } from './world.ts';
 
 /** Bump on any incompatible message or snapshot-semantics change. The worker rejects a mismatched Hello. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 export type Speed = 0 | 1 | 2 | 4 | 'max';
 export type Typed = Int16Array | Uint8Array | Uint16Array | Uint32Array | Float32Array | Float64Array | Int8Array | Int32Array;
@@ -100,8 +100,25 @@ export interface Workforce {
 }
 /** Traffic numbers for the HUD: vehicles on the road, smoothed congestion 0..1 (1 - mean speed / free-flow speed), percent of recent commutes that failed, and trip totals. */
 export interface TrafficStats { vehicles: number; congestion: number; failedPct: number; trips: number; failedTrips: number }
+/** One road-coverage service kind (fire, police, health, education) from its last pass. */
+export interface ServiceKindStats {
+  /** Buildings of the kind, how many of them work (finished, powered, watered), and the people those can serve at once. */
+  buildings: number; working: number; capacity: number;
+  /** People who need the service (occupants of operating buildings), and how many of them a service in reach can take on. */
+  population: number; served: number;
+  /** served / population as a whole percent, 0 when nobody needs the service. */
+  pct: number;
+}
+export interface ServiceStats {
+  fire: ServiceKindStats; police: ServiceKindStats; health: ServiceKindStats; edu: ServiceKindStats;
+  /** Working parks and robot repair bays. */
+  parks: number; repairBays: number;
+  /** Occupancy-weighted mean crime and fire risk over finished buildings, 0..100. */
+  crimeIndex: number; fireRisk: number;
+}
 export interface Stats {
   type: 'stats';
+  services: ServiceStats;
   workforce: Workforce;
   traffic: TrafficStats;
   tick: number;

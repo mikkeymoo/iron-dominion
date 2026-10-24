@@ -2,9 +2,12 @@
 
 import type { OVERLAY_MODE_TRAFFIC } from '../sim/traffic/constants.ts';
 
-export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | typeof OVERLAY_MODE_TRAFFIC;
-export const OVERLAY_MODES: readonly OverlayMode[] = ['none', 'power', 'water', 'landValue', 'pollution', 'traffic'];
-export const OVERLAY_LABELS: Record<OverlayMode, string> = { none: 'None', power: 'Power', water: 'Water', landValue: 'Land value', pollution: 'Pollution', traffic: 'Traffic' };
+export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | typeof OVERLAY_MODE_TRAFFIC | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks';
+export const OVERLAY_MODES: readonly OverlayMode[] = ['none', 'power', 'water', 'landValue', 'pollution', 'traffic', 'fire', 'police', 'health', 'education', 'crime', 'parks'];
+export const OVERLAY_LABELS: Record<OverlayMode, string> = {
+  none: 'None', power: 'Power', water: 'Water', landValue: 'Land value', pollution: 'Pollution', traffic: 'Traffic', fire: 'Fire', police: 'Police', health: 'Health',
+  education: 'Education', crime: 'Crime', parks: 'Parks',
+};
 
 export const isOverlayMode = (v: unknown): v is OverlayMode => typeof v === 'string' && (OVERLAY_MODES as readonly string[]).includes(v);
 

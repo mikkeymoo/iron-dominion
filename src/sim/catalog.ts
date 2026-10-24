@@ -1,3 +1,14 @@
+/** Service kinds. FIRE..EDU spread along the road network (roadFlow); PARK and REPAIR cover a plain disc of tiles. */
+export const SVC = { NONE: 0, FIRE: 1, POLICE: 2, HEALTH: 3, EDU: 4, PARK: 5, REPAIR: 6 } as const;
+
+export interface ServiceSpec {
+  kind: number;
+  /** Road kinds: coverage reach in road tiles from the building's access road. Park and repair: disc radius in tiles. */
+  radius: number;
+  /** People (residents, or jobs for fire and police) the building can serve at once; 0 for park and repair, which have no limit. */
+  capacity: number;
+}
+
 export interface Archetype {
   id: number;
   name: string;
@@ -16,11 +27,16 @@ export interface Archetype {
   pollution?: number;
   /** Utility buildings: which network they belong to. The tool sheet groups them under Utilities. */
   utility?: 'power' | 'water';
+  /** City services: what the building covers and how many people it can serve (services/tables.ts derives the lookup tables from this). */
+  service?: ServiceSpec;
   /** Listed but not yet buildable (U13 unlocks it): placeBuilding and its estimate refuse with `locked`. */
   locked?: boolean;
 }
 
-export const ARCH = { DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4, SOLAR_FARM: 5, WATER_TOWER: 6, FUSION_REACTOR: 7 } as const;
+export const ARCH = {
+  DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4, SOLAR_FARM: 5, WATER_TOWER: 6, FUSION_REACTOR: 7,
+  POLICE: 8, CLINIC: 9, HOSPITAL: 10, SCHOOL: 11, UNIVERSITY: 12, PARK_SMALL: 13, PARK_LARGE: 14, REPAIR_BAY: 15,
+} as const;
 
 /**
  * RCI archetype ids are stable and never renumbered: ids 1-15 are services and utilities, 16-42 are the 27 grown
@@ -69,10 +85,18 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.DEPOT, name: 'depot', w: 2, h: 2, cost: 500, placeable: true, upkeep: 20 },
   { id: ARCH.POWER_PLANT, name: 'powerPlant', w: 4, h: 4, cost: 3000, placeable: true, upkeep: 120, pollution: 200, utility: 'power' },
   { id: ARCH.WATER_PUMP, name: 'waterPump', w: 2, h: 2, cost: 800, placeable: true, upkeep: 30, utility: 'water' },
-  { id: ARCH.FIRE_STATION, name: 'fireStation', w: 3, h: 3, cost: 1200, placeable: true, upkeep: 60 },
+  { id: ARCH.FIRE_STATION, name: 'fireStation', w: 3, h: 3, cost: 1200, placeable: true, upkeep: 60, service: { kind: SVC.FIRE, radius: 24, capacity: 3000 } },
   { id: ARCH.SOLAR_FARM, name: 'solarFarm', w: 4, h: 4, cost: 2400, placeable: true, upkeep: 50, utility: 'power' },
   { id: ARCH.WATER_TOWER, name: 'waterTower', w: 2, h: 2, cost: 900, placeable: true, upkeep: 25, utility: 'water' },
   { id: ARCH.FUSION_REACTOR, name: 'fusionReactor', w: 4, h: 4, cost: 12000, placeable: true, upkeep: 260, utility: 'power', locked: true },
+  { id: ARCH.POLICE, name: 'policeStation', w: 3, h: 3, cost: 1500, placeable: true, upkeep: 70, service: { kind: SVC.POLICE, radius: 22, capacity: 2500 } },
+  { id: ARCH.CLINIC, name: 'clinic', w: 2, h: 2, cost: 900, placeable: true, upkeep: 45, service: { kind: SVC.HEALTH, radius: 18, capacity: 1500 } },
+  { id: ARCH.HOSPITAL, name: 'hospital', w: 4, h: 4, cost: 6000, placeable: true, upkeep: 220, service: { kind: SVC.HEALTH, radius: 32, capacity: 8000 } },
+  { id: ARCH.SCHOOL, name: 'school', w: 3, h: 3, cost: 1400, placeable: true, upkeep: 55, service: { kind: SVC.EDU, radius: 20, capacity: 2000 } },
+  { id: ARCH.UNIVERSITY, name: 'university', w: 4, h: 4, cost: 7000, placeable: true, upkeep: 260, service: { kind: SVC.EDU, radius: 34, capacity: 9000 } },
+  { id: ARCH.PARK_SMALL, name: 'parkSmall', w: 2, h: 2, cost: 300, placeable: true, upkeep: 6, service: { kind: SVC.PARK, radius: 6, capacity: 0 } },
+  { id: ARCH.PARK_LARGE, name: 'parkLarge', w: 4, h: 4, cost: 1400, placeable: true, upkeep: 24, service: { kind: SVC.PARK, radius: 12, capacity: 0 } },
+  { id: ARCH.REPAIR_BAY, name: 'repairBay', w: 2, h: 2, cost: 700, placeable: true, upkeep: 30, service: { kind: SVC.REPAIR, radius: 12, capacity: 0 } },
   ...rciArchetypes(),
 ];
 

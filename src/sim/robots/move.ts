@@ -2,6 +2,7 @@ import { AMAX, MAP, ROAD, S, type World } from '../layers.ts';
 import { findPath, pathTiles, type RoadNet } from '../roads/index.ts';
 import { AKIND, BACKOFF_BASE, BACKOFF_MAX, BUILDER_SPEED, HAULER_SPEED } from './constants.ts';
 import { nearestTileOf } from './pool.ts';
+import { ONE, REPAIR_BOOST_Q } from '../services/tables.ts';
 
 // Path following. The registry holds only (aPlan, aGoal, aStep, aFrac, aEpoch); the tile path itself is a cache that is rebuilt
 // from (aPlan, aGoal) on a miss. That is exact because every graph change bumps graphEpoch and a moving agent replans from its
@@ -78,7 +79,8 @@ export function stepAgent(net: RoadNet, w: World, a: number): MoveResult {
   if (step >= last) { place(w, a, tiles, last, 0, false); return 'arrived'; }
   const first = step === 0 && frac === 0, from = step;
   const cls = w.road[tiles[step]!]! & ROAD.CLASS_MASK;
-  frac += (w.aKind[a] === AKIND.BUILDER ? BUILDER_SPEED : HAULER_SPEED)[cls]!;
+  const boost = w.covRepair[tiles[step]!] !== 0 ? REPAIR_BOOST_Q / ONE : 1;
+  frac += (w.aKind[a] === AKIND.BUILDER ? BUILDER_SPEED : HAULER_SPEED)[cls]! * boost;
   while (frac >= 1 && step < last) { frac -= 1; step++; }
   if (step >= last) {
     w.aStep[a] = last; w.aFrac[a] = 0;

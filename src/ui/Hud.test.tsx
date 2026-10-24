@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
 import { DEFAULT_SETTINGS } from '../platform/settings.ts';
 import type { Speed } from '../sim/protocol.ts';
+import { emptyServiceStats } from '../sim/services/coverage.ts';
 import { Hud, NO_WORKFORCE, type HudStats } from './Hud';
 import type { Layout } from './layout';
 import { NO_FACTS } from './progress';
@@ -10,6 +11,7 @@ import { NO_FACTS } from './progress';
 const stats: HudStats = {
   tick: 0, day: 3, dayFrac: 0.4, treasury: 48230, population: 1250, rciDemand: [0.5, 0, -0.5], taxRates: [9, 9, 9], month: 0, lastNet: 120, loans: [], debtMonths: 0,
   power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 }, unpowered: 0, unwatered: 0, modelled: { power: false, water: false }, workforce: { ...NO_WORKFORCE, builders: 2 },
+  services: emptyServiceStats(),
 };
 
 function fakeLifecycle(speed: Speed = 1) {
@@ -21,10 +23,10 @@ function fakeLifecycle(speed: Speed = 1) {
 
 function mount(layout: Layout, over: Partial<Parameters<typeof Hud>[0]> = {}, speed: Speed = 1) {
   const { lc, setSpeed } = fakeLifecycle(speed);
-  const calls = { save: vi.fn(), budget: vi.fn(), follow: vi.fn(), setting: vi.fn(), perf: vi.fn(), quit: vi.fn() };
+  const calls = { save: vi.fn(), budget: vi.fn(), services: vi.fn(), follow: vi.fn(), setting: vi.fn(), perf: vi.fn(), quit: vi.fn() };
   const view = render(
     <Hud
-      lifecycle={lc} stats={stats} settings={DEFAULT_SETTINGS} notice="" budgetOpen={false} onBudget={calls.budget} follow={{ active: false, toggle: calls.follow }}
+      lifecycle={lc} stats={stats} settings={DEFAULT_SETTINGS} notice="" budgetOpen={false} onBudget={calls.budget} onServices={calls.services} follow={{ active: false, toggle: calls.follow }}
       onSave={calls.save} onSaveAs={vi.fn()} onExport={vi.fn()} onSetting={calls.setting} onQuit={calls.quit} quitPrompt={null} onQuitSaveAs={vi.fn()} onQuitDiscard={vi.fn()} onQuitCancel={vi.fn()}
       layout={layout} facts={{ ...NO_FACTS, depots: 1 }} perfOn={false} onPerf={calls.perf} {...over}
     />,

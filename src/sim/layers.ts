@@ -63,6 +63,10 @@ export const SPEC = {
   // occupancy mask (lane * LANE_SLOTS + slot). Both are derived from the vehicles, rebuilt when the road graph changes.
   tLoad: L(Uint8Array, TILES * 4, false, 'none'),
   tLane: L(Uint32Array, TILES * 4, false, 'none'),
+  // Park coverage (disc, no roads) and crime (services/crime.ts). covRepair is read by the robot movement only, so it is not mirrored.
+  covPark: L(Uint8Array, TILES, true, 'overlay'),
+  crime: L(Uint8Array, TILES, true, 'overlay'),
+  covRepair: L(Uint8Array, TILES, false, 'none'),
 
   // Building table (SoA pool). Slot is free when bArch = 0. Sent as slot deltas, not chunk slices.
   bArch: L(Uint8Array, BMAX, true, 'geometry'),

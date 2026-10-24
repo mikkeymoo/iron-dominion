@@ -4,6 +4,7 @@ import { economySystem } from './economy/index.ts';
 import { roadsSystem } from './roads/index.ts';
 import { robotsSystem } from './robots/index.ts';
 import { nextFloat, nextInt } from './rng.ts';
+import { servicesSystem } from './services/index.ts';
 import { trafficSystem } from './traffic/index.ts';
 import { utilitiesSystem } from './utilities/solve.ts';
 import type { Sim } from './world.ts';
@@ -55,7 +56,7 @@ function clockWeather(sim: Sim): void {
 
 // Named no-op hooks reserve each future system's slot in the fixed order.
 const utilities: System = utilitiesSystem;
-const services: System = () => {};
+const services: System = servicesSystem;
 const disasters: System = () => {};
 
 /** Fixed system order: later units fill the hooks, they never reorder. */

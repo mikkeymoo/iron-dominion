@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LoanInfo, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { LoanInfo, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
@@ -48,6 +48,7 @@ export interface HudStats {
   modelled: { power: boolean; water: boolean };
   workforce: Workforce;
   traffic?: TrafficStats;
+  services: ServiceStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -59,6 +60,8 @@ interface Props {
   notice: string;
   budgetOpen: boolean;
   onBudget(): void;
+  /** Opens the Services panel (menu entry). */
+  onServices(): void;
   /** Chase-camera state and toggle; absent while the 3D view is not running. */
   follow?: { active: boolean; toggle(): void };
   onSave(): void;
@@ -119,7 +122,7 @@ function TrafficReadout({ t }: { t?: TrafficStats }) {
 }
 
 export function Hud({
-  lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
+  lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
   facts = NO_FACTS, perfOn = false, onPerf, layout: forced, activeTier, panel: panelProp, onPanel, topOpen: topOpenProp, onTopOpen,
 }: Props) {
   const detected = useLayout();
@@ -268,6 +271,7 @@ export function Hud({
                 <button type="button" className="tb row" aria-pressed={follow.active} onClick={() => { closeMenu(); follow.toggle(); }}>{follow.active ? 'Stop following' : 'Follow a robot'}</button>
               )}
               {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
+              <button type="button" className="tb row" data-testid="services-menu" onClick={() => { onServices(); }}>City services</button>
               <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
               <label className="check">

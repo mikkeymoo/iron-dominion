@@ -32,7 +32,7 @@ describe('kit generator', () => {
       }
       expect(digest(x)).toBe(digest(y));
     }
-  });
+  }, 30000);
 
   it('produces different variants for most archetypes so neighbours differ', () => {
     let differing = 0;

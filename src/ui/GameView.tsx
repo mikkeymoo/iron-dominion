@@ -13,6 +13,7 @@ import { Checklist } from './Checklist';
 import { useLayout } from './layout';
 import { useOutsideDismiss, type PanelId } from './panels';
 import { factsFromLayers, type CityFacts } from './progress';
+import { ServicesPanel } from './ServicesPanel';
 import { Tools, type ToolHints } from './Tools';
 import type { ToolsRuntime } from './toolsStore.ts';
 
@@ -51,6 +52,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const budgetOpen = panel === 'budget';
+  const servicesOpen = panel === 'services';
   const [following, setFollowing] = useState(false);
   const game = useRef<Game | null>(null);
 
@@ -133,10 +135,11 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
         {phase === 'running' && facts && <Checklist facts={facts} state={listState} onChange={onList} onPick={(t) => { setPanel(null); tools.controller.select(t); }} collapseOnPick={phone} />}
         {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}
+        {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}
         {perfOn && perf && (
           <dl className="perf" data-testid="perf">
             <dt>backend</dt><dd>{perf.backend}</dd>

@@ -2,6 +2,7 @@ import { REGISTRY, type World } from './layers.ts';
 import { chunkIdx } from './tiles.ts';
 import type { Command } from './commands.ts';
 import type { RoadNet } from './roads/graph.ts';
+import type { ServiceStats } from './protocol.ts';
 import type { UtilStats } from './utilities/solve.ts';
 
 export type SimEvent =
@@ -33,6 +34,8 @@ export interface Sim {
   roads?: RoadNet;
   /** Totals of the last utilities solve for the HUD; derived, never hashed or saved, empty until the first solve after a load. */
   utils?: UtilStats;
+  /** Coverage percentages and indices of the last services passes for the HUD; derived, never hashed or saved. */
+  services?: ServiceStats;
 }
 
 export function allocWorld(): World {

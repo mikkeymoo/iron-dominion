@@ -71,9 +71,14 @@ describe('commands from drags', () => {
     expect(selectionFrom('terraform', { mode: 'level' })).toEqual({ tool: 'terraform', mode: 'level' });
     expect(selectionFrom('zone', { zone: 9 })).toBeNull();
     expect(selectionFrom('teleport')).toBeNull();
-    expect(SERVICES.map((s) => s.name)).toEqual(['depot', 'fireStation']);
+    expect(SERVICES.map((s) => s.name)).toEqual([
+      'depot', 'fireStation', 'policeStation', 'clinic', 'hospital', 'school', 'university', 'parkSmall', 'parkLarge', 'repairBay',
+    ]);
     expect(UTILITY_BUILDINGS.map((s) => s.name)).toEqual(['powerPlant', 'waterPump', 'solarFarm', 'waterTower', 'fusionReactor']);
-    expect(PLACEABLE.map((s) => s.name)).toEqual(['depot', 'powerPlant', 'waterPump', 'fireStation', 'solarFarm', 'waterTower', 'fusionReactor']);
+    expect(PLACEABLE.map((s) => s.name)).toEqual([
+      'depot', 'powerPlant', 'waterPump', 'fireStation', 'solarFarm', 'waterTower', 'fusionReactor', 'policeStation', 'clinic', 'hospital', 'school',
+      'university', 'parkSmall', 'parkLarge', 'repairBay',
+    ]);
     expect(selectionFrom('service', { name: 'solarFarm' })).toEqual({ tool: 'service', arch: ARCH.SOLAR_FARM });
   });
 
