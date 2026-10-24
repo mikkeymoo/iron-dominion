@@ -14,14 +14,22 @@ export interface OverlayLayers {
   waterOn: ArrayLike<number>;
   landValue: ArrayLike<number>;
   pollution: ArrayLike<number>;
+  covFire: ArrayLike<number>;
+  covPolice: ArrayLike<number>;
+  covHealth: ArrayLike<number>;
+  covEdu: ArrayLike<number>;
+  covPark: ArrayLike<number>;
+  crime: ArrayLike<number>;
 }
 
 export const overlayLayersOf = (layers: Record<string, ArrayLike<number>>): OverlayLayers => ({
   terrain: layers.terrain!, waterDepth: layers.waterDepth!, bId: layers.bId!, ugPower: layers.ugPower!,
   ugWater: layers.ugWater!, powerOn: layers.powerOn!, waterOn: layers.waterOn!, landValue: layers.landValue!, pollution: layers.pollution!,
+  covFire: layers.covFire!, covPolice: layers.covPolice!, covHealth: layers.covHealth!, covEdu: layers.covEdu!, covPark: layers.covPark!, crime: layers.crime!,
 });
 
 type Rgba = readonly [number, number, number, number];
+type Rgb = readonly [number, number, number];
 const NONE: Rgba = [0, 0, 0, 0];
 const DARK: Rgba = [232, 58, 48, 215];
 const POWER_OK: Rgba = [255, 214, 64, 175];
@@ -76,8 +84,36 @@ function colour(mode: OverlayMode, L: OverlayLayers, i: number): Rgba {
       const t = p / 255;
       return [Math.round(176 + (110 - 176) * t), Math.round(120 + (22 - 120) * t), Math.round(210 + (70 - 210) * t), Math.min(215, Math.round(50 + p * 0.65))];
     }
+    case 'fire': return coverage(L, L.covFire, i, FIRE_RGB, true);
+    case 'police': return coverage(L, L.covPolice, i, POLICE_RGB, true);
+    case 'health': return coverage(L, L.covHealth, i, HEALTH_RGB, true);
+    case 'education': return coverage(L, L.covEdu, i, EDU_RGB, true);
+    case 'parks': return coverage(L, L.covPark, i, PARK_RGB, false);
+    case 'crime': {
+      const c = L.crime[i]!;
+      if (c === 0 || !dry(L, i)) return NONE;
+      return [Math.round(150 + c * 0.4), Math.round(90 - c * 0.3), Math.round(70 - c * 0.2), Math.min(215, Math.round(40 + c * 0.7))];
+    }
     default: return NONE;
   }
+}
+
+const FIRE_RGB: Rgb = [255, 112, 48];
+const POLICE_RGB: Rgb = [72, 128, 255];
+const HEALTH_RGB: Rgb = [70, 224, 170];
+const EDU_RGB: Rgb = [178, 120, 255];
+const PARK_RGB: Rgb = [86, 205, 96];
+const UNCOVERED: Rgba = [210, 64, 56, 120];
+
+/**
+ * A coverage layer as a tint whose strength follows the coverage. With `gaps` a building the service does not reach is tinted
+ * red, so the player can see what is missing without reading numbers.
+ */
+function coverage(L: OverlayLayers, layer: ArrayLike<number>, i: number, rgb: Rgb, gaps: boolean): Rgba {
+  if (!dry(L, i)) return NONE;
+  const v = layer[i]!;
+  if (v === 0) return gaps && L.bId[i] !== 0 ? UNCOVERED : NONE;
+  return [rgb[0], rgb[1], rgb[2], Math.min(205, Math.round(45 + v * 0.62))];
 }
 
 export function paintTile(mode: OverlayMode, L: OverlayLayers, i: number, out: Uint8Array): void {

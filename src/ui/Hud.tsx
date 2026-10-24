@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LoanInfo, Speed, Workforce } from '../sim/protocol.ts';
+import type { LoanInfo, ServiceStats, Speed, Workforce } from '../sim/protocol.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
@@ -43,6 +43,7 @@ export interface HudStats {
   unwatered: number;
   modelled: { power: boolean; water: boolean };
   workforce: Workforce;
+  services: ServiceStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -54,6 +55,8 @@ interface Props {
   notice: string;
   budgetOpen: boolean;
   onBudget(): void;
+  /** Opens the Services panel (menu entry). */
+  onServices(): void;
   /** Chase-camera state and toggle; absent while the 3D view is not running. */
   follow?: { active: boolean; toggle(): void };
   onSave(): void;
@@ -74,7 +77,7 @@ const clock = (f: number): string => {
 };
 
 
-export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
+export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel }: Props) {
   const [lc, setLc] = useState<LifecycleState>({ ...lifecycle.state });
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState<'main' | 'saveAs' | 'settings'>('main');
@@ -144,6 +147,7 @@ export function Hud({ lifecycle, stats, settings, notice, budgetOpen, onBudget, 
         <div className="menu" role="dialog" aria-label="Menu">
           {panel === 'main' && (
             <>
+              <button type="button" className="tb row" onClick={() => { onServices(); closeMenu(); }}>City services</button>
               <button type="button" className="tb row" onClick={() => { setName(''); setPanel('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
               <button type="button" className="tb row" onClick={() => setPanel('settings')}>Settings</button>

@@ -98,8 +98,25 @@ export interface Workforce {
   /** Material units held by depots and industry. */
   stock: number;
 }
+/** One road-coverage service kind (fire, police, health, education) from its last pass. */
+export interface ServiceKindStats {
+  /** Buildings of the kind, how many of them work (finished, powered, watered), and the people those can serve at once. */
+  buildings: number; working: number; capacity: number;
+  /** People who need the service (occupants of operating buildings), and how many of them a service in reach can take on. */
+  population: number; served: number;
+  /** served / population as a whole percent, 0 when nobody needs the service. */
+  pct: number;
+}
+export interface ServiceStats {
+  fire: ServiceKindStats; police: ServiceKindStats; health: ServiceKindStats; edu: ServiceKindStats;
+  /** Working parks and robot repair bays. */
+  parks: number; repairBays: number;
+  /** Occupancy-weighted mean crime and fire risk over finished buildings, 0..100. */
+  crimeIndex: number; fireRisk: number;
+}
 export interface Stats {
   type: 'stats';
+  services: ServiceStats;
   workforce: Workforce;
   tick: number;
   hash?: number;

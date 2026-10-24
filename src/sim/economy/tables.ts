@@ -77,6 +77,8 @@ export const LV_WATER_MAX = 36;
 export const LV_ROAD_BONUS = [24, 24, 12] as const;
 export const LV_POLLUTION_SHIFT = 1;
 export const LV_SERVICE_SHIFT = 5;
+/** Park coverage counts for more than a service's: (covPark >> 3) is up to 31 land value, on top of the service term. */
+export const LV_PARK_SHIFT = 3;
 
 export const POLL_PERIOD = 16;
 /** Share of the blurred value kept each pass, out of 256. */
@@ -92,3 +94,15 @@ export const ABANDON_AT = 120;
 export const ABANDON_CLEAR = 60;
 export const LEVELUP_LV = 120;
 export const LEVELUP_DEMAND = 200;
+/**
+ * Health and education coverage (both 0..255) help a building level up: (health + edu) >> LEVELUP_SVC_SHIFT is added to its land
+ * value for the LEVELUP_LV test, and (health + edu) * LEVELUP_SVC_W >> 8 to its score, so served districts level first.
+ */
+export const LEVELUP_SVC_SHIFT = 4;
+export const LEVELUP_SVC_W = 384;
+/** Growth score a lot gains per coverage point: R from every service, C from fire and police (out of 256). */
+export const LOT_SVC_R = 64;
+export const LOT_SVC_C = 64;
+/** Crime above CRIME_TOLERANCE costs a building (crime - tolerance) >> CRIME_DESIRABILITY_SHIFT desirability (abandonment pressure). */
+export const CRIME_TOLERANCE = 128;
+export const CRIME_DESIRABILITY_SHIFT = 2;

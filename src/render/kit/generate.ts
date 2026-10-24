@@ -11,7 +11,9 @@ export const VARIANTS = 4;
  * the budget test, so a recipe change that bloats a model is caught before it reaches a phone.
  */
 const RCI_CAP: readonly (readonly number[])[] = [[900, 1500, 3000], [2600, 3800, 6400], [4200, 6500, 9500]];
-const SERVICE_CAP: Readonly<Record<number, number>> = { 1: 2600, 2: 6500, 3: 2600, 4: 3600, 5: 3600, 6: 3000, 7: 6500 };
+const SERVICE_CAP: Readonly<Record<number, number>> = {
+  1: 2600, 2: 6500, 3: 2600, 4: 3600, 5: 3600, 6: 3000, 7: 6500, 8: 3600, 9: 2600, 10: 6500, 11: 4200, 12: 6500, 13: 2600, 14: 4500, 15: 3000,
+};
 
 export function triangleCap(archetypeId: number): number {
   if (isRci(archetypeId)) {

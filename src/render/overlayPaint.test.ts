@@ -21,6 +21,8 @@ function city() {
   w.waterOn[at(30, 30)] = 1; w.waterOn[at(40, 40)] = 1; w.waterOn[at(41, 40)] = 2;
   w.ugWater[at(42, 40)] = 1; w.waterOn[at(42, 40)] = 1;
   w.pollution[at(50, 50)] = 200; w.pollution[at(51, 50)] = 20; w.pollution[at(11, 11)] = 255;
+  w.covFire[at(70, 70)] = 255; w.covFire[at(71, 70)] = 60; w.covPolice[at(72, 70)] = 255; w.covHealth[at(73, 70)] = 255; w.covEdu[at(74, 70)] = 255;
+  w.covPark[at(75, 70)] = 255; w.crime[at(76, 70)] = 255; w.crime[at(77, 70)] = 40; w.covFire[at(11, 11)] = 255;
   return w;
 }
 
@@ -64,6 +66,24 @@ describe('overlay painter', () => {
     expect(px(pol, 51, 50)[3]).toBeGreaterThan(0);
     expect(px(pol, 50, 50)[3]).toBeGreaterThan(px(pol, 51, 50)[3]!);
     expect(px(pol, 11, 11)[3], 'pollution over water is not painted').toBe(0);
+  });
+
+  it('coverage modes tint by strength, mark an unserved building red, skip water; crime ramps up', () => {
+    const fire = paint('fire');
+    expect(px(fire, 70, 70)[3]).toBeGreaterThan(px(fire, 71, 70)[3]!);
+    expect(px(fire, 71, 70)[3]).toBeGreaterThan(0);
+    expect(px(fire, 90, 90)[3]).toBe(0);
+    expect(px(fire, 30, 30).slice(0, 3), 'a building with no fire coverage').toEqual([210, 64, 56]);
+    expect(px(fire, 11, 11)[3], 'coverage over water is not painted').toBe(0);
+    expect(px(paint('police'), 72, 70)[2]).toBeGreaterThan(200);
+    expect(px(paint('health'), 73, 70)[1]).toBeGreaterThan(200);
+    expect(px(paint('education'), 74, 70)[0]).toBeGreaterThan(150);
+    const parks = paint('parks');
+    expect(px(parks, 75, 70)[1]).toBeGreaterThan(190);
+    expect(px(parks, 30, 30)[3], 'parks do not flag buildings').toBe(0);
+    const crime = paint('crime');
+    expect(px(crime, 76, 70)[3]).toBeGreaterThan(px(crime, 77, 70)[3]!);
+    expect(px(crime, 78, 70)[3]).toBe(0);
   });
 
   it('gives every mode a different checksum, and the same mode the same one', () => {

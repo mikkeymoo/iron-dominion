@@ -1,8 +1,11 @@
 // What the player is looking at, shared by the HUD (which sets it) and the renderer (which reads it). DOM-free and three-free.
 
-export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution';
-export const OVERLAY_MODES: readonly OverlayMode[] = ['none', 'power', 'water', 'landValue', 'pollution'];
-export const OVERLAY_LABELS: Record<OverlayMode, string> = { none: 'None', power: 'Power', water: 'Water', landValue: 'Land value', pollution: 'Pollution' };
+export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks';
+export const OVERLAY_MODES: readonly OverlayMode[] = ['none', 'power', 'water', 'landValue', 'pollution', 'fire', 'police', 'health', 'education', 'crime', 'parks'];
+export const OVERLAY_LABELS: Record<OverlayMode, string> = {
+  none: 'None', power: 'Power', water: 'Water', landValue: 'Land value', pollution: 'Pollution', fire: 'Fire', police: 'Police', health: 'Health',
+  education: 'Education', crime: 'Crime', parks: 'Parks',
+};
 
 export const isOverlayMode = (v: unknown): v is OverlayMode => typeof v === 'string' && (OVERLAY_MODES as readonly string[]).includes(v);
 

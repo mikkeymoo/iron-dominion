@@ -50,6 +50,10 @@ export const SPEC = {
   covPolice: L(Uint8Array, TILES, true, 'overlay'),
   covHealth: L(Uint8Array, TILES, true, 'overlay'),
   covEdu: L(Uint8Array, TILES, true, 'overlay'),
+  // Park coverage (disc, no roads) and crime (services/crime.ts). covRepair is read by the robot movement only, so it is not mirrored.
+  covPark: L(Uint8Array, TILES, true, 'overlay'),
+  crime: L(Uint8Array, TILES, true, 'overlay'),
+  covRepair: L(Uint8Array, TILES, false, 'none'),
 
   // Building table (SoA pool). Slot is free when bArch = 0. Sent as slot deltas, not chunk slices.
   bArch: L(Uint8Array, BMAX, true, 'geometry'),

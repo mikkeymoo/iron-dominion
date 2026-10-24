@@ -2,7 +2,7 @@ import { BFLAG, CATALOG, isRci } from '../catalog.ts';
 import { BMAX, MAP, ROAD, S, TILES, ZONE, isWaterTerrain, type World } from '../layers.ts';
 import { markDirty, type Sim } from '../world.ts';
 import {
-  LV_BASE_BY_TERRAIN, LV_CYCLE, LV_HILL_MAX, LV_POLLUTION_SHIFT, LV_ROAD_BONUS, LV_ROWS, LV_SERVICE_SHIFT, LV_WATER_MAX,
+  LV_BASE_BY_TERRAIN, LV_CYCLE, LV_HILL_MAX, LV_POLLUTION_SHIFT, LV_ROAD_BONUS, LV_PARK_SHIFT, LV_ROWS, LV_SERVICE_SHIFT, LV_WATER_MAX,
   POLL_EMIT_I, POLL_KEEP,
 } from './tables.ts';
 import { GRID_WATER, LV_NO_POWER, LV_NO_WATER } from '../utilities/tables.ts';
@@ -21,11 +21,11 @@ const prev = new Uint8Array(TILES);
 const wet = (w: World, j: number): boolean => isWaterTerrain(w.terrain[j]!) || w.waterDepth[j]! > 0;
 
 /**
- * Additive land value term for service coverage. U11 fills covFire/covPolice/covHealth/covEdu (0..255 each); today they
- * are all zero so the term is zero. Max (4 * 255) >> LV_SERVICE_SHIFT = 31.
+ * Additive land value term for service coverage, filled by the services system (services/coverage.ts): fire, police, health
+ * and education coverage (0..255 each, max 31 together) plus a heavier park term (covPark >> LV_PARK_SHIFT, max 31).
  */
 export const serviceBonus = (w: World, i: number): number =>
-  (w.covFire[i]! + w.covPolice[i]! + w.covHealth[i]! + w.covEdu[i]!) >> LV_SERVICE_SHIFT;
+  ((w.covFire[i]! + w.covPolice[i]! + w.covHealth[i]! + w.covEdu[i]!) >> LV_SERVICE_SHIFT) + (w.covPark[i]! >> LV_PARK_SHIFT);
 
 /**
  * Land value of one tile, 0..255, from the current layers: terrain base, a mild hill bonus, a water-view bonus (water

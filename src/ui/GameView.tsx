@@ -9,6 +9,7 @@ import { bindLifecycleDom } from '../platform/lifecycle.ts';
 import type { Settings } from '../platform/settings.ts';
 import { Budget } from './Budget';
 import { Hud, type HudStats } from './Hud';
+import { ServicesPanel } from './ServicesPanel';
 import { Tools } from './Tools';
 import type { ToolsRuntime } from './toolsStore.ts';
 
@@ -44,6 +45,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
   const [perf, setPerf] = useState<PerfSnapshot | null>(null);
   const [panel, setPanel] = useState(true);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [servicesOpen, setServicesOpen] = useState(false);
   const [following, setFollowing] = useState(false);
   const game = useRef<Game | null>(null);
 
@@ -95,9 +97,10 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       )}
       {phase === 'starting' && <div className="game-loading">Loading the world...</div>}
       <div className="hud">
-        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
+        <Hud lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setBudgetOpen((o) => !o)} onServices={() => setServicesOpen((o) => !o)} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} />
         {phase === 'running' && <Tools runtime={tools} view={view} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setBudgetOpen(false)} />}
+        {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setServicesOpen(false)} />}
         <button className="perf-toggle" type="button" aria-pressed={panel} onClick={() => setPanel((p) => !p)} title="Performance panel (`)">fps</button>
         {panel && perf && (
           <dl className="perf" data-testid="perf">

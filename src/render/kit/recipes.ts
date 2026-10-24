@@ -4,7 +4,7 @@ import { ARCH, RCI_BASE } from '../../sim/catalog.ts';
 import { CELL, cellUv } from './atlas.ts';
 import { Geo, hex, Rng, shade, SLOT, type Rect, type RGB } from './geo.ts';
 import {
-  acUnit, antenna, awning, bush, coolingTower, cornice, dockDoors, FACE, facade, fence, flatRoof, groundPatch, pipeRack,
+  acUnit, antenna, awning, bush, coolingTower, cornice, dockDoors, FACE, facade, fence, flatRoof, groundPatch, helipad, pipeRack,
   roofGear, sawtooth, sign, silo, solarPanels, stack, stripeLines, tank, tree,
 } from './parts.ts';
 
@@ -604,9 +604,286 @@ const fusionReactor: Recipe = (c) => {
   groundPatch(g, -f / 2 + 0.1, 1.1, f / 2 - 0.1, f / 2 - 0.05, ASPHALT, 0.013);
 };
 
+// ---------- city services: police, health, education, parks, repair bay ----------
+
+const LAWN = [hex(0x5f9a4a), hex(0x6aa552), hex(0x58934a)];
+const PATH = hex(0xcdc4b0), POLICE_BLUE = hex(0x3a8cff), MED_GREEN = hex(0x3fe0a0), AMBER = hex(0xffb030);
+
+/** A small parked vehicle (car, patrol car or ambulance) facing +z at (x, z). */
+function vehicle(g: Geo, x: number, z: number, body: RGB, light: RGB | null, s = 1): void {
+  const w = 0.055 * s, d = 0.1 * s;
+  g.box(SLOT.METAL, x - w, 0.012, z - d, x + w, 0.045 * s + 0.012, z + d, body, { aoRange: 0.06, aoMin: 0.7, top: shade(body, 1.1) });
+  g.box(SLOT.GLASS, x - w * 0.8, 0.045 * s + 0.012, z - d * 0.35, x + w * 0.8, 0.075 * s + 0.012, z + d * 0.5, hex(0x31404c), { aoRange: 0.05, aoMin: 0.8, noBottom: true });
+  if (light) g.box(SLOT.ACCENT, x - w * 0.6, 0.075 * s + 0.012, z - d * 0.1, x + w * 0.6, 0.088 * s + 0.012, z + d * 0.1, light, { noBottom: true });
+}
+
+function bench(g: Geo, x: number, z: number, alongX: boolean): void {
+  const wood = hex(0x8a6a4a), l = alongX ? 0.07 : 0.025, d = alongX ? 0.025 : 0.07;
+  g.box(SLOT.CONCRETE, x - l, 0.02, z - d, x + l, 0.034, z + d, wood, { aoMin: 0.7, noBottom: true });
+  g.box(SLOT.METAL, x - l, 0, z - d, x - l + 0.008, 0.02, z + d, METAL_POST, { noTop: true });
+  g.box(SLOT.METAL, x + l - 0.008, 0, z - d, x + l, 0.02, z + d, METAL_POST, { noTop: true });
+}
+const METAL_POST = hex(0x4a5560);
+
+/** A lamp whose head glows after dark (accent slot). */
+function lampPost(g: Geo, x: number, z: number, h = 0.16): void {
+  g.tube(SLOT.METAL, [x, 0, z], [x, h, z], 0.006, 4, METAL_POST, 0.8);
+  g.box(SLOT.ACCENT, x - 0.016, h, z - 0.016, x + 0.016, h + 0.022, z + 0.016, hex(0xfff0b0), { noBottom: true });
+}
+
+function flagPole(g: Geo, x: number, z: number, col: RGB): void {
+  g.tube(SLOT.METAL, [x, 0, z], [x, 0.4, z], 0.005, 4, hex(0xc8cdd0), 0.9);
+  g.quad(SLOT.ROOF, [x, 0.38, z], [x + 0.1, 0.38, z], [x + 0.1, 0.32, z], [x, 0.32, z], col, 1);
+  g.quad(SLOT.ROOF, [x + 0.1, 0.38, z], [x, 0.38, z], [x, 0.32, z], [x + 0.1, 0.32, z], col, 1);
+}
+
+const policeStation: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x7f8386));
+  const r = rc(-0.2, -0.35, f - 1.0, f - 1.35);
+  plinth(g, r, shade(CONCRETE, 0.6));
+  const wall = hex(0x6a7f94);
+  const top = facade(g, r, 0.02, 2, 0.21, { wall, glass: C_GLASS[0]!, cell: CELL.RIBBON, density: 3.2, winW: 0.62, winH: 0.5, ledge: hex(0xd8dce0) });
+  door(g, r, (r.x1 - r.x0) * 0.42, 0.02, 0.09, 0.12);
+  g.box(SLOT.CONCRETE, r.x0 + (r.x1 - r.x0) * 0.35, 0.15, r.z1, r.x0 + (r.x1 - r.x0) * 0.65, 0.17, r.z1 + 0.12, hex(0xd8dce0), { aoRange: 0.05, aoMin: 0.7, sides: 7 });
+  flatRoof(g, r, top, roofTone(rng), hex(0xd8dce0), 0.045, 0.03);
+  sign(g, r.x0 + 0.15, r.x1 - 0.15, top - 0.06, r.z1, POLICE_BLUE, 0.05);
+  g.box(SLOT.ACCENT, r.x0 + (r.x1 - r.x0) * 0.4, top + 0.05, r.z1 - 0.1, r.x0 + (r.x1 - r.x0) * 0.47, top + 0.075, r.z1 - 0.05, hex(0xff3a2a), { noBottom: true });
+  g.box(SLOT.ACCENT, r.x0 + (r.x1 - r.x0) * 0.53, top + 0.05, r.z1 - 0.1, r.x0 + (r.x1 - r.x0) * 0.6, top + 0.075, r.z1 - 0.05, POLICE_BLUE, { noBottom: true });
+  roofGear(g, r, top, rng, { ac: 2, antenna: true, antennaH: 0.45 });
+  const wing = rc(r.x1 + 0.3, r.z0 + 0.35, 0.5, 0.5);
+  plinth(g, wing, shade(CONCRETE, 0.6));
+  const wt = facade(g, wing, 0.02, 1, 0.24, { wall: shade(wall, 1.1), glass: C_GLASS[1]!, cell: CELL.SLIT, density: 3, winH: 0.35 });
+  flatRoof(g, wing, wt, roofTone(rng), hex(0xd8dce0), 0.04, 0.025);
+  groundPatch(g, -f / 2 + 0.06, 0.15, f / 2 - 0.06, f / 2 - 0.05, ASPHALT, 0.013);
+  stripeLines(g, -f / 2 + 0.2, 0.3, f / 2 - 0.55, 0.85, 4, hex(0xe8e8e0));
+  vehicle(g, -0.95, 0.58, hex(0xe8ecef), POLICE_BLUE);
+  vehicle(g, -0.45, 0.58, hex(0x2a3038), hex(0xff3a2a));
+  vehicle(g, 0.05, 0.58, hex(0xe8ecef), hex(0xff3a2a));
+  flagPole(g, r.x0 - 0.1, r.z1 + 0.1, hex(0x3a6ac0));
+  bush(g, r.x0 + 0.1, r.z1 + 0.05, 1, rng);
+  bush(g, r.x1 - 0.1, r.z1 + 0.05, 1, rng);
+};
+
+const clinic: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x8a8e8f));
+  const r = rc(0, -0.28, f - 0.5, f - 0.95);
+  plinth(g, r, shade(CONCRETE, 0.6));
+  const top = facade(g, r, 0.02, 2, 0.18, { wall: hex(0xeef1ee), glass: hex(0x5aa89a), cell: CELL.SASH, density: 3.4, winW: 0.5, winH: 0.58, ledge: hex(0xb8c4c0) });
+  door(g, r, (r.x1 - r.x0) * 0.4, 0.02, 0.09, 0.11);
+  g.box(SLOT.CONCRETE, r.x0 + (r.x1 - r.x0) * 0.3, 0.14, r.z1, r.x0 + (r.x1 - r.x0) * 0.7, 0.155, r.z1 + 0.14, hex(0xcfd6d4), { aoRange: 0.05, aoMin: 0.7, sides: 7 });
+  flatRoof(g, r, top, hex(0x8e9a9a), hex(0xeef1ee), 0.04, 0.025);
+  const cx = (r.x0 + r.x1) / 2;
+  sign(g, cx - 0.1, cx + 0.1, top - 0.1, r.z1, MED_GREEN, 0.05);
+  sign(g, cx - 0.025, cx + 0.025, top - 0.16, r.z1, MED_GREEN, 0.16);
+  g.box(SLOT.ACCENT, cx - 0.09, top + 0.03, r.z0 + 0.15, cx + 0.09, top + 0.075, r.z0 + 0.18, MED_GREEN, { noBottom: true });
+  g.box(SLOT.ACCENT, cx - 0.025, top + 0.03, r.z0 + 0.15, cx + 0.025, top + 0.15, r.z0 + 0.18, MED_GREEN, { noBottom: true });
+  roofGear(g, r, top, rng, { ac: 2 });
+  groundPatch(g, -f / 2 + 0.06, 0.28, f / 2 - 0.06, f / 2 - 0.05, ASPHALT, 0.013);
+  vehicle(g, -0.3, 0.55, hex(0xf2f4f4), hex(0xff3a2a), 1.1);
+  tree(g, -f / 2 + 0.16, -0.1, 1, rng);
+  tree(g, f / 2 - 0.16, -0.05, 1.1, rng, rng.chance(0.3));
+  bush(g, r.x0 + 0.1, r.z1 + 0.05, 1, rng);
+};
+
+const hospital: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x84898b));
+  const wall = hex(0xe6ebea), glass = hex(0x4f9aa8);
+  const main = rc(0, -0.95, 2.3, 1.0);
+  plinth(g, main, shade(CONCRETE, 0.6));
+  const top = facade(g, main, 0.02, 4, 0.19, { wall, glass, cell: CELL.RIBBON, density: 3.2, winW: 0.62, winH: 0.5, ledge: hex(0xb8c4c0) });
+  flatRoof(g, main, top, hex(0x8e9a9a), wall, 0.045, 0.03);
+  const tower = rc(0, -0.95, 0.9, 0.7);
+  const tt = facade(g, tower, top, 4, 0.18, { wall: hex(0xf2f5f4), glass, cell: CELL.CURTAIN, density: 3, winW: 0.7, winH: 0.58 });
+  flatRoof(g, tower, tt, hex(0x8e9a9a), hex(0xf2f5f4), 0.04, 0.025);
+  g.box(SLOT.ACCENT, -0.28, tt - 0.45, tower.z1, 0.28, tt - 0.4, tower.z1 + 0.012, MED_GREEN, { noBottom: true, noTop: true, sides: 1 });
+  g.box(SLOT.ACCENT, -0.28 + 0.2, tt - 0.62, tower.z1, 0.28 - 0.2, tt - 0.18, tower.z1 + 0.012, MED_GREEN, { noBottom: true, noTop: true, sides: 1 });
+  roofGear(g, main, top, rng, { ac: 3, tank: true });
+  antenna(g, tower.x1 - 0.1, tt, tower.z0 + 0.1, 0.3);
+  const wingL = rc(-1.25, -0.1, 0.75, 1.2), wingR = rc(1.25, -0.1, 0.75, 1.2);
+  const wl = facade(g, wingL, 0.02, 3, 0.19, { wall, glass, cell: CELL.RIBBON, density: 3, winW: 0.62, winH: 0.5, ledge: hex(0xb8c4c0) });
+  flatRoof(g, wingL, wl, hex(0x8e9a9a), wall, 0.04, 0.025);
+  const wr = facade(g, wingR, 0.02, 3, 0.19, { wall, glass, cell: CELL.RIBBON, density: 3, winW: 0.62, winH: 0.5, ledge: hex(0xb8c4c0) });
+  flatRoof(g, wingR, wr, hex(0x8e9a9a), wall, 0.04, 0.025);
+  helipad(g, (wingR.x0 + wingR.x1) / 2, (wingR.z0 + wingR.z1) / 2, wr, 0.26);
+  const link = rc(0, -0.2, 1.75, 0.6);
+  plinth(g, link, shade(CONCRETE, 0.6));
+  const lt = facade(g, link, 0.02, 2, 0.19, { wall: hex(0xdfe5e4), glass, cell: CELL.CURTAIN, density: 3.5, winW: 0.75, winH: 0.62, faces: FACE.FRONT });
+  flatRoof(g, link, lt, hex(0x8e9a9a), hex(0xdfe5e4), 0.04, 0.025);
+  g.box(SLOT.CONCRETE, -0.5, 0.15, link.z1, 0.5, 0.17, link.z1 + 0.22, hex(0xcfd6d4), { aoRange: 0.05, aoMin: 0.7, sides: 7 });
+  sign(g, -0.4, 0.4, 0.2, link.z1 + 0.22, MED_GREEN, 0.035);
+  groundPatch(g, -f / 2 + 0.08, 0.5, f / 2 - 0.08, f / 2 - 0.06, ASPHALT, 0.013);
+  stripeLines(g, -f / 2 + 0.3, 0.9, f / 2 - 0.3, 1.7, 8, hex(0xe8e8e0));
+  vehicle(g, -0.4, 0.78, hex(0xf2f4f4), hex(0xff3a2a), 1.2);
+  vehicle(g, 0.1, 0.78, hex(0xf2f4f4), hex(0xff3a2a), 1.2);
+  vehicle(g, 0.9, 1.35, hex(0x9a3a3a), null);
+  vehicle(g, 1.3, 1.35, hex(0x3a5a8a), null);
+  vehicle(g, -1.1, 1.35, hex(0xc8c8c0), null);
+  tree(g, -f / 2 + 0.2, 0.6, 1.2, rng);
+  tree(g, f / 2 - 0.2, 0.62, 1.2, rng, true);
+  for (const x of [-1.5, 1.5]) lampPost(g, x, 1.0, 0.18);
+};
+
+const school: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x838886));
+  const brick = hex(0xb8664a), trim = hex(0xe8e0d0);
+  const a = rc(-0.1, -0.7, f - 0.5, 0.6);
+  plinth(g, a, shade(CONCRETE, 0.6));
+  const ta = facade(g, a, 0.02, 2, 0.2, { wall: brick, glass: R_GLASS, cell: CELL.SASH, density: 4.5, winW: 0.52, winH: 0.62, ledge: trim });
+  g.hip(a.x0, a.z0, a.x1, a.z1, ta, 0.16, hex(0x4a5058));
+  const b = rc(-f / 2 + 0.45, 0.05, 0.6, 1.0);
+  plinth(g, b, shade(CONCRETE, 0.6));
+  const tb = facade(g, b, 0.02, 2, 0.2, { wall: brick, glass: R_GLASS, cell: CELL.SASH, density: 4.5, winW: 0.52, winH: 0.62, ledge: trim });
+  g.hip(b.x0, b.z0, b.x1, b.z1, tb, 0.16, hex(0x4a5058));
+  door(g, a, (a.x1 - a.x0) * 0.46, 0.02, 0.1, 0.12);
+  const tw = rc(a.x0 + (a.x1 - a.x0) * 0.5, a.z1 - 0.15, 0.3, 0.3);
+  const tt = facade(g, tw, 0.02, 4, 0.14, { wall: shade(brick, 1.05), glass: R_GLASS, cell: CELL.TALL, density: 2, winH: 0.5, faces: FACE.FRONT | FACE.LEFT | FACE.RIGHT });
+  g.hip(tw.x0, tw.z0, tw.x1, tw.z1, tt, 0.2, hex(0x4a5058), 0.02);
+  g.box(SLOT.ACCENT, tw.x0 + 0.08, tt - 0.12, tw.z1 + 0.002, tw.x1 - 0.08, tt - 0.04, tw.z1 + 0.012, hex(0xfff0b0), { noBottom: true, noTop: true, sides: 1 });
+  sign(g, a.x0 + 0.2, a.x0 + 0.65, 0.17, a.z1, hex(0xffd24a), 0.04);
+  const field = rc(0.45, 0.62, 1.7, 0.95);
+  groundPatch(g, field.x0, field.z0, field.x1, field.z1, hex(0x5d9a4a), 0.012);
+  const ln = hex(0xf4f4ee);
+  g.quad(SLOT.ROOF, [field.x0 + 0.08, 0.0135, field.z1 - 0.08], [field.x1 - 0.08, 0.0135, field.z1 - 0.08], [field.x1 - 0.08, 0.0135, field.z1 - 0.09], [field.x0 + 0.08, 0.0135, field.z1 - 0.09], ln, 1);
+  g.quad(SLOT.ROOF, [field.x0 + 0.08, 0.0135, field.z0 + 0.09], [field.x1 - 0.08, 0.0135, field.z0 + 0.09], [field.x1 - 0.08, 0.0135, field.z0 + 0.08], [field.x0 + 0.08, 0.0135, field.z0 + 0.08], ln, 1);
+  g.quad(SLOT.ROOF, [field.x0 + 0.08, 0.0135, field.z1 - 0.08], [field.x0 + 0.09, 0.0135, field.z1 - 0.08], [field.x0 + 0.09, 0.0135, field.z0 + 0.08], [field.x0 + 0.08, 0.0135, field.z0 + 0.08], ln, 1);
+  g.quad(SLOT.ROOF, [field.x1 - 0.09, 0.0135, field.z1 - 0.08], [field.x1 - 0.08, 0.0135, field.z1 - 0.08], [field.x1 - 0.08, 0.0135, field.z0 + 0.08], [field.x1 - 0.09, 0.0135, field.z0 + 0.08], ln, 1);
+  for (const gx of [field.x0 + 0.08, field.x1 - 0.08]) {
+    g.tube(SLOT.METAL, [gx, 0, field.z1 - 0.52], [gx, 0.1, field.z1 - 0.52], 0.005, 4, hex(0xf0f0ec), 0.9);
+    g.tube(SLOT.METAL, [gx, 0, field.z1 - 0.38], [gx, 0.1, field.z1 - 0.38], 0.005, 4, hex(0xf0f0ec), 0.9);
+    g.tube(SLOT.METAL, [gx, 0.1, field.z1 - 0.52], [gx, 0.1, field.z1 - 0.38], 0.005, 4, hex(0xf0f0ec), 0.9);
+  }
+  const yard = rc(-f / 2 + 0.45, 0.88, 0.62, 0.4);
+  groundPatch(g, yard.x0, yard.z0, yard.x1, yard.z1, hex(0x9a5a4a), 0.012);
+  g.box(SLOT.METAL, yard.x0 + 0.08, 0.012, yard.z0 + 0.1, yard.x0 + 0.2, 0.09, yard.z0 + 0.22, hex(0xe0b020), { aoMin: 0.7, top: hex(0xe0b020) });
+  g.box(SLOT.METAL, yard.x0 + 0.3, 0.012, yard.z0 + 0.12, yard.x0 + 0.5, 0.06, yard.z0 + 0.2, hex(0x3a8cc0), { aoMin: 0.7 });
+  fence(g, -f / 2 + 0.06, f / 2 - 0.08, f / 2 - 0.06, f / 2 - 0.08, hex(0xcfd4d6));
+  for (let i = 0; i < 4; i++) tree(g, -0.2 + i * 0.22, 0.05 + (i % 2) * 0.08, rng.range(0.9, 1.15), rng);
+};
+
+const university: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x8a8e8a));
+  const stone = hex(0xdcd3c2), glass = hex(0x5b7a96);
+  const hall = rc(0, -1.15, 3.2, 1.0);
+  plinth(g, hall, shade(CONCRETE, 0.6));
+  const top = facade(g, hall, 0.02, 3, 0.22, { wall: stone, glass, cell: CELL.TALL, density: 3.4, winW: 0.5, winH: 0.66, ledge: hex(0xb8ae9c), piers: shade(stone, 0.92) });
+  cornice(g, hall, top, hex(0xb8ae9c), 0.05, 0.04);
+  flatRoof(g, hall, top + 0.005, hex(0x6f7a80), stone, 0.04, 0.025);
+  const portico = rc(0, -0.58, 1.3, 0.24);
+  g.box(SLOT.CONCRETE, portico.x0, 0.02, portico.z0, portico.x1, 0.07, portico.z1 + 0.04, hex(0xcfc6b4), { aoRange: 0.06, aoMin: 0.7 });
+  for (let i = 0; i < 6; i++) {
+    const x = portico.x0 + 0.08 + i * ((portico.x1 - portico.x0 - 0.16) / 5);
+    g.cyl(SLOT.CONCRETE, x, 0.07, portico.z1 - 0.02, 0.035, 0.5, 8, hex(0xece4d4), { aoRange: 0.5, aoMin: 0.7 });
+  }
+  g.box(SLOT.CONCRETE, portico.x0 - 0.02, 0.57, portico.z0, portico.x1 + 0.02, 0.62, portico.z1 + 0.05, hex(0xcfc6b4), { aoBase: 0.57, aoRange: 0.06, aoMin: 0.8 });
+  g.gable(portico.x0 - 0.02, portico.z0, portico.x1 + 0.02, portico.z1 + 0.05, 0.62, 0.14, hex(0xcfc6b4), hex(0xcfc6b4), false, 0.0);
+  const drum = hex(0xece4d4), copper = hex(0x5fae9a);
+  g.cyl(SLOT.CONCRETE, 0, top, -1.15, 0.34, 0.2, 16, drum, { capTop: false, aoBase: top, aoRange: 0.3, aoMin: 0.6, band: [0.08, 0.1, hex(0xb8ae9c)] });
+  g.dome(SLOT.METAL, 0, top + 0.2, -1.15, 0.34, 16, 4, copper, top);
+  antenna(g, 0, top + 0.2 + 0.34, -1.15, 0.12, false);
+  g.cyl(SLOT.ACCENT, 0, top + 0.1, -1.15, 0.345, 0.025, 16, hex(0xffe9a0), { capTop: false });
+  for (const sx of [-1, 1]) {
+    const wing = rc(sx * 1.45, -0.35, 0.8, 1.5);
+    plinth(g, wing, shade(CONCRETE, 0.6));
+    const wt = facade(g, wing, 0.02, 3, 0.2, { wall: shade(stone, 0.95), glass, cell: CELL.SASH, density: 3.6, winW: 0.5, winH: 0.62, ledge: hex(0xb8ae9c) });
+    flatRoof(g, wing, wt, hex(0x6f7a80), stone, 0.04, 0.025);
+    roofGear(g, wing, wt, rng, { ac: 1, antenna: sx > 0 });
+  }
+  groundPatch(g, -0.95, -0.55, 0.95, 1.7, hex(0x66a04e), 0.012);
+  groundPatch(g, -0.07, -0.55, 0.07, 1.7, PATH, 0.0135);
+  groundPatch(g, -0.95, 0.35, 0.95, 0.46, PATH, 0.0135);
+  g.cyl(SLOT.CONCRETE, 0, 0.012, 0.4, 0.17, 0.045, 14, hex(0xb8b2a8), { capTop: hex(0x4aa8c8) });
+  g.cyl(SLOT.METAL, 0, 0.05, 0.4, 0.02, 0.1, 8, hex(0xb8b2a8), { rTop: 0.01 });
+  for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) tree(g, sx * (0.35 + k * 0.2), 0.95 + (k % 2) * 0.3, rng.range(0.95, 1.2), rng, rng.chance(0.2));
+  for (const sx of [-0.6, 0.6]) bench(g, sx, 0.4, true);
+  for (const x of [-0.25, 0.25]) lampPost(g, x, 1.2, 0.17);
+  sign(g, -0.35, 0.35, 0.02 + 0.22 * 3 - 0.05, hall.z1, hex(0xffd24a), 0.04);
+};
+
+const parkSmall: Recipe = (c) => {
+  const { g, rng, f } = c;
+  groundPatch(g, -f / 2 + 0.03, -f / 2 + 0.03, f / 2 - 0.03, f / 2 - 0.03, rng.pick(LAWN), 0.011);
+  groundPatch(g, -0.06, -f / 2 + 0.03, 0.06, f / 2 - 0.03, PATH, 0.0125);
+  groundPatch(g, -f / 2 + 0.03, -0.06, f / 2 - 0.03, 0.06, PATH, 0.0126);
+  g.cyl(SLOT.CONCRETE, 0, 0.012, 0, 0.16, 0.05, 12, hex(0xb8b2a8), { capTop: hex(0x4aa8c8) });
+  g.cyl(SLOT.METAL, 0, 0.05, 0, 0.02, 0.09, 8, hex(0xb8b2a8), { rTop: 0.008 });
+  g.cyl(SLOT.ACCENT, 0, 0.14, 0, 0.012, 0.012, 6, hex(0x9ae8ff), { capTop: hex(0x9ae8ff) });
+  const spots: [number, number][] = [[-0.62, -0.62], [0.62, -0.62], [-0.62, 0.62], [0.62, 0.62], [-0.5, 0.18], [0.5, -0.2]];
+  for (const [x, z] of spots) tree(g, x + rng.range(-0.06, 0.06), z + rng.range(-0.06, 0.06), rng.range(0.95, 1.3), rng, rng.chance(0.25));
+  bench(g, -0.3, -0.12, true);
+  bench(g, 0.3, 0.12, true);
+  lampPost(g, 0.18, 0.18, 0.15);
+  bush(g, -0.2, 0.55, 1.1, rng);
+  bush(g, 0.25, -0.55, 1.1, rng);
+};
+
+const parkLarge: Recipe = (c) => {
+  const { g, rng, f } = c;
+  groundPatch(g, -f / 2 + 0.03, -f / 2 + 0.03, f / 2 - 0.03, f / 2 - 0.03, rng.pick(LAWN), 0.011);
+  groundPatch(g, -0.07, -f / 2 + 0.03, 0.07, f / 2 - 0.03, PATH, 0.0125);
+  groundPatch(g, -f / 2 + 0.03, -0.07, f / 2 - 0.03, 0.07, PATH, 0.0126);
+  const pond = hex(0x3a9ec0);
+  g.cyl(SLOT.CONCRETE, 0, 0.012, 0, 0.62, 0.03, 18, hex(0xb8b2a8), { capTop: false });
+  g.quad(SLOT.GLASS, [-0.56, 0.044, 0.56], [0.56, 0.044, 0.56], [0.56, 0.044, -0.56], [-0.56, 0.044, -0.56], pond, 1, cellUv(CELL.GARAGE), 0);
+  g.cyl(SLOT.CONCRETE, 0, 0.012, 0, 0.18, 0.06, 12, hex(0xb8b2a8), { capTop: pond });
+  g.cyl(SLOT.METAL, 0, 0.06, 0, 0.03, 0.14, 8, hex(0xb8b2a8), { rTop: 0.012 });
+  g.cyl(SLOT.ACCENT, 0, 0.2, 0, 0.02, 0.015, 6, hex(0x9ae8ff), { capTop: hex(0x9ae8ff) });
+  const gz = [-1.35, 1.2], gx = 1.25;
+  const gaz = rc(gx, gz[0]!, 0.5, 0.5);
+  for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) g.tube(SLOT.CONCRETE, [gaz.x0 + 0.22 + dx * 0.18, 0.012, gz[0]! + dz * 0.18], [gaz.x0 + 0.22 + dx * 0.18, 0.2, gz[0]! + dz * 0.18], 0.012, 5, hex(0xe8e2d0), 0.9);
+  g.hip(gx - 0.28, gz[0]! - 0.28, gx + 0.28, gz[0]! + 0.28, 0.2, 0.12, hex(0x7a3b30), 0.0);
+  g.cyl(SLOT.CONCRETE, gx, 0.012, gz[0]!, 0.2, 0.025, 10, hex(0xcdc4b0), { capTop: hex(0xcdc4b0) });
+  for (let i = 0; i < 16; i++) {
+    const a = i * 2.399 + rng.next() * 0.4, rad = 0.85 + (i % 5) * 0.2 + rng.next() * 0.1;
+    const x = Math.cos(a) * rad * 1.15, z = Math.sin(a) * rad * 1.15;
+    if (Math.abs(x) < 0.12 || Math.abs(z) < 0.12 || Math.abs(x) > f / 2 - 0.1 || Math.abs(z) > f / 2 - 0.1) continue;
+    if (Math.hypot(x - gx, z - gz[0]!) < 0.4) continue;
+    tree(g, x, z, rng.range(1.0, 1.5), rng, rng.chance(0.3));
+  }
+  for (const [x, z, alongX] of [[-0.45, -0.28, true], [0.45, 0.28, true], [-0.28, 0.5, false], [0.28, -0.5, false], [-1.2, 0.2, true], [1.2, -0.2, true]] as const) bench(g, x, z, alongX);
+  for (const [x, z] of [[-0.35, -0.35], [0.35, 0.35], [-1.0, 0.18], [1.0, -0.18], [0.18, 1.1], [-0.18, -1.1]] as const) lampPost(g, x, z, 0.16);
+  for (const [x, z] of [[-1.45, 1.4], [1.4, 1.45], [-0.7, 1.45], [0.5, -1.55]] as const) bush(g, x, z, 1.3, rng);
+};
+
+const repairBay: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x7a7e80));
+  const r = rc(0, -0.28, f - 0.35, f - 1.0);
+  plinth(g, r, shade(CONCRETE, 0.6));
+  const top = facade(g, r, 0.02, 1, 0.3, { wall: hex(0x8f9aa2), glass: I_GLASS, cell: CELL.SLIT, density: 2.4, winH: 0.22, faces: FACE.BACK | FACE.LEFT | FACE.RIGHT });
+  const uv = cellUv(CELL.GARAGE);
+  const bw = (r.x1 - r.x0) / 2;
+  for (let i = 0; i < 2; i++) {
+    const x0 = r.x0 + i * bw + 0.07, x1 = r.x0 + (i + 1) * bw - 0.07;
+    g.quad(SLOT.GLASS, [x0, 0.02, r.z1 + 0.004], [x1, 0.02, r.z1 + 0.004], [x1, 0.27, r.z1 + 0.004], [x0, 0.27, r.z1 + 0.004], hex(0x5a6a72), [0.6, 0.6, 0.9, 0.9], uv, g.nextWid++);
+    g.box(SLOT.ACCENT, x0, 0.275, r.z1, x1, 0.29, r.z1 + 0.012, AMBER, { noBottom: true, noTop: true, sides: 1 });
+  }
+  g.box(SLOT.CONCRETE, r.x0, 0.29, r.z1 + 0.002, r.x1, top, r.z1 + 0.004, hex(0x8f9aa2), { noBottom: true, noTop: true, sides: 1 });
+  g.gable(r.x0, r.z0, r.x1, r.z1, top, 0.1, hex(0x4e5a62), hex(0x8f9aa2), true, 0.02);
+  g.box(SLOT.ROOF, r.x0, 0.02, r.z1 + 0.002, r.x1, 0.045, r.z1 + 0.014, SAFETY, { noBottom: true, noTop: true, sides: 1 });
+  roofGear(g, r, top, rng, { ac: 1, antenna: true });
+  // A gantry with a hanging arm over the apron: where the robots are serviced.
+  const gx0 = -0.55, gx1 = 0.55, gz = 0.45;
+  for (const x of [gx0, gx1]) g.tube(SLOT.METAL, [x, 0.012, gz], [x, 0.36, gz], 0.016, 5, SAFETY, 0.9);
+  g.tube(SLOT.METAL, [gx0, 0.36, gz], [gx1, 0.36, gz], 0.014, 5, SAFETY, 0.9);
+  g.tube(SLOT.METAL, [0.0, 0.36, gz], [0.0, 0.2, gz], 0.01, 4, STEEL_MID, 0.9);
+  g.tube(SLOT.METAL, [0.0, 0.2, gz], [0.09, 0.14, gz + 0.04], 0.008, 4, STEEL_MID, 0.9);
+  g.box(SLOT.ACCENT, -0.03, 0.34, gz - 0.02, 0.03, 0.375, gz + 0.02, AMBER, { noBottom: true });
+  groundPatch(g, -f / 2 + 0.06, 0.1, f / 2 - 0.06, f / 2 - 0.05, ASPHALT, 0.013);
+  stripeLines(g, -f / 2 + 0.2, 0.2, f / 2 - 0.2, 0.7, 4, hex(0xe8e8e0));
+  g.box(SLOT.METAL, r.x1 - 0.12, 0.012, 0.18, r.x1 + 0.02, 0.1, 0.34, hex(0x5a646a), { aoMin: 0.7, top: hex(0x7a848a) });
+  g.cyl(SLOT.METAL, r.x0 + 0.1, 0.012, 0.25, 0.05, 0.1, 8, hex(0xb23a2c), { capTop: shade(hex(0xb23a2c), 1.1) });
+};
+
 export const RECIPES: Readonly<Record<number, Recipe>> = {
   [ARCH.DEPOT]: depot, [ARCH.POWER_PLANT]: powerPlant, [ARCH.WATER_PUMP]: waterPump, [ARCH.FIRE_STATION]: fireStation,
   [ARCH.SOLAR_FARM]: solarFarm, [ARCH.WATER_TOWER]: waterTower, [ARCH.FUSION_REACTOR]: fusionReactor,
+  [ARCH.POLICE]: policeStation, [ARCH.CLINIC]: clinic, [ARCH.HOSPITAL]: hospital, [ARCH.SCHOOL]: school, [ARCH.UNIVERSITY]: university,
+  [ARCH.PARK_SMALL]: parkSmall, [ARCH.PARK_LARGE]: parkLarge, [ARCH.REPAIR_BAY]: repairBay,
   [RCI_BASE + 0]: resLow1, [RCI_BASE + 1]: resLow2, [RCI_BASE + 2]: resLow3,
   [RCI_BASE + 3]: resMed1, [RCI_BASE + 4]: resMed2, [RCI_BASE + 5]: resMed3,
   [RCI_BASE + 6]: resHigh1, [RCI_BASE + 7]: resHigh2, [RCI_BASE + 8]: resHigh3,

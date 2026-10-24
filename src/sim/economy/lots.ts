@@ -7,7 +7,8 @@ import { LOT_NO_POWER, LOT_NO_WATER } from '../utilities/tables.ts';
 import { lotService } from '../utilities/index.ts';
 import { zoneDemand } from './demand.ts';
 import {
-  ABANDON_AT, ABANDON_CLEAR, ABANDON_DEMAND, ABANDON_DESIRABILITY, LEVELUP_DEMAND, LEVELUP_LV, ONE,
+  ABANDON_AT, ABANDON_CLEAR, ABANDON_DEMAND, ABANDON_DESIRABILITY, CRIME_DESIRABILITY_SHIFT, CRIME_TOLERANCE, LEVELUP_DEMAND, LEVELUP_LV,
+  LEVELUP_SVC_SHIFT, LEVELUP_SVC_W, LOT_SVC_C, LOT_SVC_R, ONE,
 } from './tables.ts';
 import { footprintMean, isOperating, zoneOfArch } from './totals.ts';
 
@@ -51,17 +52,26 @@ export function reachableAccess(net: RoadNet, anchors: readonly number[] | null,
 }
 
 function lotScoreAt(world: World, x: number, y: number, bw: number, bh: number, zone: number, access: number): number {
-  let lv = 0, pol = 0;
-  for (let yy = y; yy < y + bh; yy++) for (let xx = x; xx < x + bw; xx++) { lv += world.landValue[yy * MAP + xx]!; pol += world.pollution[yy * MAP + xx]!; }
+  let lv = 0, pol = 0, fire = 0, police = 0, other = 0;
+  for (let yy = y; yy < y + bh; yy++) {
+    for (let xx = x; xx < x + bw; xx++) {
+      const i = yy * MAP + xx;
+      lv += world.landValue[i]!; pol += world.pollution[i]!;
+      fire += world.covFire[i]!; police += world.covPolice[i]!;
+      other += world.covHealth[i]! + world.covEdu[i]! + world.covPark[i]!;
+    }
+  }
   const n = bw * bh;
   lv = Math.floor(lv / n); pol = Math.floor(pol / n);
+  fire = Math.floor(fire / n); police = Math.floor(police / n); other = Math.floor(other / n);
   const demand = Math.round(zoneDemand(world, zone) * ONE);
   const cls = world.road[access]! & ROAD.CLASS_MASK;
   // Once the city models power or water, a lot with no reachable supply is a poor site; it can still grow (level 1), just last.
   const svc = lotService(world, x, y, bw, bh);
   const util = (svc.power ? 0 : LOT_NO_POWER) + (svc.water ? 0 : LOT_NO_WATER);
-  if (zone === ZONE.R) return demand + lv * 4 - pol * 4 + cls * 16 - util;
-  if (zone === ZONE.C) return demand + lv * 3 - pol * 2 + cls * 32 - util;
+  // Services make houses and shops more desirable: homes want every service and parks, shops want fire and police.
+  if (zone === ZONE.R) return demand + lv * 4 - pol * 4 + cls * 16 - util + (((fire + police + other) * LOT_SVC_R) >> 8);
+  if (zone === ZONE.C) return demand + lv * 3 - pol * 2 + cls * 32 - util + (((fire + police) * LOT_SVC_C) >> 8);
   return demand + (255 - lv) + cls * 8 - util;
 }
 
@@ -121,8 +131,10 @@ export function levelUpCandidates(sim: Sim, zone: number, max: number): LevelUp[
     // Growing past level 1 needs both services: isOperating already excludes the unpowered, and a building the water misses stays put.
     if ((w.bFlags[s]! & BFLAG.UNWATERED) !== 0) continue;
     const lv = footprintMean(w, w.landValue, s);
-    if (lv < LEVELUP_LV) continue;
-    out.push({ slot: s, x: w.bX[s]!, y: w.bY[s]!, arch, nextArch: arch + 1, level: w.bLevel[s]!, score: lv * 4 + demand });
+    // Health and education coverage under the building: a lower land value is enough, and the building ranks higher.
+    const edu = footprintMean(w, w.covHealth, s) + footprintMean(w, w.covEdu, s);
+    if (lv + (edu >> LEVELUP_SVC_SHIFT) < LEVELUP_LV) continue;
+    out.push({ slot: s, x: w.bX[s]!, y: w.bY[s]!, arch, nextArch: arch + 1, level: w.bLevel[s]!, score: lv * 4 + demand + ((edu * LEVELUP_SVC_W) >> 8) });
   }
   out.sort((a, b) => b.score - a.score || a.slot - b.slot);
   return out.slice(0, max);
@@ -147,7 +159,8 @@ export function updateAbandonment(sim: Sim): void {
   for (let s = 0; s < BMAX; s++) {
     const z = zoneOfArch(w.bArch[s]!);
     if (z === 0 || (w.bFlags[s]! & BFLAG.CONSTRUCTING) !== 0) continue;
-    const desirability = footprintMean(w, w.landValue, s) + (z === ZONE.I ? 64 : 0);
+    const crime = footprintMean(w, w.crime, s);
+    const desirability = footprintMean(w, w.landValue, s) + (z === ZONE.I ? 64 : 0) - (crime > CRIME_TOLERANCE ? (crime - CRIME_TOLERANCE) >> CRIME_DESIRABILITY_SHIFT : 0);
     const bad = weak[z] === 1 && desirability < ABANDON_DESIRABILITY;
     const c = w.bAband[s]!;
     const next = bad ? Math.min(255, c + 1) : Math.max(0, c - 2);

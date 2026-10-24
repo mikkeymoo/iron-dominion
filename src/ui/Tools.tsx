@@ -25,7 +25,8 @@ const CATEGORIES: { id: Group; label: string; key: string; start: ToolSel }[] = 
 
 const SERVICE_LABELS: Record<string, string> = {
   depot: 'Depot', powerPlant: 'Power plant', waterPump: 'Water pump', fireStation: 'Fire station', solarFarm: 'Solar farm',
-  waterTower: 'Water tower', fusionReactor: 'Fusion reactor',
+  waterTower: 'Water tower', fusionReactor: 'Fusion reactor', policeStation: 'Police', clinic: 'Clinic', hospital: 'Hospital', school: 'School',
+  university: 'University', parkSmall: 'Small park', parkLarge: 'Large park', repairBay: 'Repair bay',
 };
 const MODE_LABELS = { raise: 'Raise', lower: 'Lower', level: 'Level' } as const;
 const LINE_COST: Record<LineKind, number> = { power: POWER_LINE_COST, water: PIPE_COST };
