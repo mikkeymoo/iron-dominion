@@ -17,9 +17,11 @@ export const ICON_NAMES = ['power', 'water', 'fire', 'jobs', 'crime', 'smog', 'u
 export const ICON_PRIORITY: Record<IconKind, number> = { [ICON.FIRE]: 70, [ICON.POWER]: 60, [ICON.WATER]: 50, [ICON.JOBS]: 40, [ICON.CRIME]: 30, [ICON.SMOG]: 20, [ICON.UPGRADE]: 10 };
 
 /** Camera distance (tiles) beyond which icons hide: the mood icons first, the three outage-grade ones (fire, power, water) later. */
-export const ICON_FAR = { mood: 90, critical: 180 } as const;
+export const ICON_FAR = { mood: 60, critical: 180 } as const;
 export const isCritical = (k: IconKind): boolean => k === ICON.FIRE || k === ICON.POWER || k === ICON.WATER;
-/** 0 everything shows, 1 only fire, power and water, 2 nothing. */
+/** What still shows past ICON_FAR.mood: the outage-grade icons and crime. */
+const showsFar = (k: IconKind): boolean => isCritical(k) || k === ICON.CRIME;
+/** 0 everything shows, 1 only fire, power, water and crime, 2 nothing. */
 export const farLevel = (cameraDist: number): 0 | 1 | 2 => (cameraDist > ICON_FAR.critical ? 2 : cameraDist > ICON_FAR.mood ? 1 : 0);
 
 /** Crime (0..255) and smog (0..255 pollution) at which a home, shop or office gets its icon; unemployment (0..1) at which homes do. */
@@ -30,6 +32,8 @@ export const ICON_UNEMPLOYMENT = 0.4;
 export const ICON_DEMAND_LOW = -0.25;
 export const ICON_LAND_LOW = ABANDON_DESIRABILITY + 40;
 export const MAX_ICONS = 768;
+/** Icons drawn at once: a dense district would otherwise carry one over nearly every building. */
+export const VISIBLE_ICONS = 40;
 
 export interface IconSample {
   flags: number;
@@ -71,13 +75,13 @@ export function pickIcon(s: IconSample): IconKind | -1 {
 export interface StatusRec { x: number; y: number; z: number; kind: IconKind }
 
 /** Of `recs`, those visible at this camera distance, most important first then nearest the focus, at most `cap`. */
-export function selectIcons(recs: readonly (StatusRec & { slot: number })[], dist: number, focus: { x: number; z: number }, cap = MAX_ICONS): StatusRec[] {
+export function selectIcons(recs: readonly (StatusRec & { slot: number })[], dist: number, focus: { x: number; z: number }, cap = VISIBLE_ICONS): StatusRec[] {
   const far = farLevel(dist);
   if (far === 2) return [];
   const rank = (r: StatusRec): number => ICON_PRIORITY[r.kind];
   const d2 = (r: StatusRec): number => (r.x - focus.x) ** 2 + (r.z - focus.z) ** 2;
   return recs
-    .filter((r) => far === 0 || isCritical(r.kind))
+    .filter((r) => far === 0 || showsFar(r.kind))
     .sort((a, b) => rank(b) - rank(a) || d2(a) - d2(b) || a.slot - b.slot)
     .slice(0, cap)
     .map(({ x, y, z, kind }) => ({ x, y, z, kind }));

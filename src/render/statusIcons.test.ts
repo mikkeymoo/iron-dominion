@@ -4,7 +4,7 @@ import { MAP, S } from '../sim/layers.ts';
 import type { IconAnchor } from './instances.ts';
 import { RenderMirror } from './mirror.ts';
 import {
-  ICON, ICON_CRIME, ICON_FAR, ICON_SMOG, MAX_ICONS, StatusIconSystem, farLevel, pickIcon, selectIcons, type IconKind, type IconSample, type StatusRec,
+  ICON, ICON_CRIME, ICON_FAR, ICON_SMOG, MAX_ICONS, VISIBLE_ICONS, StatusIconSystem, farLevel, pickIcon, selectIcons, type IconKind, type IconSample, type StatusRec,
 } from './statusIcons.ts';
 
 const sample = (over: Partial<IconSample> = {}): IconSample => ({ flags: 0, zone: 1, level: 1, crime: 0, smog: 0, landValue: 120, demand: 0.2, unemployment: 0, ...over });
@@ -54,7 +54,7 @@ describe('selectIcons', () => {
     const recs = [rec(0, ICON.POWER, 10, 10), rec(1, ICON.SMOG, 11, 10), rec(2, ICON.FIRE, 12, 10), rec(3, ICON.CRIME, 13, 10), rec(4, ICON.WATER, 14, 10), rec(5, ICON.UPGRADE, 15, 10), rec(6, ICON.JOBS, 16, 10)];
     const focus = { x: 10, z: 10 };
     expect(selectIcons(recs, 60, focus)).toHaveLength(7);
-    expect(selectIcons(recs, 120, focus).map((r) => r.kind).sort()).toEqual([ICON.POWER, ICON.WATER, ICON.FIRE]);
+    expect(selectIcons(recs, 120, focus).map((r) => r.kind).sort()).toEqual([ICON.POWER, ICON.WATER, ICON.FIRE, ICON.CRIME].sort());
     expect(selectIcons(recs, 250, focus)).toEqual([]);
   });
 
@@ -64,7 +64,8 @@ describe('selectIcons', () => {
     expect(out.map((r) => [r.kind, r.x])).toEqual([[ICON.FIRE, 90], [ICON.POWER, 11], [ICON.POWER, 50], [ICON.SMOG, 12], [ICON.SMOG, 100]]);
     expect(selectIcons(recs, 40, { x: 10, z: 10 }, 3).map((r) => r.kind)).toEqual([ICON.FIRE, ICON.POWER, ICON.POWER]);
     const many = Array.from({ length: MAX_ICONS + 50 }, (_, i) => rec(i, ICON.SMOG, i % 200, Math.floor(i / 200)));
-    expect(selectIcons(many, 40, { x: 0, z: 0 })).toHaveLength(MAX_ICONS);
+    expect(selectIcons(many, 40, { x: 0, z: 0 })).toHaveLength(VISIBLE_ICONS);
+    expect(selectIcons(many, 40, { x: 0, z: 0 }, MAX_ICONS)).toHaveLength(MAX_ICONS);
   });
 
   it('is deterministic for ties', () => {

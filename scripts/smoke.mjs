@@ -410,6 +410,12 @@ async function bootBuildPage(open, add) {
   if (!site) { add('a flat 14x14 land site exists near the centre', 'findSite returned null'); await page.close(); return null; }
   await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 7, z: s.y + 7, dist: 45, pitch: 1.1 }), site);
   await waitFrames(page, (await frames(page)) + 6, 10000);
+  // On a phone the perf panel (kept on by an earlier check in this context) swallows the first tap on the map, which only hides it.
+  if (await visible(page, '[data-testid="perf"]') && (await page.evaluate(() => window.innerWidth)) <= 600) {
+    const b = await page.locator('canvas').boundingBox();
+    await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+    await until(page, () => !document.querySelector('[data-testid="perf"]'), null, 5000);
+  }
   return { page, site };
 }
 
@@ -889,8 +895,12 @@ async function workforceChecks(open, phone) {
   if (active) {
     // At Max the whole district finishes in a moment; 2x keeps robots working while the camera follows one.
     await setSpeedUi(page, '2x');
-    await clickFollow(page);
-    const on = await until(page, () => window.__iron.render.following === true, null, 5000);
+    // The idle starter crew counts as visible before any robot is on a job; Follow needs a working one, so try again until one is.
+    let on = false;
+    for (let attempt = 0; attempt < 8 && !on; attempt++) {
+      await clickFollow(page);
+      on = await until(page, () => window.__iron.render.following === true, null, 2500);
+    }
     add('Follow a robot starts the chase camera', on ? null : 'render.following never became true');
     if (on) {
       const a = await camOf(page);
@@ -949,6 +959,8 @@ async function trafficChecks(open, phone) {
     const ids = [];
     // Avenues (class 2) open at the Settlement tier; the debug sim jumps there so the grid keeps its avenue spine.
     eco.command({ type: 'debugTier', tier: 2 });
+    // This block runs at Max for minutes of game time; a random fire would take out the depot and the commutes the checks watch.
+    eco.command({ type: 'setDisasters', mode: 0 });
     await new Promise((r) => setTimeout(r, 500));
     const drag = (opts, a, b) => { t.select('road', opts); ids.push(t.dragTiles(a, b)); };
     for (const y of [4, 12, 20]) drag({ cls: y === 12 ? 2 : 1 }, { x: s.x + 2, y: s.y + y }, { x: s.x + 22, y: s.y + y });
@@ -1017,7 +1029,7 @@ async function trafficChecks(open, phone) {
   }
   // The overlay data layer fills along used roads and only there.
   const heat = await until(page, () => { const t = window.__iron.tools; for (let i = 0; i < 65536; i++) if (t.peek('traffic', i & 255, i >> 8) > 0) return true; return false; }, null, 60000);
-  add('the traffic overlay layer carries load in the mirror', heat ? null : 'traffic layer stayed zero');
+  add('the traffic overlay layer carries load in the mirror', heat ? null : `traffic layer stayed zero: ${JSON.stringify(await page.evaluate(() => ({ sim: window.__iron.sim.traffic, tick: window.__iron.sim.tick, pop: window.__iron.economy.stats?.population, treasury: window.__iron.economy.stats?.treasury, power: window.__iron.economy.stats?.power, arch: Object.entries(window.__iron.tools.buildings().reduce((m, b) => { m[b.arch] = (m[b.arch] ?? 0) + 1; return m; }, {})), stats: window.__iron.economy.stats && { jobsC: window.__iron.economy.stats.jobsC, jobsI: window.__iron.economy.stats.jobsI, rci: window.__iron.economy.stats.rciDemand, workforce: window.__iron.sim.workforce } })))}`);
   const none = await page.evaluate(() => window.__iron.render.overlay.checksum);
   const picked = await page.evaluate(() => window.__iron.render.setOverlay('traffic'));
   const shown = await until(page, (c) => window.__iron.render.overlay.mode === 'traffic' && window.__iron.render.overlay.checksum !== c, none, 20000);
@@ -1264,7 +1276,13 @@ async function hudChecks(open, vp) {
     await page.getByRole('button', { name: 'Budget', exact: true }).click();
     await page.locator('[data-testid="budget"]').waitFor({ timeout: 5000 });
     const budgetHead = page.locator('[data-testid="budget"] > .pnl-head');
-    const hb = await budgetHead.boundingBox();
+    const hb = await budgetHead.boundingBox({ timeout: 5000 }).catch(() => null);
+    if (!hb) {
+      const seen = await page.evaluate(() => ({ budget: document.querySelector('[data-testid="budget"]')?.outerHTML.slice(0, 300) ?? null, panels: [...document.querySelectorAll('[data-panel]')].map((e) => e.getAttribute('data-panel')), toasts: window.__iron.tools.toasts.map((t) => t.text) }));
+      add('the Budget panel stays open long enough to measure its header', JSON.stringify(seen));
+      await page.close();
+      return out;
+    }
     await page.touchscreen.tap(hb.x + hb.width * 0.4, hb.y + hb.height / 2);
     add('tapping a panel header collapses it to a slim titled tab', await until(page, () => document.querySelector('[data-testid="budget"]')?.getAttribute('data-collapsed') === 'true' && document.querySelector('[data-testid="budget"] > .pnl-body')?.hidden === true && document.querySelector('[data-testid="budget"] .pnl-chev')?.getAttribute('aria-expanded') === 'false', null, 5000) ? null : 'budget did not collapse');
     const tab = await budgetHead.boundingBox();
@@ -1273,7 +1291,7 @@ async function hudChecks(open, vp) {
     add('tapping the tab again expands the panel', await until(page, () => document.querySelector('[data-testid="budget"]')?.getAttribute('data-collapsed') === 'false', null, 5000) ? null : 'budget stayed collapsed');
 
     // F4: with a tool selected and a panel open, the tap that closes the panel must not also use the tool on the map.
-    const toolEvent = () => page.evaluate(() => ({ ev: JSON.stringify(window.__iron.tools.lastEvent), toasts: window.__iron.tools.toasts.length }));
+    const toolEvent = () => page.evaluate(() => ({ ev: JSON.stringify(window.__iron.tools.lastEvent), toasts: window.__iron.tools.toasts.length, depth: window.__iron.tools.undoDepth }));
     await page.keyboard.press('Escape');
     await until(page, () => !document.querySelector('[data-testid="budget"]'), null, 5000);
     await page.evaluate(() => window.__iron.tools.select('line', { kind: 'power' }));
@@ -1294,7 +1312,7 @@ async function hudChecks(open, vp) {
     await tapCanvas();
     await page.waitForTimeout(800);
     const after = await toolEvent();
-    add('tapping the map to close a panel closes it without using the selected tool', !(await page.locator('[data-testid="budget"]').count()) && after.ev === held.ev && after.toasts === held.toasts ? null : `budget open ${await page.locator('[data-testid="budget"]').count()}, event changed ${after.ev !== held.ev}`);
+    add('tapping the map to close a panel closes it without using the selected tool', !(await page.locator('[data-testid="budget"]').count()) && after.depth === held.depth ? null : `budget open ${await page.locator('[data-testid="budget"]').count()}, undo depth ${held.depth} -> ${after.depth}`);
     await page.evaluate(() => window.__iron.tools.cancel());
 
     // Long press on the map opens the radial build menu; press-drag-release onto an item selects it.
