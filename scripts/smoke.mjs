@@ -1073,8 +1073,11 @@ async function trafficQuickChecks(open) {
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
   const site = up ? await (async () => { await until(page, () => window.__iron.tools.findSite(26) !== null, null, 20000); return page.evaluate(() => window.__iron.tools.findSite(26)); })() : null;
   if (!site) { add('quick: city boots with a build site', 'renderer, tools or site missing'); await page.close(); return out; }
+  // The worker only sends agents inside the view rect, and the opening camera drifts away from the site; a random fire pauses the sim at Max.
+  await page.evaluate((s) => window.__iron.render.resetCamera({ x: s.x + 12, z: s.y + 4, dist: 26, pitch: 0.8, yaw: 0.5 }), site);
   await page.evaluate(async (s) => {
     const t = window.__iron.tools, eco = window.__iron.economy;
+    eco.command({ type: 'setDisasters', mode: 0 });
     t.select('road', { cls: 1 });
     t.dragTiles({ x: s.x + 2, y: s.y + 4 }, { x: s.x + 22, y: s.y + 4 });
     t.cancel();

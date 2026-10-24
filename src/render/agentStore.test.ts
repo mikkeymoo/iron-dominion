@@ -116,6 +116,20 @@ describe('AgentStore', () => {
     expect(out.pos[0]).toBeLessThan(13.2);
   });
 
+  it('still draws every vehicle at its latest position when each message is far more than a few ticks after the last', () => {
+    const s = new AgentStore();
+    const car = (slot: number, x: number) => ({ slot, gen: 0, x, z: 5, kind: 3, state: 10 });
+    s.ingest(msg(100, [car(4100, 10)]), 0);
+    s.ingest(msg(400, [car(4101, 30), car(4102, 31)]), 50);
+    s.ingest(msg(900, [car(4103, 40)]), 100);
+    const out = makeSample(4);
+    for (const now of [100, 130, 400]) {
+      expect(s.sample(now, out, 4, 0, 0, 'vehicles').count).toBe(1);
+      expect([out.pos[0], out.pos[1]]).toEqual([40, 5]);
+    }
+    expect(s.vehicleCount()).toBe(1);
+  });
+
   it('poseOf follows one agent and returns null once it is gone', () => {
     const s = new AgentStore();
     const key = (4 | (2 << 16)) >>> 0;
