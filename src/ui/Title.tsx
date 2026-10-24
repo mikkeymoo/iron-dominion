@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import type { SlotMeta } from '../platform/db.ts';
 import { isOldVersion } from '../platform/save.ts';
+import type { ScoreRecord } from '../platform/scores.ts';
+import type { ScenarioChoice } from '../sim/scenarios.ts';
+import { Challenges, Scenarios } from './Scenarios';
 
 interface Props {
   worker: 'loading' | 'ready' | 'failed';
@@ -12,12 +15,21 @@ interface Props {
   onLoad(id: string): void;
   onDelete(id: string): void;
   onImport(file: File): void;
+  /** Personal bests by scenario slug or challenge id (platform/scores.ts). */
+  scores?: Readonly<Record<string, ScoreRecord>>;
+  /** Start a scenario or a daily/weekly challenge. */
+  onScenario?(choice: ScenarioChoice): void;
+  /** The clock the daily and weekly challenges read; tests pass a fixed one. */
+  now?(): Date;
 }
+
+const NO_SCORES: Readonly<Record<string, ScoreRecord>> = {};
 
 const when = (t: number): string => new Date(t).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
 const kb = (n: number): string => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
-export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, onDelete, onImport }: Props) {
+export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, onDelete, onImport, scores = NO_SCORES, onScenario, now }: Props) {
+  const [screen, setScreen] = useState<'main' | 'scenarios' | 'challenges'>('main');
   const [form, setForm] = useState(false);
   const [list, setList] = useState(false);
   const [name, setName] = useState('');
@@ -34,9 +46,14 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
       <h1>Iron Dominion</h1>
       <p>Robots build your city.</p>
 
-      {!form && (
+      {screen === 'scenarios' && <Scenarios scores={scores} disabled={down} onPlay={(c) => onScenario?.(c)} onBack={() => setScreen('main')} />}
+      {screen === 'challenges' && <Challenges scores={scores} disabled={down} now={now} onPlay={(c) => onScenario?.(c)} onBack={() => setScreen('main')} />}
+
+      {screen === 'main' && !form && (
         <div className="title-actions">
           <button className="primary" type="button" disabled={down} onClick={() => { setForm(true); setList(false); }}>New city</button>
+          <button className="primary" type="button" disabled={down} onClick={() => { setScreen('scenarios'); setList(false); }}>Scenarios</button>
+          <button className="primary" type="button" disabled={down} onClick={() => { setScreen('challenges'); setList(false); }}>Daily / Weekly</button>
           <button className="primary" type="button" disabled={down || latest === undefined} onClick={() => onLoad(latest!.id)}>Continue</button>
           <button className="primary" type="button" disabled={down || slots.length === 0} aria-expanded={list} onClick={() => setList((v) => !v)}>Load</button>
           <button className="primary" type="button" disabled={down} onClick={() => file.current?.click()}>Import file</button>
@@ -44,7 +61,7 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
         </div>
       )}
 
-      {form && (
+      {screen === 'main' && form && (
         <form className="newcity" onSubmit={(e) => { e.preventDefault(); if (!seedBad) onNew(name, seedValue); }}>
           <label>City name<input value={name} maxLength={40} placeholder="Untitled city" autoFocus onChange={(e) => setName(e.target.value)} /></label>
           <label>Seed (optional)<input value={seed} inputMode="numeric" placeholder="random" aria-invalid={seedBad} onChange={(e) => setSeed(e.target.value)} /></label>
@@ -55,7 +72,7 @@ export function Title({ worker, tick, slots, storageOk, message, onNew, onLoad, 
         </form>
       )}
 
-      {list && !form && (
+      {screen === 'main' && list && !form && (
         <ul className="slots" aria-label="Saved cities">
           {slots.map((s) => {
             const old = isOldVersion(s.protocol);

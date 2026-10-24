@@ -1,4 +1,5 @@
 import { ARCH, BFLAG } from './catalog.ts';
+import { mods } from './firmware.ts';
 import { BMAX, S, type World } from './layers.ts';
 import { MEGA, MEGA_ARCHS, megaBit, megaStages } from './megaprojects.ts';
 import type { MilestoneStats, ProjectStatus } from './protocol.ts';
@@ -63,7 +64,8 @@ export interface Requirements {
 
 /** Requirements of starting a megaproject, measured now: population, and spare rated power and water. */
 export function megaRequirements(w: World, arch: number): Requirements {
-  const req = MEGA[arch]!.req;
+  const spec = MEGA[arch]!.req, k = mods(w).megaReq;
+  const req = k === 1 ? spec : { pop: Math.ceil(spec.pop * k), power: Math.ceil(spec.power * k), water: Math.ceil(spec.water * k) };
   const pop = w.scalars[S.population]!;
   const p = powerBalance(w), q = waterBalance(w);
   const power = p.supply - p.demand, water = q.supply - q.demand;

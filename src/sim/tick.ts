@@ -6,6 +6,7 @@ import { economySystem } from './economy/index.ts';
 import { milestonesSystem } from './milestones.ts';
 import { roadsSystem } from './roads/index.ts';
 import { robotsSystem } from './robots/index.ts';
+import { scenarioSystem } from './scenarioRun.ts';
 import { nextFloat, nextInt } from './rng.ts';
 import { servicesSystem } from './services/index.ts';
 import { trafficSystem } from './traffic/index.ts';
@@ -76,6 +77,7 @@ export const SYSTEMS: readonly { name: string; run: System }[] = [
   { name: 'disasters', run: disasters },
   { name: 'milestones', run: milestones },
   { name: 'directives', run: directivesSystem },
+  { name: 'scenario', run: scenarioSystem },
 ];
 
 export function runTick(sim: Sim): void {

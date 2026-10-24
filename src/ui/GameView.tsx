@@ -14,6 +14,9 @@ import { Budget } from './Budget';
 import { Hud, type HudStats } from './Hud';
 import { DirectiveCard } from './DirectiveCard';
 import { EdictsPanel, ResearchPanel } from './FirmwarePanels';
+import { GoalChip } from './GoalChip';
+import { Results } from './Results';
+import type { ScoreUpdate } from '../platform/scores.ts';
 import { useLayout } from './layout';
 import { Banner, MilestonesPanel } from './Milestones';
 import { PanelStateContext, type PanelStateStore } from './Panel';
@@ -50,12 +53,15 @@ interface Props {
   onSaveAs(name: string): void;
   onExport(): void;
   onSetting<K extends keyof Settings>(key: K, value: Settings[K]): void;
+  /** Scenario hooks: the stored record after this run, the next scenario's name, and what the results screen's buttons do. Absent in a sandbox city. */
+  scenario?: { result: ScoreUpdate | null; nextName?: string; onRetry(): void; onNext(): void; onBack(): void };
 }
 
 type Phase = 'starting' | 'running' | 'failed';
 
-export function GameView({ client, mirror, agents, tools, why, view, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting }: Props) {
+export function GameView({ client, mirror, agents, tools, why, view, lifecycle, stats, settings, notice, tick, worker, onExit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel, onSave, onSaveAs, onExport, onSetting, scenario }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const [resultsHidden, setResultsHidden] = useState(false);
   const [phase, setPhase] = useState<Phase>('starting');
   const [error, setError] = useState('');
   const [perf, setPerf] = useState<PerfSnapshot | null>(null);
@@ -227,6 +233,13 @@ export function GameView({ client, mirror, agents, tools, why, view, lifecycle, 
         {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}
         {projectsOpen && <MilestonesPanel stats={stats.milestone} population={stats.population} runtime={tools} onClose={() => setPanel(null)} />}
         <Banner runtime={tools} />
+        {phase === 'running' && stats.scenario && !focus && <GoalChip stats={stats.scenario} onFinish={() => client.command({ type: 'finishScenario' })} />}
+        {stats.scenario && stats.scenario.state !== 0 && !resultsHidden && scenario && (
+          <Results
+            stats={stats.scenario} population={stats.population} treasury={stats.treasury} update={scenario.result} next={scenario.nextName}
+            onRetry={scenario.onRetry} onNext={scenario.onNext} onKeepPlaying={() => setResultsHidden(true)} onBack={scenario.onBack}
+          />
+        )}
         {perfOn && perf && (
           <dl className="perf" data-testid="perf">
             <dt>backend</dt><dd>{perf.backend}</dd>
