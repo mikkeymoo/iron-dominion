@@ -6,7 +6,7 @@ import { MAP, S, TERRAIN } from '../../sim/layers.ts';
 import { tileIdx } from '../../sim/tiles.ts';
 import { MAX_GHOST_TILES, overlayIndices, writeTileQuad } from './ghostGeometry.ts';
 import {
-  buildingAnchor, commandFor, ghostTints, keyAction, PLACEABLE, roadDragPath, selectionFrom, SERVICES, UTILITY_BUILDINGS, type ToolSel,
+  buildingAnchor, commandFor, ghostTints, keyAction, PLACEABLE, PROJECTS, roadDragPath, selectionFrom, SERVICES, UTILITY_BUILDINGS, type ToolSel,
 } from './toolSpec.ts';
 
 const cells = (p: { ax: number; ay: number; bx: number; by: number }): [number, number][] => roadPath(p).map((i) => [i % MAP, (i / MAP) | 0]);
@@ -77,8 +77,10 @@ describe('commands from drags', () => {
     expect(UTILITY_BUILDINGS.map((s) => s.name)).toEqual(['powerPlant', 'waterPump', 'solarFarm', 'waterTower', 'fusionReactor']);
     expect(PLACEABLE.map((s) => s.name)).toEqual([
       'depot', 'powerPlant', 'waterPump', 'fireStation', 'solarFarm', 'waterTower', 'fusionReactor', 'policeStation', 'clinic', 'hospital', 'school',
-      'university', 'parkSmall', 'parkLarge', 'repairBay',
+      'university', 'parkSmall', 'parkLarge', 'repairBay', 'fusionSpire', 'arcology', 'mechArena', 'spaceElevator',
     ]);
+    expect(PROJECTS.map((s) => s.name)).toEqual(['fusionSpire', 'arcology', 'mechArena', 'spaceElevator']);
+    expect(selectionFrom('service', { name: 'arcology' })).toEqual({ tool: 'service', arch: ARCH.ARCOLOGY });
     expect(selectionFrom('service', { name: 'solarFarm' })).toEqual({ tool: 'service', arch: ARCH.SOLAR_FARM });
   });
 

@@ -4,9 +4,10 @@ import {
   BufferGeometry, DataTexture, Float32BufferAttribute, LinearFilter, LinearMipmapLinearFilter, MeshStandardNodeMaterial, RGBAFormat,
   UnsignedByteType, type Node, type Texture,
 } from 'three/webgpu';
-import { attribute, clamp, float, hash, max, min, mix, normalGeometry, normalView, normalWorld, positionGeometry, positionWorld, smoothstep, step, texture, vec3, vertexColor } from 'three/tsl';
+import { attribute, clamp, float, hash, max, min, mix, normalGeometry, normalView, normalWorld, positionGeometry, positionWorld, sin, smoothstep, step, texture, time, vec3, vertexColor } from 'three/tsl';
 import { fxU } from './fx/uniforms.ts';
 import { ATLAS_H, ATLAS_W, buildWindowAtlas } from './kit/atlas.ts';
+import { PULSE_WID } from './kit/geo.ts';
 import { FINISH, FOUNDATION_END, NO_CLIP, SCAFFOLD_LEAD } from './kit/construction.ts';
 
 /** 0 = day, 1 = night. Owned by the atmosphere unit (fx/uniforms.ts), which ramps it with the sun. Drives lit windows and signs. */
@@ -63,8 +64,13 @@ export function createBuildingMaterial(atlas: Texture): MeshStandardNodeMaterial
   const material = new MeshStandardNodeMaterial();
   material.colorNode = mix(albedo.mul(ao.mul(0.55).add(0.45)), vec3(0.93, 0.95, 0.99), snowOnTop().mul(0.9));
   material.aoNode = ao;
+  // Accent surfaces tagged with a window id of PULSE_WID or more (megaproject plasma, beacons, scoreboards) glow day and night
+  // and breathe: over 1.0 so the bloom pass picks them up.
+  const pulse = step(PULSE_WID - 0.5, wid);
+  const breathe = sin(time.mul(2.4)).mul(0.5).add(1.9);
+  const accentGlow = mix(buildingLight.night.mul(1.3).add(0.12), breathe, pulse);
   material.emissiveNode = litColor.mul(pane).mul(glow).mul(lit).mul(buildingLight.night).mul(1.7)
-    .add(base.mul(isAccent).mul(buildingLight.night.mul(1.3).add(0.12)).mul(powered.mul(0.92).add(0.08)));
+    .add(base.mul(isAccent).mul(accentGlow).mul(powered.mul(0.92).add(0.08)));
   material.roughnessNode = mix(mix(float(0.86), float(0.42), isMetal), mix(float(0.55), float(0.12), pane), isGlass);
   material.metalnessNode = mix(mix(float(0), float(0.7), isMetal), pane.mul(0.25), isGlass);
 

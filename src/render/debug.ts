@@ -53,6 +53,9 @@ export interface RenderDebug {
   /** Follow-a-robot chase camera. `follow(true)` picks a random active robot and returns whether one was found. */
   readonly following: boolean;
   follow(on: boolean, kind?: number): boolean;
+  /** The megaproject completion camera is running; `skipCinematic()` is the tap or Escape that ends it. */
+  readonly cinematic: boolean;
+  skipCinematic(): void;
 }
 
 export interface BuildingDebug {

@@ -3,6 +3,7 @@
 import { ARCH, RCI_BASE } from '../../sim/catalog.ts';
 import { CELL, cellUv } from './atlas.ts';
 import { Geo, hex, Rng, shade, SLOT, type Rect, type RGB } from './geo.ts';
+import { MEGA_RECIPES } from './mega.ts';
 import {
   acUnit, antenna, awning, bush, coolingTower, cornice, dockDoors, FACE, facade, fence, flatRoof, groundPatch, helipad, pipeRack,
   roofGear, sawtooth, sign, silo, solarPanels, stack, stripeLines, tank, tree,
@@ -21,7 +22,8 @@ const roofTone = (r: Rng): RGB => r.pick(FLAT_ROOFS);
 const CONCRETE = hex(0xb9b6ae), DARK = hex(0x3c4248), ASPHALT = hex(0x40454b), PAVE = hex(0xa6a49c);
 const SAFETY = hex(0xe0b020), CYAN = hex(0x35e0ff);
 
-export interface Ctx { g: Geo; rng: Rng; f: number }
+/** `v` is the variant seed; a megaproject reads it as its model index (the stage under construction, or the stage count when finished). */
+export interface Ctx { g: Geo; rng: Rng; f: number; v: number }
 type Recipe = (c: Ctx) => void;
 
 const rc = (cx: number, cz: number, w: number, d: number): Rect => ({ x0: cx - w / 2, z0: cz - d / 2, x1: cx + w / 2, z1: cz + d / 2 });
@@ -880,6 +882,7 @@ const repairBay: Recipe = (c) => {
 };
 
 export const RECIPES: Readonly<Record<number, Recipe>> = {
+  ...MEGA_RECIPES,
   [ARCH.DEPOT]: depot, [ARCH.POWER_PLANT]: powerPlant, [ARCH.WATER_PUMP]: waterPump, [ARCH.FIRE_STATION]: fireStation,
   [ARCH.SOLAR_FARM]: solarFarm, [ARCH.WATER_TOWER]: waterTower, [ARCH.FUSION_REACTOR]: fusionReactor,
   [ARCH.POLICE]: policeStation, [ARCH.CLINIC]: clinic, [ARCH.HOSPITAL]: hospital, [ARCH.SCHOOL]: school, [ARCH.UNIVERSITY]: university,

@@ -29,13 +29,15 @@ export interface Archetype {
   utility?: 'power' | 'water';
   /** City services: what the building covers and how many people it can serve (services/tables.ts derives the lookup tables from this). */
   service?: ServiceSpec;
-  /** Listed but not yet buildable (U13 unlocks it): placeBuilding and its estimate refuse with `locked`. */
-  locked?: boolean;
+  /** Population tier (unlocks.ts TIERS index) the city must have reached before this can be placed; placeBuilding and its estimate refuse with `locked` until then. */
+  unlock?: number;
 }
 
 export const ARCH = {
   DEPOT: 1, POWER_PLANT: 2, WATER_PUMP: 3, FIRE_STATION: 4, SOLAR_FARM: 5, WATER_TOWER: 6, FUSION_REACTOR: 7,
   POLICE: 8, CLINIC: 9, HOSPITAL: 10, SCHOOL: 11, UNIVERSITY: 12, PARK_SMALL: 13, PARK_LARGE: 14, REPAIR_BAY: 15,
+  /** Megaprojects (megaprojects.ts): ids sit after the 27 RCI archetypes so the RCI range stays contiguous. */
+  FUSION_SPIRE: 43, ARCOLOGY: 44, MECH_ARENA: 45, SPACE_ELEVATOR: 46,
 } as const;
 
 /**
@@ -88,7 +90,7 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.FIRE_STATION, name: 'fireStation', w: 3, h: 3, cost: 1200, placeable: true, upkeep: 60, service: { kind: SVC.FIRE, radius: 24, capacity: 3000 } },
   { id: ARCH.SOLAR_FARM, name: 'solarFarm', w: 4, h: 4, cost: 2400, placeable: true, upkeep: 50, utility: 'power' },
   { id: ARCH.WATER_TOWER, name: 'waterTower', w: 2, h: 2, cost: 900, placeable: true, upkeep: 25, utility: 'water' },
-  { id: ARCH.FUSION_REACTOR, name: 'fusionReactor', w: 4, h: 4, cost: 12000, placeable: true, upkeep: 260, utility: 'power', locked: true },
+  { id: ARCH.FUSION_REACTOR, name: 'fusionReactor', w: 4, h: 4, cost: 12000, placeable: true, upkeep: 260, utility: 'power', unlock: 3 },
   { id: ARCH.POLICE, name: 'policeStation', w: 3, h: 3, cost: 1500, placeable: true, upkeep: 70, service: { kind: SVC.POLICE, radius: 22, capacity: 2500 } },
   { id: ARCH.CLINIC, name: 'clinic', w: 2, h: 2, cost: 900, placeable: true, upkeep: 45, service: { kind: SVC.HEALTH, radius: 18, capacity: 1500 } },
   { id: ARCH.HOSPITAL, name: 'hospital', w: 4, h: 4, cost: 6000, placeable: true, upkeep: 220, service: { kind: SVC.HEALTH, radius: 32, capacity: 8000 } },
@@ -97,6 +99,10 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.PARK_SMALL, name: 'parkSmall', w: 2, h: 2, cost: 300, placeable: true, upkeep: 6, service: { kind: SVC.PARK, radius: 6, capacity: 0 } },
   { id: ARCH.PARK_LARGE, name: 'parkLarge', w: 4, h: 4, cost: 1400, placeable: true, upkeep: 24, service: { kind: SVC.PARK, radius: 12, capacity: 0 } },
   { id: ARCH.REPAIR_BAY, name: 'repairBay', w: 2, h: 2, cost: 700, placeable: true, upkeep: 30, service: { kind: SVC.REPAIR, radius: 12, capacity: 0 } },
+  { id: ARCH.FUSION_SPIRE, name: 'fusionSpire', w: 5, h: 5, cost: 60000, placeable: true, upkeep: 900, unlock: 4 },
+  { id: ARCH.ARCOLOGY, name: 'arcology', w: 7, h: 7, cost: 120000, placeable: true, upkeep: 700, unlock: 4 },
+  { id: ARCH.MECH_ARENA, name: 'mechArena', w: 6, h: 6, cost: 80000, placeable: true, upkeep: 600, unlock: 4 },
+  { id: ARCH.SPACE_ELEVATOR, name: 'spaceElevator', w: 6, h: 6, cost: 400000, placeable: true, upkeep: 2500, unlock: 5 },
   ...rciArchetypes(),
 ];
 

@@ -1,6 +1,7 @@
 import { ARCH, CATALOG, archetype } from '../../sim/catalog.ts';
 import type { CommandBody } from '../../sim/commands.ts';
 import { footprintOf, type Estimate } from '../../sim/estimate.ts';
+import { isMega } from '../../sim/megaprojects.ts';
 
 // Tool definitions, the drag-to-command mapping, the keyboard map and ghost tints. DOM-free and three-free so each piece is unit-tested.
 
@@ -25,10 +26,12 @@ export const DENSITY_LABELS = ['Low', 'Medium', 'High'] as const;
 export const TERRAFORM_MODES: readonly TerraformMode[] = ['raise', 'lower', 'level'];
 /** Every building the player can place, in catalog order (the `service` tool selects from this list). */
 export const PLACEABLE = CATALOG.filter((a) => a.placeable);
-/** Placeable buildings that are not utilities: the Services group in the tool sheet. */
-export const SERVICES = PLACEABLE.filter((a) => !a.utility);
-/** Power plants, solar farms, pumps and towers (and the locked fusion reactor): the Utilities group. */
+/** Placeable buildings that are neither utilities nor megaprojects: the Services group in the tool sheet. */
+export const SERVICES = PLACEABLE.filter((a) => !a.utility && !isMega(a.id));
+/** Power plants, solar farms, pumps and towers (and the fusion reactor, once its tier is reached): the Utilities group. */
 export const UTILITY_BUILDINGS = PLACEABLE.filter((a) => a.utility);
+/** Megaprojects: started from the Projects panel, which selects the `service` tool with the project's archetype. */
+export const PROJECTS = PLACEABLE.filter((a) => isMega(a.id));
 export const LINE_NAMES: Record<LineKind, string> = { power: 'Power line', water: 'Water pipe' };
 
 /** A drag within this many tiles of a straight line snaps to the line. */

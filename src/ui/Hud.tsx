@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LoanInfo, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import { TIERS } from '../sim/unlocks.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
@@ -50,6 +51,8 @@ export interface HudStats {
   workforce: Workforce;
   traffic?: TrafficStats;
   services: ServiceStats;
+  /** Population tier and megaproject status from the newest Stats message. */
+  milestone?: MilestoneStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -63,6 +66,8 @@ interface Props {
   onBudget(): void;
   /** Opens the Services panel (menu entry). */
   onServices(): void;
+  /** Opens the milestones and projects panel (a Menu row); absent while the 3D view is not running. */
+  onProjects?(): void;
   /** Chase-camera state and toggle; absent while the 3D view is not running. */
   follow?: { active: boolean; toggle(): void };
   onSave(): void;
@@ -123,7 +128,7 @@ function TrafficReadout({ t }: { t?: TrafficStats }) {
 }
 
 export function Hud({
-  lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
+  lifecycle, stats, settings, notice, budgetOpen, onBudget, onServices, onProjects, follow, onSave, onSaveAs, onExport, onSetting, onQuit, quitPrompt, onQuitSaveAs, onQuitDiscard, onQuitCancel,
   facts = NO_FACTS, perfOn = false, onPerf, layout: forced, activeTier, panel: panelProp, onPanel, topOpen: topOpenProp, onTopOpen,
 }: Props) {
   const detected = useLayout();
@@ -275,6 +280,7 @@ export function Hud({
               )}
               {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
               <button type="button" className="tb row" data-testid="services-menu" onClick={() => { onServices(); }}>City services</button>
+              {onProjects && <button type="button" className="tb row" data-testid="projects-menu" onClick={() => { onProjects(); }}>Milestones and projects ({TIERS[stats.milestone?.tier ?? 0]!.name})</button>}
               <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
               <label className="check">

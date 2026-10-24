@@ -23,10 +23,11 @@ export function scriptedCity(world: World): Command[] {
   const { x: ox, y: oy } = findLandWindow(world, 32);
   const body: [number, CommandBody][] = [
     [1, { type: 'placeRoad', ax: ox, ay: oy + 10, bx: ox + 30, by: oy + 10, cls: 1 }],
-    [2, { type: 'placeRoad', ax: ox + 15, ay: oy + 10, bx: ox + 15, by: oy + 30, cls: 2 }],
+    // Only what a day-one city may build: avenues and high density are locked until their population tier (unlocks.ts).
+    [2, { type: 'placeRoad', ax: ox + 15, ay: oy + 10, bx: ox + 15, by: oy + 30, cls: 1 }],
     [3, { type: 'zone', x0: ox + 2, y0: oy + 2, x1: ox + 12, y1: oy + 8, zone: 1, density: 1 }],
     [4, { type: 'zone', x0: ox + 17, y0: oy + 12, x1: ox + 25, y1: oy + 18, zone: 2, density: 0 }],
-    [5, { type: 'zone', x0: ox + 2, y0: oy + 22, x1: ox + 10, y1: oy + 28, zone: 3, density: 2 }],
+    [5, { type: 'zone', x0: ox + 2, y0: oy + 22, x1: ox + 10, y1: oy + 28, zone: 3, density: 1 }],
     [10, { type: 'placeBuilding', arch: ARCH.DEPOT, x: ox + 3, y: oy + 12, rot: 0 }],
     [11, { type: 'placeBuilding', arch: ARCH.POWER_PLANT, x: ox + 18, y: oy + 20, rot: 0 }],
     [12, { type: 'placeBuilding', arch: ARCH.WATER_PUMP, x: ox + 12, y: oy + 12, rot: 1 }],

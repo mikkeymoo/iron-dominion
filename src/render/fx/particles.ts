@@ -10,12 +10,12 @@ import {
   AdditiveBlending, BufferAttribute, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedBufferGeometry, Mesh, MeshBasicNodeMaterial,
   Vector4,
 } from 'three/webgpu';
-import { attribute, exp, float, mix, positionGeometry, smoothstep, step, uniform, uniformArray, vec3, vec4 } from 'three/tsl';
+import { attribute, exp, float, mix, positionGeometry, sin, smoothstep, step, uniform, uniformArray, vec3, vec4 } from 'three/tsl';
 import type { TierSpec } from '../tier.ts';
 import { ParticleRing } from './ring.ts';
 import { fxU } from './uniforms.ts';
 
-export const PARTICLE_KIND = { smoke: 0, dust: 1, fire: 2, spark: 3, debris: 4 } as const;
+export const PARTICLE_KIND = { smoke: 0, dust: 1, fire: 2, spark: 3, debris: 4, confetti: 5 } as const;
 export type ParticleKind = keyof typeof PARTICLE_KIND;
 const ADDITIVE = new Set<ParticleKind>(['fire', 'spark']);
 
@@ -26,16 +26,17 @@ const EMIT: Record<ParticleKind, [number, number, number, number, number, number
   fire: [0.5, 1.0, 0.1, 0.45, 1, 0.35],
   spark: [0.6, 1.3, 1.5, 4.2, 0.8, 1],
   debris: [2.2, 3.4, 1.2, 3.4, 0.9, 1],
+  confetti: [2.4, 4.2, 2.2, 5.5, 1, 1],
 };
 
 // Per kind shader constants. A: [accel y, drag, size start, size end]; B: [r, g, b, alpha]; C: [wind factor, 0, 0, 0].
 const KIND_A: [number, number, number, number][] = [
-  [0.05, 0.55, 0.14, 0.78], [0.02, 1.4, 0.1, 0.34], [0.5, 1.8, 0.2, 0.04], [-4.5, 0.6, 0.045, 0.02], [-7, 0.2, 0.07, 0.06],
+  [0.05, 0.55, 0.14, 0.78], [0.02, 1.4, 0.1, 0.34], [0.5, 1.8, 0.2, 0.04], [-4.5, 0.6, 0.045, 0.02], [-7, 0.2, 0.07, 0.06], [-3.2, 1.1, 0.07, 0.06],
 ];
 const KIND_B: [number, number, number, number][] = [
-  [0.34, 0.34, 0.36, 0.5], [0.62, 0.54, 0.42, 0.42], [1.0, 0.5, 0.12, 0.9], [1.0, 0.82, 0.45, 1.0], [0.3, 0.26, 0.22, 1.0],
+  [0.34, 0.34, 0.36, 0.5], [0.62, 0.54, 0.42, 0.42], [1.0, 0.5, 0.12, 0.9], [1.0, 0.82, 0.45, 1.0], [0.3, 0.26, 0.22, 1.0], [1.0, 0.8, 0.3, 1.0],
 ];
-const KIND_C: [number, number, number, number][] = [[1.4, 0, 0, 0], [0.9, 0, 0, 0], [0.2, 0, 0, 0], [0.1, 0, 0, 0], [0, 0, 0, 0]];
+const KIND_C: [number, number, number, number][] = [[1.4, 0, 0, 0], [0.9, 0, 0, 0], [0.2, 0, 0, 0], [0.1, 0, 0, 0], [0, 0, 0, 0], [0.3, 0, 0, 0]];
 
 const DEAD = -1e9;
 /** The ring starts this wide and doubles only when a write would clobber a live particle, so the draw tracks the live count. */
@@ -159,7 +160,10 @@ export class ParticleSystem {
     const radial = smoothstep(1.0, 0.25, positionGeometry.xy.mul(2).length());
     const shape = mix(radial, float(1), step(3.5, iB.x));
     const lit = additive ? float(1) : fxU.ambient.mul(0.85).add(0.15);
-    const col = mix(kb.xyz, kb.xyz.mul(0.35), u.mul(additive ? 1 : 0.5));
+    // Confetti (kind 5) takes a hue from its seed; every other kind uses its table colour.
+    const hue = vec3(sin(iB.w.mul(6.2832)), sin(iB.w.mul(6.2832).add(2.094)), sin(iB.w.mul(6.2832).add(4.189))).mul(0.5).add(0.5);
+    const base = mix(kb.xyz, hue, step(4.5, iB.x));
+    const col = mix(base, base.mul(0.35), u.mul(additive ? 1 : 0.5));
     m.colorNode = vec4(col.mul(lit).mul(additive ? mix(float(3.2), float(1), u) : float(1)), 1);
     m.opacityNode = shape.mul(fadeIn).mul(float(1).sub(u)).mul(kb.w).mul(alive);
     return m;
@@ -192,8 +196,11 @@ export class ParticleSystem {
     return x / 4294967296;
   }
 
-  /** Emit `count` particles of a kind at a world position. The ring never refuses: it overwrites the oldest. */
-  emit(kind: ParticleKind, x: number, y: number, z: number, count: number): number {
+  /**
+   * Emit `count` particles of a kind at a world position. The ring never refuses: it overwrites the oldest. `size` and `energy`
+   * scale the particle size and launch speed (a megaproject burst is seen from far away and throws wide).
+   */
+  emit(kind: ParticleKind, x: number, y: number, z: number, count: number, size = 1, energy = 1): number {
     const n = Math.max(0, Math.floor(count));
     const layer = ADDITIVE.has(kind) ? this.add : this.soft;
     const [l0, l1, s0, s1, up, spread] = EMIT[kind];
@@ -206,7 +213,7 @@ export class ParticleSystem {
       const life = l0 + (l1 - l0) * this.rand();
       layer.write(
         x + Math.cos(a) * 0.04 * h, y, z + Math.sin(a) * 0.04 * h, this.time, PARTICLE_KIND[kind], life,
-        0.75 + 0.5 * this.rand(), this.rand(), Math.cos(a) * rad * sp, dirY * sp, Math.sin(a) * rad * sp,
+        (0.75 + 0.5 * this.rand()) * size, this.rand(), Math.cos(a) * rad * sp * energy, dirY * sp * energy, Math.sin(a) * rad * sp * energy,
       );
     }
     return n;

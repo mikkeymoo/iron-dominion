@@ -3,6 +3,7 @@ import { apply, collectOutgoing, drainCommands, createSim, packAgents, restore, 
 import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
+import { milestoneStats } from './milestones.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
 import { serviceStats } from './services/index.ts';
@@ -95,6 +96,7 @@ function flush(now: number, force = false): void {
       ...econStats(sim.world),
       ...utilStats(sim),
       ...serviceStats(sim),
+      milestone: milestoneStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);

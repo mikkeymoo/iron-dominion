@@ -1,8 +1,11 @@
 import { CHUNK, CHUNKS, HEIGHT_SCALE, MAP, REGISTRY, ROAD, S, SPEC, isTileLayer, type LayerName } from '../sim/layers.ts';
 import type { BuildingRec, FromWorker, Typed } from '../sim/protocol.ts';
 import { chunkIdx, copyChunkIn, readBuilding, tileIdx, writeBuilding, type BuildingTable } from '../sim/tiles.ts';
+import type { SimEvent } from '../sim/world.ts';
 
 const renderInfos = REGISTRY.filter((l) => l.render);
+
+export type CelebrationEvent = Extract<SimEvent, { type: 'milestone' | 'megaStage' | 'megaComplete' | 'victory' }>;
 
 /**
  * Main-thread copy of the render-relevant sim state. The renderer, picking and ghost preview read only this;
@@ -19,6 +22,7 @@ export class RenderMirror {
   /** Bumped when the road layer may have changed. */
   roadVersion = 0;
   private lightning: { x: number; y: number; tick: number }[] = [];
+  private celebrations: CelebrationEvent[] = [];
   private terrainDirty = new Set<number>();
   private dirtyGeometry = new Set<number>();
   private dirtyOverlay = new Set<number>();
@@ -77,9 +81,14 @@ export class RenderMirror {
         this.scalars[S.day] = m.day;
         this.scalars[S.weather] = m.weather;
         this.scalars[S.weatherIntensity] = m.weatherIntensity;
+        if (m.milestone) this.scalars[S.tier] = m.milestone.tier;
         return true;
       case 'events':
-        for (const e of m.events) if (e.type === 'lightning') this.lightning.push({ x: e.x, y: e.y, tick: e.tick });
+        for (const e of m.events) {
+          if (e.type === 'lightning') this.lightning.push({ x: e.x, y: e.y, tick: e.tick });
+          else if (e.type === 'milestone' || e.type === 'megaStage' || e.type === 'megaComplete' || e.type === 'victory') this.celebrations.push(e);
+        }
+        if (this.celebrations.length > 32) this.celebrations.splice(0, this.celebrations.length - 32);
         if (this.lightning.length > 16) this.lightning.splice(0, this.lightning.length - 16);
         return this.lightning.length > 0;
       default:
@@ -89,6 +98,13 @@ export class RenderMirror {
 
   /** Chunks whose height, terrain or water depth changed since the last call (everything after a resync). */
   takeTerrainDirty(): number[] { const r = [...this.terrainDirty]; this.terrainDirty.clear(); return r; }
+
+  /** Milestone and megaproject events received since the last call: the renderer turns them into bursts and the cinematic. */
+  takeCelebrations(): CelebrationEvent[] {
+    const r = this.celebrations;
+    this.celebrations = [];
+    return r;
+  }
 
   /** Lightning strikes received since the last call (tile coordinates). */
   takeLightning(): { x: number; y: number; tick: number }[] {

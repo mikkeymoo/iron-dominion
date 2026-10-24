@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useState, type ReactNode } from 'react';
 import { archetype, PIPE_COST, POWER_LINE_COST, ROAD_COST } from '../sim/catalog.ts';
 import { WATER_REACH } from '../sim/utilities/tables.ts';
+import { DENSITY_UNLOCK, ROAD_UNLOCK, TIERS } from '../sim/unlocks.ts';
 import { isEditableTarget } from '../render/editable.ts';
 import {
   DENSITY_LABELS, LINE_NAMES, ROAD_NAMES, SERVICES, TERRAFORM_MODES, UTILITY_BUILDINGS, ZONE_LABELS, keyAction, type LineKind, type ToolId, type ToolSel,
@@ -107,6 +108,10 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
     return () => { window.clearTimeout(t); setHint(null); };
   }, [group]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const tier = runtime.tier;
+  const lockTitle = (need: number): string | undefined => (tier < need ? `Locked: reach ${TIERS[need]!.name} (${TIERS[need]!.pop.toLocaleString('en-US')} people)` : undefined);
+  const lockBadge = (need: number) => (tier < need ? <span className="lock" aria-label={`Locked until ${TIERS[need]!.name}`}>{'🔒'} {TIERS[need]!.name}</span> : null);
+
   const label = plan && plan.est.cost > 0 ? money(plan.est.cost) : '';
   const showCost = plan && (c.dragging || sel?.tool === 'service') && (label || plan.est.reason);
   const left = Math.max(8, Math.min(c.screen.x + 14, (typeof window === 'undefined' ? 400 : window.innerWidth) - 190));
@@ -127,7 +132,7 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
       </div>
       <div className="tool-toasts" role="status" aria-live="polite">
         {runtime.toasts.map((t) => (
-          <div key={t.id} className={`tool-toast${t.tone === 'hint' ? ' hint' : ''}`} data-testid={t.tone === 'hint' ? 'hint-toast' : 'toast'}>{t.text}</div>
+          <div key={t.id} className={`tool-toast${t.tone === 'hint' ? ' hint' : ''}${t.good ? ' good' : ''}`} data-testid={t.tone === 'hint' ? 'hint-toast' : 'toast'}>{t.text}</div>
         ))}
       </div>
 
@@ -149,8 +154,8 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
           <div className="optstrip" role="group" aria-label="Tool options" data-testid="optstrip">
             <button type="button" className="tb icon cancel" aria-label="Cancel" title="Cancel (Esc)" data-testid="cancel-tool" onClick={() => c.cancel()}><IconCancel /></button>
             {sel.tool === 'road' && ([1, 2, 3] as const).map((cls) => (
-              <button key={cls} type="button" className="tb" aria-pressed={sel.cls === cls} onClick={() => pick({ tool: 'road', cls })}>
-                {ROAD_NAMES[cls]} {money(ROAD_COST[cls]!)}
+              <button key={cls} type="button" className="tb" disabled={tier < ROAD_UNLOCK[cls]!} aria-pressed={sel.cls === cls} title={lockTitle(ROAD_UNLOCK[cls]!)} onClick={() => pick({ tool: 'road', cls })}>
+                {ROAD_NAMES[cls]} {money(ROAD_COST[cls]!)}{lockBadge(ROAD_UNLOCK[cls]!)}
               </button>
             ))}
             {sel.tool === 'zone' && (
@@ -160,15 +165,15 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
                 ))}
                 <span className="tool-gap" />
                 {([0, 1, 2] as const).map((density) => (
-                  <button key={density} type="button" className="tb" aria-pressed={sel.density === density} onClick={() => pick({ ...sel, density })}>{DENSITY_LABELS[density]}</button>
+                  <button key={density} type="button" className="tb" disabled={tier < DENSITY_UNLOCK[density]!} aria-pressed={sel.density === density} title={lockTitle(DENSITY_UNLOCK[density]!)} onClick={() => pick({ ...sel, density })}>{DENSITY_LABELS[density]}{lockBadge(DENSITY_UNLOCK[density]!)}</button>
                 ))}
               </>
             )}
             {group === 'service' && sel.tool === 'service' && (
               <>
                 {SERVICES.map((s) => (
-                  <button key={s.id} type="button" className="tb" aria-pressed={sel.arch === s.id} onClick={() => pick({ tool: 'service', arch: s.id })}>
-                    {SERVICE_LABELS[s.name] ?? s.name} {money(s.cost)}
+                  <button key={s.id} type="button" className="tb" disabled={tier < (s.unlock ?? 0)} aria-pressed={sel.arch === s.id} title={lockTitle(s.unlock ?? 0)} onClick={() => pick({ tool: 'service', arch: s.id })}>
+                    {SERVICE_LABELS[s.name] ?? s.name} {money(s.cost)}{lockBadge(s.unlock ?? 0)}
                   </button>
                 ))}
                 <button type="button" className="tb" onClick={() => c.rotate()} title="Rotate (R)">Rotate</button>
@@ -187,10 +192,10 @@ export function Tools({ runtime, view, hints, layout: forced, panel: panelProp, 
                 <span className="tool-gap" />
                 {UTILITY_BUILDINGS.map((s) => (
                   <button
-                    key={s.id} type="button" className="tb" disabled={s.locked === true} aria-pressed={sel.tool === 'service' && sel.arch === s.id}
-                    title={s.locked ? 'Locked: unlocks later in the game' : undefined} onClick={() => pick({ tool: 'service', arch: s.id })}
+                    key={s.id} type="button" className="tb" disabled={tier < (s.unlock ?? 0)} aria-pressed={sel.tool === 'service' && sel.arch === s.id}
+                    title={lockTitle(s.unlock ?? 0)} onClick={() => pick({ tool: 'service', arch: s.id })}
                   >
-                    {SERVICE_LABELS[s.name] ?? s.name} {s.locked ? '(locked)' : money(s.cost)}
+                    {SERVICE_LABELS[s.name] ?? s.name} {money(s.cost)}{lockBadge(s.unlock ?? 0)}
                   </button>
                 ))}
                 {sel.tool === 'service' && <button type="button" className="tb" onClick={() => c.rotate()} title="Rotate (R)">Rotate</button>}

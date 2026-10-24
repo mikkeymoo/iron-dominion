@@ -3,7 +3,8 @@
 import { BFLAG, isRci } from '../sim/catalog.ts';
 import { BMAX, ROAD } from '../sim/layers.ts';
 import { chunkIdx } from '../sim/tiles.ts';
-import { builtFraction, craneScale, craneVisible, scaffoldLifts, stageOf } from './kit/construction.ts';
+import { isMega, megaStages } from '../sim/megaprojects.ts';
+import { FINISH, FOUNDATION_END, builtFraction, craneScale, craneVisible, scaffoldLifts, stageOf } from './kit/construction.ts';
 import { generate, variantOf, type KitModel } from './kit/generate.ts';
 import { hash32 } from './kit/geo.ts';
 import { InstancePacker, MATRIX_STRIDE } from './instancePacker.ts';
@@ -34,6 +35,13 @@ export interface EmitterRec { kind: 'smoke' | 'dust' | 'debris'; x: number; y: n
 export interface OutageRec { x: number; y: number; z: number; power: boolean; water: boolean }
 /** How far above the model's highest point the outage icon floats. */
 const ICON_LIFT = 0.3;
+
+/** Virtual packer slots for the extra cranes of a megaproject (above every real building slot). */
+export const MEGA_CRANES = 3;
+export const extraCrane = (slot: number, i: number): number => BMAX + slot * MEGA_CRANES + i;
+/** Dust rate ceiling for a megaproject site, and the tallest the outage icon floats over one (the Space Elevator's tether is far taller). */
+const DUST_CAP = 36;
+const MEGA_ICON_MAX = 6;
 
 const SMOKE_RATE = 2.4;
 const DEBRIS_RATE_PER_TILE = 1.1;
@@ -118,6 +126,8 @@ export class BuildingInstances {
 
   private classify(slot: number): 0 | 1 {
     const t = this.d.mirror.table;
+    // A megaproject is a landmark: it always draws as its full model, never as a far-LOD box.
+    if (isMega(t.bArch[slot]!)) return 0;
     return this.d.fine.has(chunkIdx(t.bX[slot]!, t.bY[slot]!)) ? 0 : 1;
   }
 
@@ -152,6 +162,7 @@ export class BuildingInstances {
 
   private removeAll(slot: number): void {
     this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot);
+    for (let i = 0; i < MEGA_CRANES; i++) this.crane.remove(extraCrane(slot, i));
     this.cls.delete(slot);
     this.emitters.delete(slot);
     if (this.outages.delete(slot)) this.outageVersion++;
@@ -161,9 +172,21 @@ export class BuildingInstances {
     const m = this.d.mirror, b = m.building(slot);
     if (!b) { this.removeAll(slot); return; }
     const variants = this.variantCount;
-    const variant = variantOf(b.arch, b.x, b.y, variants);
+    // A megaproject's variant is its stage model: the stage under construction, or the finished model once every stage is done.
+    const mega = isMega(b.arch);
+    const building = (b.flags & BFLAG.CONSTRUCTING) !== 0;
+    const stages = megaStages(b.arch);
+    const stage = mega ? (building ? Math.min(b.level, stages - 1) : stages) : 0;
+    const variant = mega ? stage : variantOf(b.arch, b.x, b.y, variants);
     const model = this.model(b.arch, variant);
-    const p = progressOf(b.flags, b.prog);
+    let p = progressOf(b.flags, b.prog);
+    if (mega && building) {
+      // The construction clip reveals this stage's new geometry from the previous stage's top up to its own as the pass progresses.
+      const base = stage > 0 ? this.model(b.arch, stage - 1).height : 0;
+      const sp = Math.min(0.999, b.prog / 255);
+      const f = Math.min(0.999, (base + (model.height - base) * sp) / Math.max(model.height, 1e-3));
+      p = FOUNDATION_END + (FINISH - FOUNDATION_END) * f;
+    }
     const cx = b.x + b.w / 2, cz = b.y + b.h / 2;
     const gy = this.d.ground(cx, cz);
     // A player-placed service keeps the rotation the player chose (the ghost shows it); grown RCI buildings face the road.
@@ -180,7 +203,7 @@ export class BuildingInstances {
       const c = Math.cos(rot), s = Math.sin(rot);
       for (const [lx, ly, lz] of model.smoke) recs.push({ kind: 'smoke', x: cx + c * lx + s * lz, y: gy + ly, z: cz - s * lx + c * lz, rate: SMOKE_RATE });
     } else if (stageOf(p) !== 'complete') {
-      recs.push({ kind: 'dust', x: cx, y: gy + 0.05, z: cz, rate: DUST_RATE_PER_TILE * Math.max(1, b.w * b.h) * (p > 0.04 ? 1 : 0.5) });
+      recs.push({ kind: 'dust', x: cx, y: gy + 0.05, z: cz, rate: Math.min(DUST_CAP, DUST_RATE_PER_TILE * Math.max(1, b.w * b.h)) * (p > 0.04 ? 1 : 0.5) });
       // Robots tearing a building down throw debris from its roofline as it shrinks.
       if ((b.flags & BFLAG.DEMOLISHING) !== 0) recs.push({ kind: 'debris', x: cx, y: gy + 0.1 + model.height * builtFraction(p) * 0.8, z: cz, rate: DEBRIS_RATE_PER_TILE * Math.max(1, b.w * b.h) });
     }
@@ -191,7 +214,7 @@ export class BuildingInstances {
     const dry = p >= 1 && (b.flags & BFLAG.UNWATERED) !== 0;
     const had = this.outages.get(slot);
     if (dark || dry) {
-      const y = gy + model.height + ICON_LIFT;
+      const y = gy + (mega ? Math.min(model.height, MEGA_ICON_MAX) : model.height) + ICON_LIFT;
       if (!had || had.power !== dark || had.water !== dry || had.x !== cx || had.y !== y || had.z !== cz) this.outageVersion++;
       this.outages.set(slot, { x: cx, y, z: cz, power: dark, water: dry });
     } else if (had) { this.outages.delete(slot); this.outageVersion++; }
@@ -216,9 +239,22 @@ export class BuildingInstances {
       this.site.set(slot, `${b.w}:${lifts}`, { matrix: sm, tint: [1, 1, 1], state: [p, 0, model.height, lifts * 0.3] });
     } else this.site.remove(slot);
 
-    if (craneVisible(p) && near && model.height > 0.5) {
+    // Extra tower cranes at the other corners of a megaproject site: one per corner beyond the standard back-right one.
+    for (let i = 0; i < MEGA_CRANES; i++) {
+      const key = extraCrane(slot, i);
+      if (mega && building) {
+        const sc = craneScale(Math.min(model.height, 12));
+        const cm = new Float32Array(MATRIX_STRIDE);
+        const inset = 0.45 + 0.16 * sc, corner = i + 1;
+        const lx = (corner & 1 ? -1 : 1) * (b.w / 2 - inset), lz = (corner & 2 ? 1 : -1) * (b.h / 2 - inset);
+        const c = Math.cos(rot), s = Math.sin(rot);
+        composeMatrix(cm, cx + lx * c + lz * s, gy, cz - lx * s + lz * c, ((hsh >>> (8 + i * 5)) & 1023) / 1023 * Math.PI * 2, sc, sc, sc);
+        this.crane.set(key, 'crane', { matrix: cm, tint: [1, 1, 1], state: [1, 0, 0, 0] });
+      } else this.crane.remove(key);
+    }
+    if ((mega ? building : craneVisible(p)) && near && model.height > 0.5) {
       const cm = new Float32Array(MATRIX_STRIDE);
-      const sc = craneScale(model.height);
+      const sc = craneScale(mega ? Math.min(model.height, 12) : model.height);
       const ang = ((hsh >>> 18) & 1023) / 1023 * Math.PI * 2;
       // Mast at the back-right corner of the footprint (model +z is the street side), inside the site fence.
       const inset = 0.15 + 0.16 * sc;

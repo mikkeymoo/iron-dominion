@@ -4,6 +4,7 @@ import { ARCH, CATALOG, HEIGHT_MAX, HEIGHT_MIN, TERRAFORM_COST, TERRAFORM_STEP }
 import { execute, type Command, type CommandBody } from './commands.ts';
 import { makeResync, simFromWorld } from './engine.ts';
 import { estimate, roadPath, tileReadOf, type Estimate } from './estimate.ts';
+import { MAX_TIER } from './unlocks.ts';
 import { MAP, REGISTRY, ROAD, S, TERRAIN, type World } from './layers.ts';
 import { tileIdx } from './tiles.ts';
 import { allocWorld, type Sim } from './world.ts';
@@ -29,6 +30,8 @@ function baseWorld(): World {
     for (let yy = y; yy < y + a.h; yy++) for (let xx = x; xx < x + a.w; xx++) w.bId[tileIdx(xx, yy)] = s + 1;
   });
   w.scalars[S.nextAgentId] = 1;
+  // Every tier reached: the randomised parity checks below exercise all road classes and densities (gating has its own tests in milestones.test.ts).
+  w.scalars[S.tier] = MAX_TIER;
   return w;
 }
 
@@ -159,7 +162,7 @@ describe('estimate matches the sim', () => {
     for (let i = 0; i < 300; i++) {
       const body = randomBody(rnd);
       const a: Estimate = estimate(sim.world, body, 5000);
-      const b: Estimate = estimate(tileReadOf(mirror.layers), body, 5000);
+      const b: Estimate = estimate(tileReadOf(mirror.layers, mirror.scalars), body, 5000);
       expect(b, JSON.stringify(body)).toEqual(a);
     }
   });

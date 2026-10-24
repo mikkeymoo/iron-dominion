@@ -3,8 +3,10 @@ import {
   TERRAFORM_COST, TERRAFORM_STEP, ZONE_COST, type Archetype,
 } from './catalog.ts';
 import type { CommandBody } from './commands.ts';
-import { MAP, ROAD, SLOPE_LIMIT, TERRAIN, UCELLS, isWaterTerrain } from './layers.ts';
+import { MAP, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, isWaterTerrain } from './layers.ts';
+import { isMega } from './megaprojects.ts';
 import { inBounds, tileIdx } from './tiles.ts';
+import { DENSITY_UNLOCK, ROAD_UNLOCK, isLocked } from './unlocks.ts';
 
 // Pure cost and validity of a build command, read through the six tile layers below. The sim's command handlers and the
 // main-thread ghost preview both call this module, so a preview can never disagree with what the sim will do. A World
@@ -20,12 +22,16 @@ export interface TileRead {
   /** Power line and pipe presence. Optional so a hand-built read without utilities still works (treated as all clear). */
   ugPower?: ArrayLike<number>;
   ugWater?: ArrayLike<number>;
+  /** Sim scalars: S.tier gates roads, zoning density and buildings by unlock tier. Without them nothing is locked. */
+  scalars?: ArrayLike<number>;
 }
 
-export const tileReadOf = (layers: Record<string, ArrayLike<number>>): TileRead => ({
+export const tileReadOf = (layers: Record<string, ArrayLike<number>>, scalars?: ArrayLike<number>): TileRead => ({
   terrain: layers.terrain!, height: layers.height!, waterDepth: layers.waterDepth!,
-  road: layers.road!, zone: layers.zone!, bId: layers.bId!, ugPower: layers.ugPower, ugWater: layers.ugWater,
+  road: layers.road!, zone: layers.zone!, bId: layers.bId!, ugPower: layers.ugPower, ugWater: layers.ugWater, scalars,
 });
+
+const tierOf = (v: TileRead): number | undefined => v.scalars?.[S.tier];
 
 export interface Estimate {
   cost: number;
@@ -76,6 +82,7 @@ function estimateRoad(v: TileRead, c: Extract<CommandBody, { type: 'placeRoad' }
   if (!isInts(c.ax, c.ay, c.bx, c.by, c.cls)) return fail('invalid');
   if (!inBounds(c.ax, c.ay) || !inBounds(c.bx, c.by)) return fail('bounds');
   if (c.cls < 1 || c.cls > 3) return fail('invalid');
+  if (isLocked(tierOf(v), ROAD_UNLOCK[c.cls]!)) return fail('locked');
   const path = roadPath(c);
   if (path.length > MAX_ROAD_CELLS) return fail('too-large');
   let cost = 0;
@@ -116,6 +123,7 @@ function estimateLine(v: TileRead, c: Extract<CommandBody, { type: 'placeLine' }
 function estimateZone(v: TileRead, c: Extract<CommandBody, { type: 'zone' }>): Estimate {
   if (!isInts(c.zone, c.density)) return fail('invalid');
   if (c.zone < 1 || c.zone > 3 || c.density < 0 || c.density > 2) return fail('invalid');
+  if (isLocked(tierOf(v), DENSITY_UNLOCK[c.density]!)) return fail('locked');
   const r = rectOf(c);
   if (typeof r === 'string') return fail(r);
   const [x0, y0, x1, y1] = r;
@@ -186,8 +194,19 @@ function estimateBuilding(v: TileRead, c: Extract<CommandBody, { type: 'placeBui
   const a = archetype(c.arch);
   if (!a) return fail('unknown-archetype');
   if (!a.placeable) return fail('not-placeable');
-  if (a.locked) return fail('locked');
-  return estimateSite(v, a, c.x, c.y, c.rot, a.cost, treasury);
+  if (isLocked(tierOf(v), a.unlock ?? 0)) return fail('locked');
+  const e = estimateSite(v, a, c.x, c.y, c.rot, a.cost, treasury);
+  if (!e.reason && isMega(a.id) && !touchesRoad(v, a, c.x, c.y, c.rot)) e.reason = 'no-road';
+  return e;
+}
+
+/** A megaproject's robots work from a road: some road tile must touch the footprint's edge. */
+function touchesRoad(v: TileRead, a: Archetype, x: number, y: number, rot: number): boolean {
+  const { w, h } = footprintOf(a, rot);
+  const road = (tx: number, ty: number): boolean => inBounds(tx, ty) && (v.road[tileIdx(tx, ty)]! & ROAD.CLASS_MASK) !== 0;
+  for (let k = 0; k < w; k++) if (road(x + k, y - 1) || road(x + k, y + h)) return true;
+  for (let k = 0; k < h; k++) if (road(x - 1, y + k) || road(x + w, y + k)) return true;
+  return false;
 }
 
 /**

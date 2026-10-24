@@ -6,6 +6,9 @@ import { TAX_SCALAR } from './economy/demand.ts';
 import { TAX_MAX } from './economy/tables.ts';
 import { estimate, estimateSite, footprintOf, isInts, rectOf } from './estimate.ts';
 import { MAP, RMAX, ROAD, S, SLOPE_LIMIT, TERRAIN, UCELLS, UMAX, isWaterTerrain, type World } from './layers.ts';
+import { megaBlock } from './milestones.ts';
+import { MAX_TIER } from './unlocks.ts';
+import { isMega, megaStages } from './megaprojects.ts';
 import { inBounds, tileIdx } from './tiles.ts';
 import { markDirty, type Sim } from './world.ts';
 
@@ -19,8 +22,11 @@ export type CommandBody =
   | { type: 'placeBuilding'; arch: number; x: number; y: number; rot: number }
   /** (x0, y0) is where the drag began: `level` flattens to that tile's height. Not undoable (the journal holds roads and zones only). */
   | { type: 'terraform'; mode: 'raise' | 'lower' | 'level'; x0: number; y0: number; x1: number; y1: number }
-  | { type: 'debugGrow'; x: number; y: number; archetype: number; progress: number }
+  /** `stage` (megaprojects only) is the stage a project under construction is at. */
+  | { type: 'debugGrow'; x: number; y: number; archetype: number; progress: number; stage?: number }
   | { type: 'debugLevel'; x0: number; y0: number; x1: number; y1: number; margin: number }
+  /** Debug-only: raise the population tier to at least `tier` with no bonus and no event (the showcase builds avenues and high density). */
+  | { type: 'debugTier'; tier: number }
   /** Whole percent 0..TAX_MAX for one zone (1 R, 2 C, 3 I), or for all three when `zone` is omitted. */
   | { type: 'setTax'; rate: number; zone?: number }
   /** Borrow LOAN_TIERS[tier]; at most MAX_LOANS at once. */
@@ -227,8 +233,13 @@ export function reserveBuilding(sim: Sim, a: Archetype, x: number, y: number, le
 function placeBuilding(sim: Sim, c: Extract<Command, { type: 'placeBuilding' }>): number {
   if (!isInts(c.arch, c.x, c.y, c.rot) || c.rot < 0 || c.rot > 3) reject('invalid');
   const a = archetype(c.arch) ?? reject('unknown-archetype');
-  if (!a.placeable) reject('not-placeable');
-  if (a.locked) reject('locked');
+  checked(sim, c);
+  if (isMega(a.id)) {
+    const block = megaBlock(sim.world, a.id);
+    if (block) reject(block);
+    // A megaproject starts as a bare foundation; the robots' growth director opens its first stage job once a depot's roads reach it.
+    return placeSite(sim, a, c.x, c.y, c.rot, { level: 0, prog: 0, flags: BFLAG.CONSTRUCTING, cost: a.cost, journal: false });
+  }
   return placeSite(sim, a, c.x, c.y, c.rot, { level: 0, prog: 0, flags: 0, cost: a.cost, journal: true });
 }
 
@@ -238,8 +249,12 @@ function debugGrow(sim: Sim, c: Extract<Command, { type: 'debugGrow' }>): void {
   if (!isInts(c.x, c.y, c.archetype) || !Number.isFinite(c.progress) || c.progress < 0 || c.progress > 1) reject('invalid');
   const a = archetype(c.archetype) ?? reject('unknown-archetype');
   const done = c.progress >= 1;
+  if (c.stage !== undefined && (!isInts(c.stage) || c.stage < 0)) reject('invalid');
+  // A megaproject under construction is at stage `stage` (default the first); once done its level is the stage count.
+  const mega = isMega(a.id);
+  const level = mega ? (done ? megaStages(a.id) : Math.min(c.stage ?? 0, megaStages(a.id) - 1)) : (a.level ?? 0);
   placeSite(sim, a, c.x, c.y, 0, {
-    level: a.level ?? 0, prog: done ? 255 : Math.round(c.progress * 255), flags: done ? 0 : BFLAG.CONSTRUCTING, cost: 0, journal: false,
+    level, prog: done ? 255 : Math.round(c.progress * 255), flags: done ? 0 : BFLAG.CONSTRUCTING, cost: 0, journal: false,
   });
 }
 
@@ -276,6 +291,12 @@ function debugLevel(sim: Sim, c: Extract<Command, { type: 'debugLevel' }>): void
     }
   }
   settleGround(sim, x0 - m - 1, y0 - m - 1, x1 + m + 1, y1 + m + 1);
+}
+
+function debugTier(sim: Sim, c: Extract<Command, { type: 'debugTier' }>): void {
+  if (!sim.debug) reject('debug-only');
+  if (!isInts(c.tier) || c.tier < 0 || c.tier > MAX_TIER) reject('invalid');
+  sim.world.scalars[S.tier] = Math.max(sim.world.scalars[S.tier]!, c.tier);
 }
 
 /** Heights moved inside the rect: road slope flags and building ground heights in and around it are stale. Clamps to the map. */
@@ -365,6 +386,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'terraform': terraform(sim, cmd); break;
       case 'debugGrow': debugGrow(sim, cmd); break;
       case 'debugLevel': debugLevel(sim, cmd); break;
+      case 'debugTier': debugTier(sim, cmd); break;
       case 'setTax': setTax(sim, cmd); break;
       case 'takeLoan': case 'repayLoan': loan(sim, cmd); break;
       case 'undo': undo(sim, cmd); break;

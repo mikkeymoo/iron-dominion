@@ -1,5 +1,6 @@
-import { CATALOG, isRci } from '../catalog.ts';
+import { BFLAG, CATALOG, isRci } from '../catalog.ts';
 import { BMAX, BUDGET_FIELDS, BUDGET_MONTHS, MAX_LOANS, ROAD, S, TILES, ZONE, type World } from '../layers.ts';
+import { isMega, megaSums } from '../megaprojects.ts';
 import type { BudgetRecord, LoanInfo } from '../protocol.ts';
 import type { Sim } from '../world.ts';
 import { taxRate } from './demand.ts';
@@ -38,13 +39,16 @@ export function computeBudget(world: World, month: number): BudgetRecord {
     const arch = world.bArch[s]!;
     if (arch === 0) continue;
     const z = zoneOfArch(arch);
-    if (z === 0) { services += UPKEEP[arch]!; continue; }
+    // A megaproject costs its upkeep only once it stands, not through the long build.
+    if (z === 0) { if (!isMega(arch) || (world.bFlags[s]! & BFLAG.CONSTRUCTING) === 0) services += UPKEEP[arch]!; continue; }
     if (!isOperating(world, s)) continue;
     const n = occupancyOf(arch);
     const payers = z === ZONE.R ? n : jobs > 0 ? Math.floor((n * t.employed) / jobs) : 0;
     const wealth = HEAD_BASE[z - 1]! + ((footprintMean(world, world.landValue, s) * HEAD_LV[z - 1]!) >> 8);
     inc[z - 1]! += Math.floor((payers * wealth * taxRate(world, z)) / 100);
   }
+  // Megaprojects pay a flat monthly sum (tourism, cargo, residents' rates) booked with the commercial income.
+  inc[1]! += megaSums(world).income;
   let roads = 0;
   for (let i = 0; i < TILES; i++) {
     const r = world.road[i]!, cls = r & ROAD.CLASS_MASK;

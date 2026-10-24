@@ -2,6 +2,10 @@ import { MAP } from '../sim/layers.ts';
 import type { AgentStore } from './agentStore.ts';
 import type { SimClient } from '../sim/client.ts';
 import { CameraRig, pixelToNdc, rayFromPose } from './camera.ts';
+import { celebrate, type CelebrateDeps } from './celebrate.ts';
+import { Cinematic } from './cinematic.ts';
+import { cachedModel } from './instances.ts';
+import { megaStages } from '../sim/megaprojects.ts';
 import { blockGestureZoom, createRenderContext, parseBackend, type RenderContext } from './context.ts';
 import type { RenderDebug } from './debug.ts';
 import { surfaceHeight } from './heightfield.ts';
@@ -180,8 +184,17 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     });
     return true;
   };
+  // Completion camera: orbits a finished megaproject for a few seconds; a tap or Escape ends it and gives the camera back.
+  const cine = new Cinematic();
+  const celebrations: CelebrateDeps = {
+    emit: (kind, x, y, z, n, size, energy) => { world.fx.particles.emit(kind, x, y, z, n, size, energy); },
+    ground: (x, z) => Math.max(0, surfaceHeight(heights, x, z)),
+    focus: () => ({ x: rig.state.x, z: rig.state.z, dist: rig.state.dist }),
+    finishedHeight: (arch) => cachedModel(arch, megaStages(arch)).height,
+    startCinematic: (t) => { if (cine.start(rig.state, t) && rig.following) follow(false); },
+  };
   // A tap or click anywhere on the view, or Escape, hands the camera back.
-  const stopFollowing = (): void => { if (rig.following) follow(false); };
+  const stopFollowing = (): void => { if (rig.following) follow(false); if (cine.active) { cine.skip(rig.state); rig.version++; } };
   const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') stopFollowing(); };
   host.addEventListener('pointerdown', stopFollowing, true);
   window.addEventListener('keydown', onKey);
@@ -202,6 +215,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     const dt = Math.min(0.1, dtMs / 1000);
     input.flush(dt);
     rig.step(dt);
+    if (mirror.hasResync) celebrate(mirror.takeCelebrations(), celebrations);
+    if (cine.active) { cine.step(dt, rig.state); rig.version++; }
     const pose = rig.pose();
     world.applyPose(pose);
     world.update(dt, now / 1000, pose, rig.state.dist, rig.state.pitch);
@@ -339,6 +354,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     get traffic() { return { ...world.traffic.snapshot, sample: (n: number) => world.traffic.samplePositions(n) }; },
     get following() { return rig.following; },
     follow,
+    get cinematic() { return cine.active; },
+    skipCinematic() { if (cine.active) { cine.skip(rig.state); rig.version++; } },
     pickTile: pickAt,
     resetCamera(pose) { startDone = true; rig.reset(pose?.x ?? RESET.x, pose?.z ?? RESET.z, pose?.yaw ?? RESET.yaw, pose?.pitch ?? RESET.pitch, pose?.dist ?? RESET.dist); },
     loseDevice() {

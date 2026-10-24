@@ -6,6 +6,7 @@ import { countTotals, landValueAt, levelUpCandidates, lotScore, refreshTotals } 
 import { apply, collectOutgoing, createSim, makeResync, restore, snapshot, stateHash } from '../engine.ts';
 import { estimate, tileReadOf } from '../estimate.ts';
 import { MAP, REGISTRY, S, TERRAIN, WEATHER, ZONE } from '../layers.ts';
+import { MEGA, isMega } from '../megaprojects.ts';
 import { setRoads } from '../roads/testkit.ts';
 import { runTicks } from '../testkit.ts';
 import type { Sim } from '../world.ts';
@@ -471,11 +472,15 @@ describe('placeLine commands', () => {
     expect(run(sim, { type: 'terraform', mode: 'raise', x0: 102, y0: 99, x1: 102, y1: 101 }).ok).toBe(true);
   });
 
-  it('refuses the locked fusion reactor', () => {
+  it('refuses the fusion reactor until the city reaches its unlock tier (City), then places it', () => {
     const sim = flatSim();
-    expect(CATALOG.find((a) => a.id === ARCH.FUSION_REACTOR)!.locked).toBe(true);
-    expect(run(sim, { type: 'placeBuilding', arch: ARCH.FUSION_REACTOR, x: 100, y: 100, rot: 0 }).reason).toBe('locked');
-    expect(estimate(sim.world, { type: 'placeBuilding', arch: ARCH.FUSION_REACTOR, x: 100, y: 100, rot: 0 }).reason).toBe('locked');
+    const body = { type: 'placeBuilding' as const, arch: ARCH.FUSION_REACTOR, x: 100, y: 100, rot: 0 };
+    expect(CATALOG.find((a) => a.id === ARCH.FUSION_REACTOR)!.unlock).toBe(3);
+    expect(run(sim, body).reason).toBe('locked');
+    expect(estimate(sim.world, body).reason).toBe('locked');
+    sim.world.scalars[S.tier] = 3;
+    expect(estimate(sim.world, body, sim.world.scalars[S.treasury]).reason).toBeUndefined();
+    expect(run(sim, body).ok).toBe(true);
   });
 
   it('undoes a line: tiles and cost restored; refuses once the line was changed', () => {
@@ -682,11 +687,16 @@ describe('registry', () => {
       } else if (a.utility === 'water') {
         expect(isWaterSource(a.id), a.name).toBe(true);
         expect([powerUseOf(a.id), waterUseOf(a.id)], a.name).toEqual([0, 0]);
+      } else if (isMega(a.id)) {
+        // A megaproject is neither a utility nor a service: the Fusion Spire produces, the others consume, none is a water source.
+        expect(isWaterSource(a.id), a.name).toBe(false);
+        expect(isPowerProducer(a.id), a.name).toBe(MEGA[a.id]!.mw > 0);
+        expect(powerUseOf(a.id), a.name).toBe(MEGA[a.id]!.powerUse);
       } else {
         expect(isPowerProducer(a.id) || isWaterSource(a.id), a.name).toBe(false);
       }
     }
     expect(powerUseOf(ARCH.FIRE_STATION)).toBeGreaterThan(0);
-    expect(CATALOG.filter((a) => a.locked).map((a) => a.name)).toEqual(['fusionReactor']);
+    expect(CATALOG.filter((a) => a.unlock !== undefined).map((a) => a.name)).toEqual(['fusionReactor', 'fusionSpire', 'arcology', 'mechArena', 'spaceElevator']);
   });
 });
