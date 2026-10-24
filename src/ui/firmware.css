@@ -30,3 +30,5 @@
 .module-slot { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 6px; }
 .tb.module { display: grid; place-items: center; align-content: center; gap: 0; padding: 2px 2px; min-width: 44px; min-height: 48px; font-size: 0.7rem; line-height: 1.15; white-space: normal; text-align: center; }
 .tb.module small { font-size: 0.66rem; font-weight: 500; opacity: 0.8; }
+
+.fw-panel > .pnl-head .pnl-chev, .fw-panel > .pnl-head .pnl-close { height: 44px; min-height: 44px; }

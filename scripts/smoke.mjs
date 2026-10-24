@@ -895,6 +895,15 @@ async function workforceChecks(open, phone) {
   if (active) {
     // At Max the whole district finishes in a moment; 2x keeps robots working while the camera follows one.
     await setSpeedUi(page, '2x');
+    // Fresh work so a robot is on a job when Follow looks for one (the first district may be finished by now).
+    await page.evaluate((s) => {
+      const t = window.__iron.tools;
+      const drag = (tool, opts, a, b) => { t.select(tool, opts); t.dragTiles(a, b); };
+      drag('road', { cls: 1 }, { x: s.x + 1, y: s.y + 9 }, { x: s.x + 1, y: s.y + 13 });
+      drag('road', { cls: 1 }, { x: s.x + 1, y: s.y + 13 }, { x: s.x + 12, y: s.y + 13 });
+      drag('zone', { zone: 1, density: 0 }, { x: s.x + 2, y: s.y + 14 }, { x: s.x + 11, y: s.y + 16 });
+      t.cancel();
+    }, site);
     // The idle starter crew counts as visible before any robot is on a job; Follow needs a working one, so try again until one is.
     let on = false;
     for (let attempt = 0; attempt < 8 && !on; attempt++) {
@@ -911,6 +920,8 @@ async function workforceChecks(open, phone) {
       if (phone) {
         const box = await page.locator('canvas').boundingBox();
         await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+        // An open perf panel on a phone swallows the first tap on the map (it only hides the panel).
+        if (!(await until(page, () => window.__iron.render.following === false, null, 1500))) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
       } else await page.keyboard.press('Escape');
       const off = await until(page, () => window.__iron.render.following === false, null, 5000);
       add(`${phone ? 'a tap' : 'Escape'} ends the follow camera`, off ? null : 'render.following stayed true');
@@ -1165,7 +1176,8 @@ async function advisorChecks(open) {
   const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.tools && window.__iron.economy); }, null, 60000);
   const site = up ? await (async () => { await until(page, () => window.__iron.tools.findSite(26) !== null, null, 20000); return page.evaluate(() => window.__iron.tools.findSite(26)); })() : null;
   if (!site) { add('city boots with a build site', 'renderer, tools or site missing'); await page.close(); return out; }
-  const house = { x: site.x + 16, y: site.y + 12 };
+  // Within 12 tiles of the plant, so the sim names this house (not the far-off starter depot, also dark) as the power issue's tile.
+  const house = { x: site.x + 9, y: site.y + 8 };
   const placed = await page.evaluate((s) => {
     const t = window.__iron.tools;
     t.select('service', { name: 'powerPlant' });
@@ -1182,7 +1194,8 @@ async function advisorChecks(open) {
   const chip = await until(page, () => document.querySelector('[data-testid="advisor-chip"]')?.getAttribute('data-kind') === 'power', null, 20000);
   const chipText = await page.locator('[data-testid="advisor-text"]').first().textContent().catch(() => '');
   add('the advisor chip shows a power issue', chip ? null : `chip kind ${await page.locator('[data-testid="advisor-chip"]').first().getAttribute('data-kind').catch(() => 'missing')}, text ${chipText}`);
-  add('the chip names the cause and counts the problems', /no power/.test(chipText) && (await page.locator('[data-testid="advisor-count"]').first().textContent().catch(() => '')) === '1' ? null : `text "${chipText}"`);
+  const counted = await until(page, () => document.querySelector('[data-testid="advisor-count"]')?.textContent === '2', null, 20000);
+  add('the chip names the cause and counts the problems (the dark house and the starter depot)', /no power/.test(chipText) && counted ? null : `text "${chipText}"`);
   const icon = await until(page, () => (window.__iron.render.statusIcons?.byKind?.power ?? 0) >= 1, null, 15000);
   add('a no-power status icon is drawn for the house', icon ? null : JSON.stringify(await page.evaluate(() => window.__iron.render.statusIcons)));
 
@@ -1347,18 +1360,23 @@ async function hudChecks(open, vp) {
     add('control: with a tool selected a tap on the map sends the tool command', control ? null : 'no command from a plain tap');
     await page.evaluate(() => { window.__iron.tools.undo(); window.__iron.tools.select('line', { kind: 'power' }); });
     await until(page, () => window.__iron.tools.undoDepth === 0, null, 10000);
-    await page.locator('[data-testid="menu-button"]').click();
-    await page.getByRole('button', { name: 'Budget', exact: true }).click();
-    await page.locator('[data-testid="budget"]').waitFor({ timeout: 5000 });
+    // The panel can be closed again by a stray outside tap right after it opens; ask up to three times.
+    let hb2 = null;
+    for (let attempt = 0; attempt < 3 && !hb2; attempt++) {
+      if (!(await page.locator('[data-testid="menu"]').count()) && !(await page.locator('[data-testid="budget"]').count())) await page.locator('[data-testid="menu-button"]').click();
+      if (!(await page.locator('[data-testid="budget"]').count())) await page.getByRole('button', { name: 'Budget', exact: true }).click();
+      await page.locator('[data-testid="budget"]').waitFor({ timeout: 5000 }).catch(() => {});
+      hb2 = await budgetHead.boundingBox({ timeout: 3000 }).catch(() => null);
+    }
     // The open Budget panel fills the phone screen, so fold it to its tab first: the map is then under the finger.
-    const hb2 = await budgetHead.boundingBox();
+    if (!hb2) { add('the Budget panel opens and stays open for the F4 check', 'closed again three times'); await page.close(); return out; }
     await page.touchscreen.tap(hb2.x + hb2.width * 0.4, hb2.y + hb2.height / 2);
     await until(page, () => document.querySelector('[data-testid="budget"]')?.getAttribute('data-collapsed') === 'true', null, 5000);
     const held = await toolEvent();
     await tapCanvas();
     await page.waitForTimeout(800);
     const after = await toolEvent();
-    add('tapping the map to close a panel closes it without using the selected tool', !(await page.locator('[data-testid="budget"]').count()) && after.depth === held.depth ? null : `budget open ${await page.locator('[data-testid="budget"]').count()}, undo depth ${held.depth} -> ${after.depth}`);
+    add('tapping the map to close a panel closes it without using the selected tool', !(await page.locator('[data-testid="budget"]').count()) && after.depth === held.depth ? null : `budget open ${await page.locator('[data-testid="budget"]').count()}, undo depth ${held.depth} -> ${after.depth}, event ${held.ev} -> ${after.ev}`);
     await page.evaluate(() => window.__iron.tools.cancel());
 
     // Long press on the map opens the radial build menu; press-drag-release onto an item selects it.

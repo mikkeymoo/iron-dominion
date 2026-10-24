@@ -232,7 +232,9 @@ export async function startGame(deps: GameDeps): Promise<Game> {
   // Follow-a-robot: chase a random active robot at street level; when it is gone pick another, and stop when none are left.
   let followKey: number | null = null;
   const pickRobot = (kind?: number): boolean => {
-    const keys = deps.agents.activeKeys(kind);
+    // The idle starter crew standing by the depot is still worth chasing when nobody is working.
+    let keys = deps.agents.activeKeys(kind);
+    if (keys.length === 0) keys = deps.agents.activeKeys(kind, true);
     if (keys.length === 0) { followKey = null; return false; }
     followKey = keys[Math.floor(Math.random() * keys.length)]!;
     return true;
