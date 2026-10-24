@@ -193,7 +193,7 @@ export function Hud({
   }, [lifecycle, photoActive]);
 
   useEffect(() => { if (!menu) setMode('main'); }, [menu]);
-  const closeMenu = (): void => setOpenPanel(null);
+  const closeMenu = (): void => { if (openPanel === 'menu') setOpenPanel(null); };
   const bar = topBarControls(layout, topOpen);
   const has = (c: TopControl): boolean => bar.includes(c);
   const paused = lc.speed === 0;
@@ -281,7 +281,7 @@ export function Hud({
       )}
 
       {phone && statusPresence.mounted && (
-        <Panel id="status" kind="popover" title="City status" className="menu status-pop" dataState={statusPresence.state} panelAttr="status" testId="status-pop" onClose={() => setOpenPanel(null)}>
+        <Panel id="status" kind="popover" title="City status" className="menu status-pop" dataState={statusPresence.state} panelAttr="status" testId="status-pop" onClose={() => { if (openPanel === 'status') setOpenPanel(null); }}>
           <div className="status-line"><span>Day {stats.day} {clock(stats.dayFrac)}</span><span className={stats.lastNet < 0 ? 'net neg' : 'net'} data-testid="monthly-net" title="Net of the last budget month">{stats.lastNet < 0 ? '-' : '+'}${Math.abs(Math.round(stats.lastNet)).toLocaleString('en-US')}/mo</span></div>
           <WorkforceReadout w={stats.workforce} depots={facts.depots} />
           <TrafficReadout t={stats.traffic} />

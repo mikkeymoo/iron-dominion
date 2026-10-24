@@ -131,7 +131,9 @@ export function Panel({
   const chev = useRef<HTMLButtonElement>(null);
   const bodyId = useId();
 
+  const leaving = dataState === 'closing';
   const apply = (event: PanelEvent): void => {
+    if (leaving) return;
     const step = stepPanel(mode, event, { transient, closable });
     if (step.close) {
       if (!transient && collapsed) setCollapsed(false);
@@ -173,7 +175,7 @@ export function Panel({
   return (
     <div
       ref={root} className={`pnl pnl-${kind}${className ? ` ${className}` : ''}`} data-collapsed={mode === 'collapsed'} data-state={dataState} data-testid={testId}
-      {...(panelAttr ? { [PANEL_ATTR]: panelAttr } : {})} role={role ?? (kind === 'section' ? 'group' : 'dialog')} aria-label={title}
+      inert={leaving} {...(panelAttr ? { [PANEL_ATTR]: panelAttr } : {})} role={role ?? (kind === 'section' ? 'group' : 'dialog')} aria-label={title}
     >
       <PanelHeader
         title={title} label={title} collapsed={mode === 'collapsed'} transient={transient} bodyId={bodyId} chevRef={chev} extra={headerExtra} closeText={closeText}

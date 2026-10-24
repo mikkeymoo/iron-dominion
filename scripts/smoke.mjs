@@ -1360,16 +1360,12 @@ async function hudChecks(open, vp) {
     add('control: with a tool selected a tap on the map sends the tool command', control ? null : 'no command from a plain tap');
     await page.evaluate(() => { window.__iron.tools.undo(); window.__iron.tools.select('line', { kind: 'power' }); });
     await until(page, () => window.__iron.tools.undoDepth === 0, null, 10000);
-    // The panel can be closed again by a stray outside tap right after it opens; ask up to three times.
-    let hb2 = null;
-    for (let attempt = 0; attempt < 3 && !hb2; attempt++) {
-      if (!(await page.locator('[data-testid="menu"]').count()) && !(await page.locator('[data-testid="budget"]').count())) await page.locator('[data-testid="menu-button"]').click();
-      if (!(await page.locator('[data-testid="budget"]').count())) await page.getByRole('button', { name: 'Budget', exact: true }).click();
-      await page.locator('[data-testid="budget"]').waitFor({ timeout: 5000 }).catch(() => {});
-      hb2 = await budgetHead.boundingBox({ timeout: 3000 }).catch(() => null);
-    }
+    await page.locator('[data-testid="menu-button"]').click();
+    await page.getByRole('button', { name: 'Budget', exact: true }).click();
+    await page.locator('[data-testid="budget"]').waitFor({ timeout: 5000 });
     // The open Budget panel fills the phone screen, so fold it to its tab first: the map is then under the finger.
-    if (!hb2) { add('the Budget panel opens and stays open for the F4 check', 'closed again three times'); await page.close(); return out; }
+    const hb2 = await budgetHead.boundingBox({ timeout: 5000 }).catch(() => null);
+    if (!hb2) { add('the Budget panel opens and stays open for the F4 check', 'Budget closed right after it opened'); await page.close(); return out; }
     await page.touchscreen.tap(hb2.x + hb2.width * 0.4, hb2.y + hb2.height / 2);
     await until(page, () => document.querySelector('[data-testid="budget"]')?.getAttribute('data-collapsed') === 'true', null, 5000);
     const held = await toolEvent();
