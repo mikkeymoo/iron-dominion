@@ -8,6 +8,7 @@ import { TrafficView } from './traffic.ts';
 import { Fx } from './fx/index.ts';
 import { LinesView } from './lines.ts';
 import { OutageIcons } from './outageIcons.ts';
+import { StatusIconSystem } from './statusIcons.ts';
 import { OverlayView } from './overlay.ts';
 import type { PhotoLook } from './photoSettings.ts';
 import { TerrainView } from './terrain.ts';
@@ -23,9 +24,10 @@ export class WorldScene {
   readonly buildings: BuildingsView;
   readonly lines: LinesView;
   readonly icons: OutageIcons;
+  /** Chooses which buildings show which status icon; `icons` draws them. */
+  readonly status: StatusIconSystem;
   readonly overlay: OverlayView;
   private viewVersion = -1;
-  private iconVersion = -1;
   private under = false;
   readonly robots: RobotsView;
   readonly traffic: TrafficView;
@@ -42,6 +44,7 @@ export class WorldScene {
     this.scene.add(this.lines.group);
     this.icons = new OutageIcons();
     this.scene.add(this.icons.mesh);
+    this.status = new StatusIconSystem(mirror, () => this.buildings.anchors, () => this.buildings.anchorVersion);
     this.overlay = new OverlayView(mirror, this.terrain.slots);
     this.robots = new RobotsView(agents, mirror, {
       spark: (x, y, z, n) => this.fx.particles.emit('spark', x, y, z, n),
@@ -58,9 +61,9 @@ export class WorldScene {
 
   /**
    * Per-frame utilities visuals: apply the view mode (overlay choice, underground cutaway), repaint the overlay texture from the
-   * mirror, rebuild pylons, cables and pipes that changed, and refresh the outage icons.
+   * mirror, rebuild pylons, cables and pipes that changed, and refresh the status icons around `focus` (the camera's look-at tile).
    */
-  updateUtilities(view: ViewState | undefined, nowSec: number, cameraDist: number): void {
+  updateUtilities(view: ViewState | undefined, nowSec: number, cameraDist: number, focus: { x: number; z: number } = { x: 128, z: 128 }): void {
     if (view && view.version !== this.viewVersion) {
       this.viewVersion = view.version;
       this.under = view.underground;
@@ -71,10 +74,8 @@ export class WorldScene {
     }
     this.overlay.update(view?.effectiveOverlay ?? 'none');
     this.lines.update(nowSec);
-    if (this.buildings.outageVersion !== this.iconVersion) {
-      this.iconVersion = this.buildings.outageVersion;
-      this.icons.setRecords(this.buildings.outages.values());
-    }
+    const recs = this.status.refresh(focus, cameraDist, nowSec * 1000);
+    if (recs) this.icons.setRecords(recs);
     this.icons.tick(nowSec, cameraDist);
   }
 

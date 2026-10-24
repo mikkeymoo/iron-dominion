@@ -1,5 +1,5 @@
 import { MAP } from '../sim/layers.ts';
-import type { AgentStore } from './agentStore.ts';
+import { makeSample, type AgentStore } from './agentStore.ts';
 import type { SimClient } from '../sim/client.ts';
 import { CAMERA, CameraRig, pixelToNdc, rayFromPose } from './camera.ts';
 import { celebrate, type CelebrateDeps } from './celebrate.ts';
@@ -19,6 +19,9 @@ import { WorldScene } from './scene.ts';
 import { planShowcase } from './kit/showcase.ts';
 import { tileReadOf } from '../sim/estimate.ts';
 import { startCameraFor } from './startCamera.ts';
+import {
+  AGENT_PICK_PX, BUILDING_PICK_PX, TapDetector, nearestPoint, nearestSegment, projectToPixel, type PickPoint, type PickSegment, type TapTarget,
+} from './tap.ts';
 import { AUTO_STORAGE_KEY, TIER_TABLE, createGovernor, readStoredTier, resolveTier, tierCap, type Governor, type Tier } from './tier.ts';
 import type { ToolController } from './tools/controller.ts';
 import { GhostView } from './tools/ghostView.ts';
@@ -40,6 +43,8 @@ export interface GameDeps {
   onFatal: (message: string) => void;
   /** Called when the auto governor moves the tier (down or up), so the app can persist the settled tier. */
   onTier?: (tier: Tier) => void;
+  /** A tap (not a drag) on the map while no tool is active: the robot, vehicle or building under the finger, or `none`. */
+  onTap?: (target: TapTarget) => void;
 }
 
 /** Phone-class device: a coarse pointer on a small screen, or any window 600 CSS px wide or less. */
@@ -235,6 +240,69 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     });
     return true;
   };
+  // Chase one chosen robot or vehicle (the Follow button on its card); the camera is handed back a couple of seconds after it goes.
+  const followAgent = (key: number): boolean => {
+    if (deps.agents.poseOf(key, performance.now()) === null) return false;
+    cinematic.skip();
+    followKey = key;
+    let last: { x: number; z: number; yaw: number } | null = null;
+    let lostAt = 0;
+    rig.followTarget(() => {
+      const now = performance.now();
+      const p = deps.agents.poseOf(key, now);
+      if (p) { last = p; lostAt = 0; return p; }
+      if (lostAt === 0) lostAt = now;
+      return last && now - lostAt < 2000 ? last : null;
+    });
+    return true;
+  };
+
+  // Taps: a press that barely moves and lifts quickly, with no tool in hand, picks the robot or vehicle under the finger, else the
+  // building (by its tile, then by its roof on screen so a tall tower can be tapped on its face), and tells the app.
+  const tapSample = makeSample(4096);
+  const project = (x: number, y: number, z: number): ReturnType<typeof projectToPixel> =>
+    projectToPixel(rig.pose(), world.camera.fov, host.clientWidth, host.clientHeight, x, y, z);
+  const pickTarget = (px: number, py: number): TapTarget => {
+    const n = deps.agents.sample(performance.now(), tapSample, 4096).count;
+    const pts: PickPoint[] = [];
+    for (let j = 0; j < n; j++) {
+      const x = tapSample.pos[j * 3]!, z = tapSample.pos[j * 3 + 1]!;
+      pts.push({ id: j, x, y: Math.max(0, surfaceHeight(heights, x, z)) + 0.3, z });
+    }
+    const a = nearestPoint(pts, project, px, py, AGENT_PICK_PX);
+    if (a !== null) return { kind: 'agent', key: tapSample.key[a]!, akind: tapSample.kind[a]!, x: tapSample.pos[a * 3]!, y: tapSample.pos[a * 3 + 1]! };
+    const tile = pickAt(px, py);
+    let slot = tile ? mirror.buildingAt(tile.x, tile.y) : -1;
+    if (slot < 0) {
+      const segs: PickSegment[] = [];
+      for (const [s, anchor] of world.buildings.anchors) segs.push({ id: s, ax: anchor.x, ay: anchor.gy, az: anchor.z, bx: anchor.x, by: anchor.y, bz: anchor.z });
+      slot = nearestSegment(segs, project, px, py, BUILDING_PICK_PX) ?? -1;
+    }
+    const b = slot >= 0 ? mirror.building(slot) : undefined;
+    return b ? { kind: 'building', slot, x: b.x, y: b.y } : { kind: 'none' };
+  };
+  const taps = new TapDetector();
+  const downIds = new Set<number>();
+  let busyAtDown = false;
+  const onTapDown = (e: PointerEvent): void => {
+    downIds.add(e.pointerId);
+    busyAtDown = cinematic.active || rig.following || photo.active;
+    taps.down(e.pointerId, e.clientX, e.clientY, performance.now(), !!deps.onTap && !(deps.tools?.active) && e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0));
+  };
+  const onTapMove = (e: PointerEvent): void => taps.move(e.pointerId, e.clientX, e.clientY);
+  const onTapUp = (e: PointerEvent): void => {
+    downIds.delete(e.pointerId);
+    const tap = e.type === 'pointercancel' ? null : taps.up(e.pointerId, e.clientX, e.clientY, performance.now(), downIds.size === 0);
+    if (e.type === 'pointercancel') taps.cancel();
+    if (!tap || busyAtDown) return;
+    const r = host.getBoundingClientRect();
+    deps.onTap?.(pickTarget(tap.x - r.left, tap.y - r.top));
+  };
+  host.addEventListener('pointerdown', onTapDown, true);
+  host.addEventListener('pointermove', onTapMove);
+  host.addEventListener('pointerup', onTapUp);
+  host.addEventListener('pointercancel', onTapUp);
+
   // Completion camera: orbits a finished megaproject for a few seconds; a tap or Escape ends it and gives the camera back where it was.
   const celebrations: CelebrateDeps = {
     emit: (kind, x, y, z, n, size, energy) => { world.fx.particles.emit(kind, x, y, z, n, size, energy); },
@@ -310,7 +378,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       } else console.warn('[showcase] no flat land window found');
     }
     world.buildings.update();
-    world.updateUtilities(deps.view, now / 1000, rig.state.dist);
+    world.updateUtilities(deps.view, now / 1000, rig.state.dist, { x: rig.state.x, z: rig.state.z });
     if (deps.tools && ghost) { deps.tools.sync(); ghost.update(deps.tools); }
 
     if (ghost) ghost.group.visible = !photo.active;
@@ -414,6 +482,9 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       return { pylons: l.pylons, spans: l.spans, pipeSegments: l.pipeSegments, drawCalls: l.cableDraws };
     },
     get outageIcons() { return world.icons.icons; },
+    get statusIcons() { return { count: world.status.count, byKind: { ...world.status.byKind } }; },
+    project(x, y, z) { const q = project(x, y, z); return q ? { px: q.px, py: q.py } : null; },
+    followAgent,
     setOverlay(mode) { if (!deps.view || !isOverlayMode(mode)) return false; deps.view.setOverlay(mode); return true; },
     setUnderground(on) { deps.view?.setUnderground(on); },
     get canvasCount() { return host.querySelectorAll('canvas').length; },
@@ -461,6 +532,10 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       disposed = true;
       ro.disconnect();
       host.removeEventListener('pointerdown', stopCamera, true);
+      host.removeEventListener('pointerdown', onTapDown, true);
+      host.removeEventListener('pointermove', onTapMove);
+      host.removeEventListener('pointerup', onTapUp);
+      host.removeEventListener('pointercancel', onTapUp);
       host.removeEventListener('wheel', skipCinematic, true);
       photo.exit();
       window.removeEventListener('keydown', onKey);

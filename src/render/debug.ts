@@ -28,8 +28,14 @@ export interface RenderDebug {
   readonly underground: { on: boolean; cutaway: boolean; pipeSegments: number; pipeDraws: number; buildingsHidden: boolean };
   /** Power lines: pylons and cable spans built, draw calls they cost. */
   readonly lines: { pylons: number; spans: number; pipeSegments: number; drawCalls: number };
-  /** Outage icons uploaded this frame. */
+  /** Status icons uploaded this frame (any kind: power, water, fire, jobs, crime, smog, upgrade). */
   readonly outageIcons: number;
+  /** The icons drawn after the last refresh and how many of each kind name. */
+  readonly statusIcons: { count: number; byKind: Record<string, number> };
+  /** Canvas-relative CSS pixel of a world point (x, height, z in tile units), or null behind the camera. */
+  project(x: number, y: number, z: number): { px: number; py: number } | null;
+  /** Chase one robot or vehicle by its agent key (the Follow button on its card); false when it is gone. */
+  followAgent(key: number): boolean;
   /** Set the overlay mode (none, power, water, landValue, pollution, traffic) the way the HUD buttons do; false for an unknown mode. */
   setOverlay(mode: string): boolean;
   setUnderground(on: boolean): void;

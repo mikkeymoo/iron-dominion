@@ -2,11 +2,12 @@
 
 import type { OVERLAY_MODE_TRAFFIC } from '../sim/traffic/constants.ts';
 
-export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | typeof OVERLAY_MODE_TRAFFIC | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks';
+/** `depotReach` is never picked from the Views list: the depot tool and a selected depot switch it on through ViewState.depotReach. */
+export type OverlayMode = 'none' | 'power' | 'water' | 'landValue' | 'pollution' | typeof OVERLAY_MODE_TRAFFIC | 'fire' | 'police' | 'health' | 'education' | 'crime' | 'parks' | 'depotReach';
 export const OVERLAY_MODES: readonly OverlayMode[] = ['none', 'power', 'water', 'landValue', 'pollution', 'traffic', 'fire', 'police', 'health', 'education', 'crime', 'parks'];
 export const OVERLAY_LABELS: Record<OverlayMode, string> = {
   none: 'None', power: 'Power', water: 'Water', landValue: 'Land value', pollution: 'Pollution', traffic: 'Traffic', fire: 'Fire', police: 'Police', health: 'Health',
-  education: 'Education', crime: 'Crime', parks: 'Parks',
+  education: 'Education', crime: 'Crime', parks: 'Parks', depotReach: 'Depot reach',
 };
 
 export const isOverlayMode = (v: unknown): v is OverlayMode => typeof v === 'string' && (OVERLAY_MODES as readonly string[]).includes(v);
@@ -18,6 +19,8 @@ export const isOverlayMode = (v: unknown): v is OverlayMode => typeof v === 'str
 export class ViewState {
   overlay: OverlayMode = 'none';
   underground = false;
+  /** The depot tool is active or a depot is selected: the terrain shows the depot's road-distance work radius instead of the chosen overlay. */
+  depotReach = false;
   version = 0;
   private readonly listeners = new Set<() => void>();
 
@@ -42,6 +45,12 @@ export class ViewState {
 
   toggleUnderground(): void { this.setUnderground(!this.underground); }
 
+  setDepotReach(on: boolean): void {
+    if (on === this.depotReach) return;
+    this.depotReach = on;
+    this.changed();
+  }
+
   /** The overlay the terrain actually paints. */
-  get effectiveOverlay(): OverlayMode { return this.underground ? 'water' : this.overlay; }
+  get effectiveOverlay(): OverlayMode { return this.underground ? 'water' : this.depotReach ? 'depotReach' : this.overlay; }
 }

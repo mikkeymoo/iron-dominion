@@ -110,30 +110,37 @@ describe('BuildingInstances over a synthetic mirror', () => {
     expect(d.site.has(0)).toBe(false);
   });
 
-  it('darkens a finished building without power and lists an outage icon; a building still under construction shows neither', () => {
+  it('darkens a finished building without power; a building still under construction stays lit', () => {
     const { mirror, d } = setup(ALL);
     const w = (slot: number): number => d.near.batches.get(d.near.keyOf(slot)!)!.state[d.near.indexOf(slot) * STATE_STRIDE + 3]!;
     patch(mirror, [rec(0, A, 10, 10, 1), rec(1, A, 14, 10, 1, { flags: BFLAG.UNPOWERED }), rec(2, A, 18, 10, 1, { flags: BFLAG.UNWATERED }), rec(3, A, 22, 10, 1, { flags: BFLAG.UNPOWERED | BFLAG.UNWATERED }), rec(4, A, 26, 10, 1, { flags: BFLAG.CONSTRUCTING | BFLAG.UNPOWERED, prog: 100 })]);
     d.sync();
     expect([0, 1, 2, 3, 4].map(w)).toEqual([0, 1, 0, 1, 0]);
-    expect([...d.outages.keys()]).toEqual([1, 2, 3]);
-    expect(d.outages.get(1)).toMatchObject({ power: true, water: false });
-    expect(d.outages.get(2)).toMatchObject({ power: false, water: true });
-    expect(d.outages.get(3)).toMatchObject({ power: true, water: true });
-    expect(d.outages.get(1)!.y).toBeGreaterThan(1.5);
-    const v = d.outageVersion;
     patch(mirror, [rec(1, A, 14, 10, 1)]);
     d.sync();
     expect(w(1)).toBe(0);
-    expect(d.outages.has(1)).toBe(false);
-    expect(d.outageVersion).toBeGreaterThan(v);
-    const v2 = d.outageVersion;
-    patch(mirror, [rec(2, A, 18, 10, 1, { flags: BFLAG.UNWATERED })]);
+  });
+
+  it('keeps an icon anchor above every standing building and bumps the version only when one changes', () => {
+    const { mirror, d } = setup(ALL);
+    patch(mirror, [rec(0, A, 10, 10, 1), rec(1, A, 14, 10, 1, { flags: BFLAG.UNPOWERED }), rec(2, A, 18, 10, 1, { flags: BFLAG.CONSTRUCTING, prog: 90 })]);
     d.sync();
-    expect(d.outageVersion, 'rewriting an unchanged record does not bump the version').toBe(v2);
-    patch(mirror, [rec(3, 0, 0, 0, 0)]);
+    expect([...d.anchors.keys()]).toEqual([0, 1, 2]);
+    const a = d.anchors.get(1)!;
+    expect(a.y).toBeGreaterThan(a.gy + 0.3);
+    expect(a.x).toBeCloseTo(14.5, 5);
+    const v = d.anchorVersion;
+    patch(mirror, [rec(1, A, 14, 10, 1)]);
     d.sync();
-    expect(d.outages.has(3)).toBe(false);
+    expect(d.anchorVersion, 'a flag change moves no anchor').toBe(v);
+    patch(mirror, [rec(1, A, 15, 10, 1)]);
+    d.sync();
+    expect(d.anchorVersion).toBeGreaterThan(v);
+    const v2 = d.anchorVersion;
+    patch(mirror, [rec(2, 0, 0, 0, 0)]);
+    d.sync();
+    expect(d.anchors.has(2)).toBe(false);
+    expect(d.anchorVersion).toBeGreaterThan(v2);
   });
 
   it('chars a damaged building, flags a burning one for the glow and gives it flames, smoke and embers', () => {

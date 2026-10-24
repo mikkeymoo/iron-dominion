@@ -1,0 +1,55 @@
+/* "Why is this happening?": advisor chip, info card and placement chips. Self-contained; the HUD shell's styles live in app.css. */
+
+.advisor { position: relative; display: inline-block; max-width: 100%; font-size: 0.85rem; color: #e6edf3; }
+/*
+ * Used when the HUD has no [data-slot="advisor"]. It sits under the top bar (two rows on a desktop, so 114px down, level with the
+ * checklist), centred between the checklist and the menu column, and below the toasts (z-index 2) so it never covers their buttons.
+ * On a phone the checklist chip takes the middle of the screen's width less, so the chip moves to the left edge on the same row.
+ */
+.advisor-fallback { position: absolute; z-index: 1; top: calc(env(safe-area-inset-top) + 114px); left: 50%; transform: translateX(-50%); max-width: calc(100vw - 16px); }
+@media (max-width: 600px), (max-height: 480px) and (max-width: 1000px) { .advisor-fallback { top: calc(env(safe-area-inset-top) + 114px); left: calc(env(safe-area-inset-left) + 6px); transform: none; } }
+.advisor-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 44px; box-sizing: border-box; padding: 0 12px 0 8px; font: inherit; font-weight: 600; color: #e6edf3; background: rgba(11, 17, 22, 0.88); border: 1px solid rgba(230, 237, 243, 0.3); border-radius: 22px; cursor: pointer; }
+.advisor-chip.alert { border-color: #f2a33a; color: #ffd08a; box-shadow: 0 0 0 2px rgba(242, 163, 58, 0.3); }
+.advisor-chip[data-kind="fire"], .advisor-chip[data-kind="budget"] { border-color: #ff7a5c; color: #ffb8a6; box-shadow: 0 0 0 2px rgba(255, 122, 92, 0.35); }
+.advisor-chip .ico { flex: 0 0 22px; }
+.advisor-text { min-width: 0; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .advisor-text { max-width: 9rem; } }
+.advisor-badge { flex: 0 0 auto; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; display: inline-grid; place-items: center; font-size: 0.75rem; font-weight: 700; color: #1b1405; background: #f2a33a; border-radius: 10px; }
+.advisor-badge.small { height: 18px; min-width: 18px; font-size: 0.7rem; }
+.advisor-list { position: absolute; z-index: 4; top: calc(100% + 6px); left: 0; width: min(26rem, calc(100vw - 16px)); box-sizing: border-box; display: grid; gap: 4px; padding: 6px; background: rgba(11, 17, 22, 0.95); border: 1px solid rgba(230, 237, 243, 0.25); border-radius: 12px; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; animation: panel-in-top 0.2s ease-out both; }
+.advisor-issue { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; box-sizing: border-box; padding: 6px 10px; font: inherit; text-align: left; color: #e6edf3; background: rgba(230, 237, 243, 0.06); border: 1px solid transparent; border-left: 4px solid #8fd3ff; border-radius: 8px; cursor: pointer; }
+.advisor-issue[data-severity="high"] { border-left-color: #ff7a5c; }
+.advisor-issue[data-severity="mid"] { border-left-color: #f2a33a; }
+.advisor-issue:hover, .advisor-issue:focus-visible { border-color: rgba(230, 237, 243, 0.4); }
+.advisor-issue .ico { flex: 0 0 22px; }
+.advisor-issue-text { flex: 1; min-width: 0; font-size: 0.82rem; line-height: 1.3; }
+.advisor-ok { margin: 4px 6px; font-size: 0.85rem; line-height: 1.35; }
+
+.info-card { position: absolute; z-index: 2; left: calc(env(safe-area-inset-left) + 8px); bottom: calc(env(safe-area-inset-bottom) + 84px); width: min(21rem, calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right))); box-sizing: border-box; padding: 8px 10px 10px; color: #e6edf3; font-size: 0.84rem; background: rgba(11, 17, 22, 0.94); border: 1px solid rgba(230, 237, 243, 0.25); border-radius: 12px; animation: panel-in-y 0.2s ease-out both; }
+.info-card header { display: flex; align-items: center; gap: 8px; }
+.info-card h2 { flex: 1; margin: 0; font-size: 1rem; }
+.info-close { width: 44px; height: 44px; margin: -6px -6px -6px 0; font: inherit; font-size: 1.4rem; line-height: 1; color: #e6edf3; background: transparent; border: 0; cursor: pointer; }
+.status-pill { padding: 2px 8px; font-size: 0.72rem; font-weight: 700; color: #0b1116; background: #9be58f; border-radius: 10px; white-space: nowrap; }
+.status-pill.constructing { background: #8fd3ff; }
+.status-pill.idle { background: #f2c879; }
+.status-pill.burning { background: #ff7a5c; }
+.info-facts { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0 6px; font-size: 0.78rem; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.thoughts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.thought { display: flex; align-items: center; gap: 8px; padding: 5px 8px; line-height: 1.3; background: rgba(230, 237, 243, 0.06); border-left: 4px solid #9be58f; border-radius: 6px; }
+.thought.warn { border-left-color: #f2a33a; }
+.thought.bad { border-left-color: #ff7a5c; }
+.thought span { flex: 1; min-width: 0; }
+.thought-show { flex: 0 0 auto; min-height: 32px; padding: 0 10px; font: inherit; font-size: 0.75rem; font-weight: 600; color: #e6edf3; background: rgba(230, 237, 243, 0.1); border: 1px solid rgba(230, 237, 243, 0.3); border-radius: 6px; cursor: pointer; }
+.agent-job { margin: 6px 0 4px; font-size: 0.92rem; line-height: 1.35; }
+.agent-job.waiting { color: #ffd08a; }
+.info-actions { display: flex; gap: 6px; margin-top: 8px; }
+.info-actions .tb { flex: 1; }
+.info-actions .tb.danger { border-color: rgba(255, 122, 92, 0.6); color: #ffb8a6; }
+.info-loading { margin: 8px 0; opacity: 0.7; }
+
+.hud > .ghost-chips { position: absolute; z-index: 3; display: grid; gap: 2px; justify-items: start; pointer-events: none; }
+.ghost-chip { display: inline-block; max-width: 18rem; padding: 3px 10px; font-size: 0.78rem; font-weight: 700; line-height: 1.25; color: #0b1116; background: #9be58f; border-radius: 12px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
+.ghost-chip.warn { background: #f2c879; }
+.ghost-chip.bad { background: #ff8f78; }
+
+@media (prefers-reduced-motion: reduce) { .info-card, .advisor-list { animation: none !important; } }

@@ -32,9 +32,12 @@ export interface InstanceStats { near: number; far: number; sites: number; crane
 /** A continuous particle source anchored to a building: stack smoke on finished industry, dust on a building site. */
 export interface EmitterRec { kind: 'smoke' | 'dust' | 'debris' | 'fire' | 'spark'; x: number; y: number; z: number; rate: number }
 
-/** A finished building that lost power and/or water: where its outage icon floats (tile units, above the roof). */
-export interface OutageRec { x: number; y: number; z: number; power: boolean; water: boolean }
-/** How far above the model's highest point the outage icon floats. */
+/**
+ * Where a building's status icon floats (tile units, above the roof) and the ground under it. Every standing building has one, whether
+ * or not it shows an icon: render/statusIcons.ts picks which buildings need one, and tapping uses it to find a building by its roof.
+ */
+export interface IconAnchor { x: number; y: number; z: number; gy: number }
+/** How far above the model's highest point the status icon floats. */
 const ICON_LIFT = 0.3;
 
 /** Virtual packer slots for the extra cranes of a megaproject (above every real building slot). */
@@ -112,9 +115,9 @@ export class BuildingInstances {
   readonly rubble = new InstancePacker();
   /** Particle sources per building slot, rebuilt whenever the slot is written. */
   readonly emitters = new Map<number, EmitterRec[]>();
-  /** Buildings currently showing an outage icon, rebuilt whenever the slot is written; `outageVersion` bumps on any change. */
-  readonly outages = new Map<number, OutageRec>();
-  outageVersion = 0;
+  /** Icon anchor of every standing building (not ruins), rebuilt whenever the slot is written; `anchorVersion` bumps on any change. */
+  readonly anchors = new Map<number, IconAnchor>();
+  anchorVersion = 0;
   private pending = new Set<number>();
   private cls = new Map<number, 0 | 1>();
   private fineVersion = -1;
@@ -178,7 +181,7 @@ export class BuildingInstances {
     for (let i = 0; i < MEGA_CRANES; i++) this.crane.remove(extraCrane(slot, i));
     this.cls.delete(slot);
     this.emitters.delete(slot);
-    if (this.outages.delete(slot)) this.outageVersion++;
+    if (this.anchors.delete(slot)) this.anchorVersion++;
   }
 
   /** A destroyed building: rubble instead of the model. While robots clear it the heap shrinks with the demolition progress. */
@@ -189,7 +192,7 @@ export class BuildingInstances {
     this.rubble.set(slot, `${Math.max(b.w, b.h)}:${(hsh >>> 4) & 3}`, { matrix: mat, tint: [1, 1, 1], state: [1, 0, 0, 0] });
     this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot);
     for (let i = 0; i < MEGA_CRANES; i++) this.crane.remove(extraCrane(slot, i));
-    if (this.outages.delete(slot)) this.outageVersion++;
+    if (this.anchors.delete(slot)) this.anchorVersion++;
     const area = Math.max(1, b.w * b.h);
     this.emitters.set(slot, [clearing
       ? { kind: 'dust', x: cx, y: gy + 0.05, z: cz, rate: DUST_RATE_PER_TILE * area * 0.6 }
@@ -251,15 +254,14 @@ export class BuildingInstances {
     }
     if (recs.length > 0) this.emitters.set(slot, recs); else this.emitters.delete(slot);
 
-    // A finished building without service goes dark (state.w) and shows an icon; one still being built shows neither.
+    // A finished building without power goes dark (state.w); one still being built does not.
     const dark = p >= 1 && (b.flags & BFLAG.UNPOWERED) !== 0;
-    const dry = p >= 1 && (b.flags & BFLAG.UNWATERED) !== 0;
-    const had = this.outages.get(slot);
-    if (dark || dry) {
-      const y = gy + (mega ? Math.min(model.height, MEGA_ICON_MAX) : model.height) + ICON_LIFT;
-      if (!had || had.power !== dark || had.water !== dry || had.x !== cx || had.y !== y || had.z !== cz) this.outageVersion++;
-      this.outages.set(slot, { x: cx, y, z: cz, power: dark, water: dry });
-    } else if (had) { this.outages.delete(slot); this.outageVersion++; }
+    const top = gy + (mega ? Math.min(model.height, MEGA_ICON_MAX) : model.height) + ICON_LIFT;
+    const had = this.anchors.get(slot);
+    if (!had || had.x !== cx || had.y !== top || had.z !== cz || had.gy !== gy) {
+      this.anchors.set(slot, { x: cx, y: top, z: cz, gy });
+      this.anchorVersion++;
+    }
 
     if (near) {
       composeMatrix(mat, cx, gy, cz, rot);

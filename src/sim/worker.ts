@@ -3,13 +3,15 @@ import { apply, collectOutgoing, drainCommands, createSim, packAgents, restore, 
 import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
+import { answerInfo } from './info.ts';
+import { invalidateIssues, issuesOf } from './issues.ts';
 import { milestoneStats } from './milestones.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
 import { serviceStats } from './services/index.ts';
 import { trafficStats } from './traffic/index.ts';
 import { utilStats } from './utilities/index.ts';
-import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Speed, type Stats, type ToWorker } from './protocol.ts';
+import { PROTOCOL_VERSION, type AgentsMsg, type FromWorker, type Issue, type Speed, type Stats, type ToWorker } from './protocol.ts';
 import type { Sim } from './world.ts';
 
 // Thin shell around engine.ts: handshake, speed-scaled fixed ticks, coalesced posts, agent ping-pong.
@@ -21,6 +23,7 @@ const MAX_SLICE_MS = 12;
 const OVERLAY_MS = 1000;
 const STATS_MS = 250;
 const CATCHUP_TICKS = 8;
+const ISSUES_MIN_MS = 1000;
 
 interface AgentBuf { pos: Float32Array; ids: Uint32Array }
 
@@ -38,6 +41,7 @@ let last = 0;
 let lastPost = 0;
 let lastOverlay = 0;
 let lastStats = 0;
+let lastIssuesAt = -Infinity;
 let lastHashTick = -1;
 let wantHash = false;
 let tickMs = 0;
@@ -50,6 +54,21 @@ const freeAgentBufs: AgentBuf[] = [0, 1].map(() => ({ pos: new Float32Array(AMAX
 
 const post = (m: FromWorker, transfer: Transferable[] = []): void => ctx.postMessage(m, transfer);
 const fail = (message: string): void => post({ type: 'error', message });
+
+/**
+ * The advisor list is derived data: a bug in it must never stop the sim, so a failed pass keeps the previous list. It is re-derived
+ * at most once a second of wall time (a big city takes a few ms), however fast the sim runs, and at once after a command.
+ */
+function currentIssues(s: Sim): Issue[] {
+  const now = performance.now();
+  if (s.issues !== undefined && now - lastIssuesAt < ISSUES_MIN_MS) return s.issues;
+  lastIssuesAt = now;
+  try { return issuesOf(s); } catch (e) {
+    console.error(`[sim] issues pass failed: ${e instanceof Error ? e.message : String(e)}`);
+    s.issuesTick = tickOf(s);
+    return s.issues ?? [];
+  }
+}
 
 function transferablesOf(m: FromWorker): Transferable[] {
   const t: Transferable[] = [];
@@ -88,7 +107,7 @@ function flush(now: number, force = false): void {
     lastStats = now;
     const s = sim.world.scalars;
     const stats: Stats = {
-      type: 'stats', tick: tickOf(sim), tickMs, skippedSends, halted,
+      type: 'stats', issues: currentIssues(sim), tick: tickOf(sim), tickMs, skippedSends, halted,
       treasury: s[S.treasury]!, population: s[S.population]!, dayFrac: s[S.dayFrac]!, day: s[S.day]!,
       weather: s[S.weather]!, weatherIntensity: s[S.weatherIntensity]!, graphEpoch: s[S.graphEpoch]!,
       workforce: workforceOf(sim.world),
@@ -165,6 +184,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
     switch (m.type) {
       case 'command':
         apply(sim, m.cmd);
+        invalidateIssues(sim);
         // Players build while paused: run the command now (same tick, same order as the next step's first system) and
         // send the patch and events so the mirror and ghost update. A halted debug run keeps its tick-exact hash.
         if ((paused || speed === 0) && !halted) { drainCommands(sim); flush(performance.now(), true); }
@@ -178,6 +198,12 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
       case 'requestHash': wantHash = true; break;
       case 'requestPath': post(queryPath(sim, m.id, m.from, m.to)); break;
       case 'requestBudget': post(budgetMessage(sim.world, m.id)); break;
+      case 'requestInfo':
+        try { post(answerInfo(sim, m)); } catch (e) {
+          console.error(`[sim] info request failed: ${e instanceof Error ? e.message : String(e)}`);
+          post({ type: 'info', id: m.id, ok: false, reason: 'error' });
+        }
+        break;
       case 'requestSnapshot': {
         const data = snapshot(sim);
         post({ type: 'snapshot', id: m.id, tick: tickOf(sim), data }, [data.buffer]);

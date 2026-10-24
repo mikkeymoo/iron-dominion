@@ -11,7 +11,7 @@
 import { Group, InstancedBufferAttribute, InstancedMesh, BufferAttribute, BufferGeometry, DynamicDrawUsage, type DataTexture, type Material } from 'three/webgpu';
 import { surfaceHeight } from './heightfield.ts';
 import { InstancePacker, type Batch } from './instancePacker.ts';
-import { BuildingInstances, cachedModel, type EmitterRec, type OutageRec } from './instances.ts';
+import { BuildingInstances, cachedModel, type EmitterRec, type IconAnchor } from './instances.ts';
 import { boxGeometry, createAtlasTexture, createBuildingMaterial, createFarMaterial, createSiteMaterial } from './buildingMaterial.ts';
 import { mergeParts } from './kit/generate.ts';
 import { generateCrane, generateRubble, generateSite } from './kit/site.ts';
@@ -181,9 +181,9 @@ export class BuildingsView {
   /** Continuous particle sources (stack smoke, site dust), keyed by building slot. */
   get emitters(): ReadonlyMap<number, EmitterRec[]> { return this.data.emitters; }
 
-  /** Finished buildings currently without power or water, keyed by slot; `outageVersion` changes whenever the set or a record does. */
-  get outages(): ReadonlyMap<number, OutageRec> { return this.data.outages; }
-  get outageVersion(): number { return this.data.outageVersion; }
+  /** Where each standing building's status icon floats, keyed by slot; `anchorVersion` changes whenever the set or an anchor does. */
+  get anchors(): ReadonlyMap<number, IconAnchor> { return this.data.anchors; }
+  get anchorVersion(): number { return this.data.anchorVersion; }
 
   get stats(): BuildingStats {
     const s = this.data.stats;

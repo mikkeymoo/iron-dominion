@@ -8,6 +8,7 @@ import { createLifecycle, type Lifecycle } from '../platform/lifecycle.ts';
 import { createPlatformService, type PlatformService, type SaveInfo } from '../platform/service.ts';
 import { fail, ok, type Outcome, type PlatformDb } from '../platform/db.ts';
 import { ToolsRuntime } from './toolsStore.ts';
+import { WhyStore } from './whyStore.ts';
 import { attachSessionAudio } from '../audio/index.ts';
 
 // Debug query: ?seed=42&haltAt=200 runs the sim from that seed and halts at tick 200, reporting the state hash.
@@ -20,6 +21,8 @@ export interface Session {
   /** Interpolated robot positions from the sim's Agents messages. */
   agents: AgentStore;
   tools: ToolsRuntime;
+  /** The advisor's issue list, the tapped building or robot, and the depot-radius tint (ui/whyStore.ts). */
+  why: WhyStore;
   /** Overlay mode and underground view for this city. */
   view: ViewState;
   service: PlatformService;
@@ -46,6 +49,7 @@ export function openSession(o: SessionOptions): Session {
   const agents = new AgentStore();
   const w = new Worker(new URL(`./sim-worker.js?v=${BUILD_HASH}`, document.baseURI));
   const tools = new ToolsRuntime({ world: mirror, submit: (body) => client.command(body), view });
+  const why = new WhyStore({ requestInfo: (kind, ref) => client.requestInfo(kind, ref), mirror, view, tools });
   const client: SimClient = createSimClient(w, {
     seed: o.seed,
     debug: o.debug,
@@ -61,6 +65,7 @@ export function openSession(o: SessionOptions): Session {
     onEvents: (m) => { mirror.apply(m); tools.handleEvents(m.events); sound.events(m.events); },
     onStats: (s) => {
       mirror.apply(s);
+      why.stats(s);
       sound.stats(s);
       o.onStats(s);
     },
@@ -77,7 +82,7 @@ export function openSession(o: SessionOptions): Session {
     write: (data, _why, opt) => service.writeSnapshot(data, opt),
   }, { initialSpeed: o.haltAt !== undefined ? 'max' : 1 });
   const sound = attachSessionAudio({ mirror, agents, tools, lifecycle });
-  return { client, mirror, agents, tools, view, service, lifecycle, seed: o.seed, dispose: () => { sound.dispose(); tools.dispose(); client.terminate(); } };
+  return { client, mirror, agents, tools, why, view, service, lifecycle, seed: o.seed, dispose: () => { sound.dispose(); why.dispose(); tools.dispose(); client.terminate(); } };
 }
 
 /** Manual Save (or Save as, with a name) through the lifecycle's single write queue. */
