@@ -3,6 +3,7 @@ import { apply, collectOutgoing, drainCommands, createSim, packAgents, restore, 
 import { BUILD_HASH } from './buildinfo.ts';
 import { AMAX, S } from './layers.ts';
 import { budgetMessage, econStats } from './economy/index.ts';
+import { directiveStats } from './directives.ts';
 import { milestoneStats } from './milestones.ts';
 import { queryPath } from './roads/index.ts';
 import { workforceOf } from './robots/index.ts';
@@ -97,6 +98,7 @@ function flush(now: number, force = false): void {
       ...utilStats(sim),
       ...serviceStats(sim),
       milestone: milestoneStats(sim.world),
+      directives: directiveStats(sim.world),
     };
     if (hashDue) { stats.hash = stateHash(sim); lastHashTick = stats.tick; wantHash = false; }
     post(stats);
@@ -152,7 +154,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
         fail(`build mismatch: worker ${BUILD_HASH}, app ${m.buildHash} (stale cache? reload the page)`);
         return;
       }
-      sim = createSim(m.seed ?? 1, { debug: m.debug === true, disasters: m.disasters });
+      sim = createSim(m.seed ?? 1, { debug: m.debug === true, disasters: m.disasters, starter: true });
       haltAt = m.haltAt ?? 0;
       hashEvery = m.hashEvery ?? 0;
       handshaken = true;

@@ -10,7 +10,7 @@ import type { Settings } from '../platform/settings.ts';
 import { AudioSync } from '../audio/ui.tsx';
 import { Budget } from './Budget';
 import { Hud, type HudStats } from './Hud';
-import { Checklist } from './Checklist';
+import { DirectiveCard } from './DirectiveCard';
 import { useLayout } from './layout';
 import { Banner, MilestonesPanel } from './Milestones';
 import { useOutsideDismiss, type PanelId } from './panels';
@@ -153,7 +153,7 @@ export function GameView({ client, mirror, agents, tools, view, lifecycle, stats
       <div className="hud" data-layout={layout} hidden={photoOn}>
         <AudioSync settings={settings} />
         <Hud photo={phase === 'running' ? { enter: () => game.current?.photo.enter(), tour: () => { game.current?.tour(); } } : undefined} photoActive={photoOn} lifecycle={lifecycle} stats={stats} settings={settings} notice={notice} budgetOpen={budgetOpen} onBudget={() => setPanel((p) => (p === 'budget' ? null : 'budget'))} onServices={() => setPanel((p) => (p === 'services' ? null : 'services'))} onProjects={phase === 'running' ? () => setPanel((p) => (p === 'projects' ? null : 'projects')) : undefined} follow={phase === 'running' ? { active: following, toggle: () => { const g = game.current; if (g) setFollowing(g.debug.follow(!g.debug.following)); } } : undefined} onSave={onSave} onSaveAs={onSaveAs} onExport={onExport} onSetting={onSetting} onTrigger={phase === 'running' ? trigger : undefined} onQuit={onExit} quitPrompt={quitPrompt} onQuitSaveAs={onQuitSaveAs} onQuitDiscard={onQuitDiscard} onQuitCancel={onQuitCancel} facts={facts ?? undefined} perfOn={perfOn} onPerf={(on) => onSetting('showPerf', on)} layout={layout} activeTier={perf?.tier} panel={panel} onPanel={setPanel} topOpen={settings.panels.topOpen} onTopOpen={setTopOpen} />
-        {phase === 'running' && facts && <Checklist facts={facts} state={listState} onChange={onList} onPick={(t) => { setPanel(null); tools.controller.select(t); }} collapseOnPick={phone} />}
+        {phase === 'running' && stats.directives && <DirectiveCard stats={stats.directives} population={stats.population} treasury={stats.treasury} state={listState} onChange={onList} client={client} tools={tools} mirror={mirror} glide={(x, y) => game.current?.glideTo(x, y)} onProjects={() => setPanel('projects')} onPick={() => setPanel(null)} collapseOnShow={phone} />}
         {phase === 'running' && <Tools runtime={tools} view={view} hints={hints} layout={layout} panel={panel} onPanel={setPanel} autoCollapse={settings.panels.autoCollapse} onJump={jump} />}
         {budgetOpen && <Budget client={client} events={tools} stats={stats} onClose={() => setPanel(null)} />}
         {servicesOpen && <ServicesPanel stats={stats.services} onClose={() => setPanel(null)} />}

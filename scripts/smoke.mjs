@@ -869,9 +869,10 @@ async function workforceChecks(open, phone) {
 
   await setSpeedUi(page, 'Max');
   const t0 = Date.now();
-  const sawRobots = await until(page, () => { const w = window.__iron.sim.workforce; return !!w && w.builders > 0 && w.haulers > 0; }, null, ROBOT_LIMIT_MS);
+  // The starter depot keeps up to 4 builders and 4 haulers, so more than that means the depot placed above built robots.
+  const sawRobots = await until(page, () => { const w = window.__iron.sim.workforce; return !!w && w.builders > 4 && w.haulers > 4; }, null, ROBOT_LIMIT_MS);
   const w1 = await page.evaluate(() => ({ ...window.__iron.sim.workforce }));
-  add('the depot builds robots (sim workforce builders and haulers > 0)', sawRobots ? null : `workforce ${JSON.stringify(w1)}`);
+  add('the depot builds robots beyond the starter depot\'s crew (sim workforce builders and haulers > 4)', sawRobots ? null : `workforce ${JSON.stringify(w1)}`);
   const drawn = await until(page, () => { const r = window.__iron.render.robots; return r.visible > 0 && r.builders + r.haulers > 0; }, null, ROBOT_LIMIT_MS);
   add('robots are drawn (__iron.render.robots.visible > 0)', drawn ? null : JSON.stringify(await page.evaluate(() => ({ ...window.__iron.render.robots }))));
   const job = await until(page, () => window.__iron.sim.workforce?.jobs > 0 && window.__iron.render.buildings.sites > 0, null, ROBOT_LIMIT_MS);
@@ -1060,6 +1061,39 @@ async function trafficQuickChecks(open) {
   return out;
 }
 // ---- end U10 block ----
+// ---- First ten minutes: the starter kit and UNIT-0's first directive (webgl2 low; desktop) ----
+async function starterChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`starter: ${name}`, problem]);
+  const page = await open(BUILD_QUERY);
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && r.drawCalls > 0 && window.__iron.tools); }, null, 120000);
+  if (!up) { add('city boots with tools', 'renderer or __iron.tools never ready'); await page.close(); return out; }
+  await until(page, () => window.__iron.tools.buildings().some((b) => b.arch === 1), null, 20000);
+  const depots = await page.evaluate(() => window.__iron.tools.buildings().filter((b) => b.arch === 1));
+  add('a new city starts with exactly one finished Robot Depot', depots.length === 1 && !depots[0].constructing ? null : JSON.stringify(depots));
+  const d = depots[0];
+  if (d) {
+    const street = await page.evaluate((p) => [-1, 0, 4].map((dx) => window.__iron.tools.peek('road', p.x + dx, p.y + 2)), d);
+    add('a short street runs along the depot\'s door', street.every((r) => r > 0) ? null : JSON.stringify(street));
+  }
+  const crew = await until(page, () => { const w = window.__iron.sim.workforce; return !!w && w.builders >= 2 && w.haulers >= 2; }, null, 10000);
+  add('the starter crew exists from the first stats (2 builders, 2 haulers at least)', crew ? null : JSON.stringify(await page.evaluate(() => window.__iron.sim.workforce)));
+  const idle = await until(page, () => window.__iron.render.robots.visible >= 4, null, 20000);
+  add('the idle crew is drawn beside the depot (render.robots.visible >= 4)', idle ? null : JSON.stringify(await page.evaluate(() => ({ ...window.__iron.render.robots }))));
+  if (d) {
+    const cam = await camOf(page);
+    add('the first camera frames the starter depot at neighbourhood zoom', Math.hypot(cam.x - (d.x + 1), cam.z - (d.y + 1)) < 20 && cam.dist <= 70 ? null : `camera ${JSON.stringify(cam)}, depot ${JSON.stringify(d)}`);
+  }
+  const card = await until(page, () => !!document.querySelector('[data-testid="directive-card"]'), null, 15000);
+  add('the first UNIT-0 directive card shows', card ? null : 'no directive card');
+  if (card) {
+    const text = (await page.locator('[data-testid="directive-card"]').innerText()).replace(/\s+/g, ' ');
+    add('it shows directive 1 of 12 with a Show me button and its reward', /UNIT-0/.test(text) && /Directive 1 of 12/.test(text) && /Show me/.test(text) && /Reward \$300/.test(text) ? null : text);
+  }
+  await page.close();
+  return out;
+}
+// ---- end starter block ----
 
 // ---- U14a phone UX and visual clarity checks (webgl2 low; desktop and phone viewports) ----
 const MIN_TARGET = 43.5;
@@ -1102,14 +1136,14 @@ async function hudChecks(open, vp) {
 
   const tapCanvas = async () => { const b = await page.locator('canvas').boundingBox(); await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); };
   if (phone) {
-    // A phone starts folded: a minimal top strip, a single build button and the checklist as a chip.
+    // A phone starts folded: a minimal top strip, a single build button and UNIT-0's directive card as a chip.
     const strip = await page.locator('[data-testid="topbar"]').boundingBox();
     add('the top bar starts as a minimal strip <= 56 CSS px tall', strip.height <= 56 ? null : JSON.stringify(strip));
     add('the collapsed strip holds only pause, speed, money and the chevron', (await page.locator('[data-testid="menu-button"]').count()) === 0 && (await page.locator('[data-testid="population"]').count()) === 0 && (await page.locator('[data-testid="status-chip"]').count()) === 0 && (await visible(page, '[data-testid="topbar-chevron"]')) ? null : 'extra controls in the strip');
     add('the bottom shows only the build button', (await visible(page, '[data-testid="build-fab"]')) && (await page.locator('[data-testid="toolbar"]').count()) === 0 ? null : 'tool bar showing');
     const fab = await page.locator('[data-testid="build-fab"]').boundingBox();
     add('the build button is a 44px target in the bottom-right corner', fab.width >= 44 && fab.height >= 44 && fab.x + fab.width > (await page.evaluate(() => window.innerWidth)) * 0.7 ? null : JSON.stringify(fab));
-    add('the checklist starts as a chip', (await visible(page, '[data-testid="checklist-chip"]')) && (await page.locator('[data-testid="checklist"]').count()) === 0 ? null : 'card open on load');
+    add('the UNIT-0 directive card starts as a chip', (await visible(page, '[data-testid="directive-chip"]')) && (await page.locator('[data-testid="directive-card"]').count()) === 0 ? null : 'card open on load');
     await page.locator('[data-testid="topbar-chevron"]').click();
     add('the chevron expands the rest of the top bar', await until(page, () => !!document.querySelector('[data-testid="menu-button"]') && !!document.querySelector('[data-testid="population"]'), null, 5000) ? null : 'top bar did not expand');
     await page.locator('[data-testid="build-fab"]').click();
@@ -1167,51 +1201,60 @@ async function hudChecks(open, vp) {
     await until(page, () => !!document.querySelector('[data-testid="toolbar"]'), null, 5000);
   }
 
-  // Starter checklist: renders on a new city, step 1 is open, a hint nudges road drawing before any depot, then the depot ticks step 1.
-  // Depot costs are exact below, so the sim waits (commands still run at once while paused).
+  // UNIT-0's directive card: renders on a new city on its first directive. A new city starts with a depot, so there is no "No depot"
+  // warning and no "place a depot first" hint. Costs are exact below, so the sim waits (commands still run at once while paused).
   await page.locator('button[title="Pause (0)"]').click();
-  if (phone) await page.locator('[data-testid="checklist-chip"]').click();
-  const list = await visible(page, '[data-testid="checklist"]');
-  add('the starter checklist renders on a new city', list ? null : 'no checklist');
-  const step1 = await page.locator('[data-testid="checklist-step-depot"]').getAttribute('data-done');
-  add('step 1 (Robot Depot) starts unticked', step1 === 'false' ? null : `data-done ${step1}`);
-  const steps = await page.locator('[data-testid^="checklist-step-"]').count();
-  add('the checklist has six steps', steps === 6 ? null : `${steps} steps`);
+  if (phone) await page.locator('[data-testid="directive-chip"]').click();
+  const card = await visible(page, '[data-testid="directive-card"]');
+  add('the UNIT-0 directive card renders on a new city', card ? null : 'no directive card');
+  const index0 = card ? await page.locator('[data-testid="directive-card"]').getAttribute('data-index') : null;
+  add('it opens on directive 1 of 12 with UNIT-0 speaking', index0 === '0' && /Directive 1 of 12/.test(await page.locator('[data-testid="directive-step"]').innerText()) && /UNIT-0/.test(await page.locator('[data-testid="directive-card"] h2').innerText()) ? null : `index ${index0}`);
   if (phone) {
     await page.locator('[data-testid="status-chip"]').click();
-    add('the workforce chip warns "No depot" before a depot exists', await visible(page, '[data-testid="no-depot"]') ? null : 'no warning');
+    add('the workforce chip does not warn "No depot" in a new city', (await page.locator('[data-testid="no-depot"]').count()) === 0 ? null : 'warning shown');
     await page.locator('[data-testid="status-chip"]').click();
-  } else add('the workforce readout warns "No depot" before a depot exists', await visible(page, '[data-testid="no-depot"]') ? null : 'no warning');
+  } else add('the workforce readout does not warn "No depot" in a new city', (await page.locator('[data-testid="no-depot"]').count()) === 0 ? null : 'warning shown');
 
-  await page.evaluate((s) => { const t = window.__iron.tools; t.select('road', { cls: 1 }); return t.dragTiles({ x: s.x + 1, y: s.y + 6 }, { x: s.x + 8, y: s.y + 6 }); }, site);
-  const hinted = await page.locator('[data-testid="hint-toast"]').first().waitFor({ timeout: 8000 }).then(() => true, () => false);
-  const hintText = hinted ? await page.locator('[data-testid="hint-toast"]').first().innerText() : '';
-  add('drawing a road before any depot shows "Robots build your city. Place a Robot Depot first."', hinted && /Robots build your city\. Place a Robot Depot first\./.test(hintText) ? null : `hint "${hintText}"`);
+  // Directive 1 completes when a road of 10 tiles runs out from a depot: extend the starter street, claim, and the chain moves on.
+  const stub = await page.evaluate(() => { const d = window.__iron.tools.buildings().find((b) => b.arch === 1); return d ? { x: d.x, y: d.y } : null; });
+  const extended = stub ? await page.evaluate((d) => { const t = window.__iron.tools; t.select('road', { cls: 1 }); const id = t.dragTiles({ x: d.x + 4, y: d.y + 2 }, { x: d.x + 12, y: d.y + 2 }); t.cancel(); return id; }, stub) : 0;
+  add('a road extended from the starter street is sent through tools.dragTiles', extended > 0 ? null : `command id ${extended}, depot ${JSON.stringify(stub)}`);
+  const met = await until(page, () => document.querySelector('[data-testid="directive-card"]')?.getAttribute('data-done') === 'true', null, 10000);
+  add('directive 1 reads as met once the road reaches 10 tiles', met ? null : `data-done ${await page.locator('[data-testid="directive-card"]').getAttribute('data-done').catch(() => 'no card')}`);
+  const moneyBeforeClaim = await page.evaluate(() => window.__iron.tools.treasury);
+  if (met) await page.locator('[data-testid="directive-claim"]').click();
+  const paid = await until(page, (v) => window.__iron.tools.treasury >= v + 300, moneyBeforeClaim, 10000);
+  add('claiming directive 1 pays its $300 reward', paid ? null : `treasury ${await page.evaluate(() => window.__iron.tools.treasury)}, was ${moneyBeforeClaim}`);
+  const advanced = await until(page, () => document.querySelector('[data-testid="directive-card"]')?.getAttribute('data-index') === '1', null, 10000);
+  add('the card advances to directive 2 after the claim', advanced ? null : `index ${await page.locator('[data-testid="directive-card"]').getAttribute('data-index').catch(() => 'no card')}`);
+
+  // The road above may have used the land the first site sat on, so pick the build site again.
+  const site2 = await siteWhenReady(page, 14) ?? site;
+  await page.evaluate((s) => { const t = window.__iron.tools; t.select('road', { cls: 1 }); return t.dragTiles({ x: s.x + 1, y: s.y + 6 }, { x: s.x + 8, y: s.y + 6 }); }, site2);
+  await page.waitForTimeout(1200);
+  add('drawing a road does not nag about a depot (the city already has one)', (await page.locator('[data-testid="hint-toast"]').filter({ hasText: 'Place a Robot Depot first' }).count()) === 0 ? null : 'depot hint shown');
   await page.evaluate(() => window.__iron.tools.cancel());
 
-  // The checklist button for step 1 jumps to Services, Depot.
-  if (phone && !(await visible(page, '[data-testid="checklist"]'))) await page.locator('[data-testid="checklist-chip"]').click();
-  await page.locator('[data-testid="checklist-go-depot"]').click();
+  // "Show me" selects the directive's tool and flies the camera to the spot.
+  if (phone && !(await visible(page, '[data-testid="directive-card"]'))) await page.locator('[data-testid="directive-chip"]').click();
+  const camBefore = await camOf(page);
+  await page.locator('[data-testid="directive-show"]').click();
   const picked = await page.evaluate(() => window.__iron.tools.selected);
-  add('the step 1 button selects the Services > Depot tool', picked && picked.tool === 'service' && picked.arch === 1 ? null : JSON.stringify(picked));
+  add('"Show me" on directive 2 selects the Residential zone tool', picked && picked.tool === 'zone' && picked.zone === 1 ? null : JSON.stringify(picked));
+  const flew = await until(page, (c) => { const n = window.__iron.render.camera; return Math.hypot(n.x - c.x, n.z - c.z) + Math.abs(n.dist - c.dist) > 1; }, camBefore, 8000);
+  add('"Show me" moves the camera', flew ? null : `camera still ${JSON.stringify(await camOf(page))}`);
   add('Cancel appears while a tool is active', await visible(page, '[data-testid="cancel-tool"]') ? null : 'no Cancel');
   const strip = await page.locator('[data-testid="optstrip"]').boundingBox();
   add('the tool options are one scrollable row (<= 72 CSS px tall)', strip && strip.height <= 72 ? null : JSON.stringify(strip));
-  if (phone) add('picking the step collapses the checklist to a chip', await visible(page, '[data-testid="checklist-chip"]') ? null : 'checklist still open');
+  if (phone) add('"Show me" folds the card to its chip', await visible(page, '[data-testid="directive-chip"]') ? null : 'card still open');
   await page.evaluate(() => window.__iron.tools.cancel());
 
-  await placeDepot(page, site, add, 'hud ');
-  const ticked = await until(page, () => document.querySelector('[data-testid="checklist-step-depot"]')?.getAttribute('data-done') === 'true' || (!document.querySelector('[data-testid="checklist-step-depot"]') && !!document.querySelector('[data-testid="checklist-chip"]')), null, 10000);
-  if (phone) await page.locator('[data-testid="checklist-chip"]').click();
-  const done1 = await until(page, () => document.querySelector('[data-testid="checklist-step-depot"]')?.getAttribute('data-done') === 'true', null, 10000);
-  add('step 1 ticks after a depot is placed through __iron.tools', ticked && done1 ? null : `ticked ${ticked}, done ${done1}`);
-  const noDepot = phone ? null : await visible(page, '[data-testid="no-depot"]');
-  if (!phone) add('the "No depot" warning clears once a depot exists', noDepot ? 'still shown' : null);
+  await placeDepot(page, site2, add, 'hud ');
 
   // Collapse persists as a chip; the Views popover holds the overlay controls.
   if (!phone) {
-    await page.locator('[data-testid="checklist-collapse"]').click();
-    add('the checklist collapses to a chip', await visible(page, '[data-testid="checklist-chip"]') ? null : 'no chip');
+    await page.locator('[data-testid="directive-collapse"]').click();
+    add('the directive card collapses to a chip', await visible(page, '[data-testid="directive-chip"]') ? null : 'no chip');
   }
   if (phone && !(await visible(page, '[data-testid="toolbar"]'))) await page.locator('[data-testid="build-fab"]').click();
   await page.locator('[data-testid="views-toggle"]').click();
@@ -1347,6 +1390,7 @@ try {
     if (onlyBlock !== 'traffic') buildChecks.push(...await workforceChecks(open, vp.name === 'phone'));
     if (onlyBlock === 'traffic' || full) buildChecks.push(...await trafficChecks(open, vp.name === 'phone'));
     if (quick && vp.name === 'desktop') buildChecks.push(...await trafficQuickChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await starterChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;
@@ -1356,7 +1400,7 @@ try {
     await ctx.close();
   }
   if (quick) {
-    // One phone page: the compact, collapsed HUD, the checklist and the first-run camera.
+    // One phone page: the compact, collapsed HUD, UNIT-0's directive card and the first-run camera.
     const vp = VIEWPORTS.find((v) => v.name === 'phone');
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: vp.deviceScaleFactor });
     const errors = [];

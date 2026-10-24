@@ -1,9 +1,10 @@
+import { ARCH } from '../sim/catalog.ts';
 import { MAP } from '../sim/layers.ts';
 import type { AgentStore } from './agentStore.ts';
 import type { SimClient } from '../sim/client.ts';
 import { CAMERA, CameraRig, pixelToNdc, rayFromPose } from './camera.ts';
 import { celebrate, type CelebrateDeps } from './celebrate.ts';
-import { CinematicPlayer, megaOrbit, pickTourStops, planTour, type Path } from './cinematic.ts';
+import { CinematicPlayer, flyTo, megaOrbit, pickTourStops, planTour, swoop, type Path } from './cinematic.ts';
 import { cachedModel } from './instances.ts';
 import { megaStages } from '../sim/megaprojects.ts';
 import { createPhoto, type PhotoController } from './photo.ts';
@@ -70,6 +71,8 @@ export interface Game {
   readonly photo: PhotoController;
   /** Start the tour over the tallest buildings and busiest sites, or skip it when one is playing. Returns whether a tour started. */
   tour(): boolean;
+  /** Fly the camera to a tile at neighbourhood zoom (about 1 s); a tap, wheel or Escape skips it. */
+  glideTo(x: number, y: number, dist?: number): void;
   perf(): PerfSnapshot;
   dispose(): void;
 }
@@ -247,6 +250,18 @@ export async function startGame(deps: GameDeps): Promise<Game> {
       playPath(megaOrbit(home, t), (completed) => { if (!completed) { Object.assign(rig.state, home); rig.version++; } });
     },
   };
+  celebrations.swoop = (t) => {
+    if (cinematic.active || rig.following || photo.active) return;
+    const home = { ...rig.state };
+    playPath(swoop(home, t), (completed) => { if (!completed) { Object.assign(rig.state, home); rig.version++; } });
+  };
+  // Glide to a tile and stay there (the directive card's "Show me"); a tap or Escape skips it where the camera is.
+  const glideTo = (x: number, y: number, dist = 36): void => {
+    if (photo.active) return;
+    const from = { ...rig.state };
+    const to = { x: x + 0.5, z: y + 0.5, yaw: from.yaw, pitch: Math.max(from.pitch, 0.8), dist, ty: Math.max(0, surfaceHeight(heights, x + 0.5, y + 0.5)) };
+    playPath(flyTo(from, to, 1.2, { lift: 0.15 }));
+  };
   // A tap or click anywhere on the view, or Escape, hands the camera back.
   const stopFollowing = (): void => { if (rig.following) follow(false); };
   const stopCamera = (): void => { stopFollowing(); cinematic.skip(); };
@@ -296,7 +311,8 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     }
     if (!startDone && mirror.hasResync) {
       startDone = true;
-      const s = startCameraFor(tileReadOf(mirror.layers));
+      const d = mirror.table.bArch.indexOf(ARCH.DEPOT);
+      const s = startCameraFor(tileReadOf(mirror.layers), d >= 0 ? { x: mirror.table.bX[d]! + mirror.table.bW[d]! / 2, y: mirror.table.bY[d]! + mirror.table.bH[d]! / 2 } : null);
       rig.reset(s.x, s.z, s.yaw, s.pitch, s.dist);
     }
     if (wantShowcase && !showcaseDone && mirror.hasResync) {
@@ -452,6 +468,7 @@ export async function startGame(deps: GameDeps): Promise<Game> {
     debug,
     photo,
     tour,
+    glideTo,
     perf: () => ({
       backend: ctx.backend, tier, adapter: ctx.adapterLabel, fps, frameMs, drawCalls, triangles,
       fineChunks: world.terrain.stats.fineChunks, coarseSupers: world.terrain.stats.coarseSupers, tick: mirror.tick,

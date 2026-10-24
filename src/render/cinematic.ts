@@ -221,6 +221,17 @@ export class CinematicPlayer {
   }
 }
 
+export const SWOOP_SECONDS = 3.4;
+
+/** A short dip toward a small footprint and back to `from`: in 1.1 s, a quarter turn round it, out again in 1 s. Skipping leaves the camera where it is. */
+export function swoop(from: RigState, target: MegaTarget): Path {
+  const ty = target.ground + 0.6;
+  const dist = Math.max(9, target.size * 3.2);
+  const centre: Target = { x: target.x, z: target.z, ty };
+  const lap = orbit(centre, dist, 1.3, { pitch: 0.5, startYaw: from.yaw, turns: 0.2 });
+  return sequence([flyTo(from, lap.at(0), 1.1, { lift: 0 }), lap, flyTo(pathEnd(lap), from, 1.0, { lift: 0 })]);
+}
+
 export const MEGA_CINEMATIC_SECONDS = 6;
 
 export interface MegaTarget {

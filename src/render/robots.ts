@@ -5,6 +5,7 @@ import {
   Mesh, MeshBasicNodeMaterial, MeshStandardNodeMaterial, Vector4, type Material,
 } from 'three/webgpu';
 import { attribute, cameraPosition, cos, cross, float, mix, normalize, positionGeometry, positionLocal, sin, smoothstep, step, uniform, uniformArray, vec3, vec4, vertexColor } from 'three/tsl';
+import { ARCH } from '../sim/catalog.ts';
 import { RMAX } from '../sim/layers.ts';
 import { AGENT_KIND, AGENT_STATE, makeSample, type AgentSample, type AgentStore } from './agentStore.ts';
 import { surfaceHeight } from './heightfield.ts';
@@ -70,8 +71,10 @@ function robotMaterial(kind: 'builder' | 'hauler', livery = false): MeshStandard
   const isArm: any = step(2.5, part).mul(step(part, 4.5));
   const isSpin: any = step(2.5, kindN).mul(step(kindN, 3.5));
   const isCrate: any = step(3.5, kindN);
-  const freq: any = mix(float(9), float(16), isArm.mul(mode));
-  const amp: any = mix(float(0.75), mix(float(0.4), float(1.0), mode), isArm);
+  // mode: 0 walking, 1 working, 2 idling beside the depot (legs still, arms pumping, a little hop).
+  const work: any = mode.clamp(0, 1), idleF: any = step(1.5, mode);
+  const freq: any = mix(mix(float(9), float(16), isArm.mul(work)), float(5), idleF.mul(isArm));
+  const amp: any = mix(mix(float(0.75), mix(float(0.4), float(1.0), work), isArm), mix(float(0), float(1.1), isArm), idleF);
   const swing: any = sin(t.mul(freq).add(ph)).mul(amp).mul(sign).mul(isSwing).mul(kind === 'builder' ? 1 : 0)
     .add(sin(t.mul(2.6).add(ph)).mul(0.12).mul(isCrate));
   const cx: any = cos(swing), sx: any = sin(swing);
@@ -82,7 +85,7 @@ function robotMaterial(kind: 'builder' | 'hauler', livery = false): MeshStandard
   const r2: any = vec3(r1.x.mul(cy).sub(r1.z.mul(sy)), r1.y, r1.x.mul(sy).add(r1.z.mul(cy)));
   const scaled: any = r2.mul(mix(float(1), carry, isCrate));
   const bob: any = kind === 'builder'
-    ? sin(t.mul(9).add(ph)).abs().mul(0.006).mul(float(1).sub(mode))
+    ? sin(t.mul(9).add(ph)).abs().mul(0.006).mul(float(1).sub(work)).mul(float(1).sub(idleF)).add(sin(t.mul(4).add(ph)).abs().mul(0.012).mul(idleF))
     : sin(t.mul(2.4).add(ph)).mul(0.014);
   const delta: any = P.xyz.add(scaled).sub(positionGeometry).add(vec3(0, bob, 0));
   const cyaw: any = cos(yaw), syaw: any = sin(yaw);
@@ -213,6 +216,18 @@ export class RobotsView {
     this.group.add(this.builders.mesh, this.haulers.mesh, this.fighters.mesh, this.beams.mesh);
   }
 
+  private readonly spot = new Float32Array(3);
+
+  /** Where an idle bot stands: on a ring round its depot (the sim keeps it at the depot's centre), facing out. Elsewhere it stays put. */
+  private idleSpot(x: number, z: number, phase: number): void {
+    const t = this.mirror.table, slot = this.mirror.buildingAt(Math.floor(x), Math.floor(z));
+    if (slot < 0 || t.bArch[slot] !== ARCH.DEPOT) { this.spot[0] = x; this.spot[1] = z; this.spot[2] = phase; return; }
+    const w = t.bW[slot]!, h = t.bH[slot]!, ca = Math.cos(phase), sa = Math.sin(phase);
+    this.spot[0] = t.bX[slot]! + w / 2 + ca * (w / 2 + 0.6);
+    this.spot[1] = t.bY[slot]! + h / 2 + sa * (h / 2 + 0.6);
+    this.spot[2] = Math.atan2(ca, sa);
+  }
+
   setTier(tier: Tier): void { this.capacity = Math.min(RMAX, TIER_TABLE[tier].visibleAgents); }
 
   get snapshot(): Readonly<RobotStats> { return this.stats; }
@@ -226,15 +241,17 @@ export class RobotsView {
     let nb = 0, nh = 0, nf = 0, beams = 0;
     const work: number[] = [], spray: number[] = [];
     for (let i = 0; i < s.count; i++) {
-      const x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
-      const gy = surfaceHeight(heights, x, z);
+      let x = s.pos[i * 3]!, z = s.pos[i * 3 + 1]!, yaw = s.pos[i * 3 + 2]!;
       const key = s.key[i]!;
       const phase = (((key * 2654435761) >>> 0) / 4294967296) * Math.PI * 2;
+      const idle = s.state[i] === AGENT_STATE.IDLE;
+      if (idle) { this.idleSpot(x, z, phase); x = this.spot[0]!; z = this.spot[1]!; yaw = this.spot[2]!; }
+      const gy = surfaceHeight(heights, x, z);
       if (s.kind[i] === AGENT_KIND.BUILDER) {
         composeMatrix(this.mat, x, gy, z, yaw, ROBOT_SCALE, ROBOT_SCALE, ROBOT_SCALE);
         this.builders.matrix.set(this.mat, nb * 16);
         const working = s.state[i] === AGENT_STATE.WORK || s.state[i] === AGENT_STATE.REPAIR_WORK ? 1 : 0;
-        this.builders.iBot.set([phase, 0, working, yaw], nb * 4);
+        this.builders.iBot.set([phase, 0, idle ? 2 : working, yaw], nb * 4);
         if (working) work.push(i);
         nb++;
       } else if (s.kind[i] === AGENT_KIND.FIREFIGHTER) {
