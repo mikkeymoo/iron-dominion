@@ -1,4 +1,4 @@
-import type { TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { FirmwareStats, TrafficStats, Workforce } from '../sim/protocol.ts';
 import type { FxDebug } from './fx/index.ts';
 import type { Backend, Tier } from './tier.ts';
 
@@ -82,7 +82,7 @@ export interface BuildingDebug {
 
 export interface IronDebug {
   /** `workforce`, `population` and `jobs` (jobs in finished commercial and industrial buildings) come from the newest Stats message. */
-  sim: { tick: number; hash?: number; hashTick?: number; workforce?: Workforce; traffic?: TrafficStats; population?: number; jobs?: number };
+  sim: { tick: number; hash?: number; hashTick?: number; workforce?: Workforce; traffic?: TrafficStats; population?: number; jobs?: number; firmware?: FirmwareStats };
   render?: RenderDebug;
 }
 

@@ -881,8 +881,24 @@ const repairBay: Recipe = (c) => {
   g.cyl(SLOT.METAL, r.x0 + 0.1, 0.012, 0.25, 0.05, 0.1, 8, hex(0xb23a2c), { capTop: shade(hex(0xb23a2c), 1.1) });
 };
 
+const roboticsLab: Recipe = (c) => {
+  const { g, rng, f } = c;
+  lot(g, f, hex(0x8a8f92));
+  const r = rc(0, -0.1, f - 0.5, f - 0.9);
+  plinth(g, r, shade(CONCRETE, 0.6));
+  const top = facade(g, r, 0.02, 3, 0.42, { wall: hex(0xcfd6da), glass: I_GLASS, cell: CELL.SLIT, density: 2.2, winH: 0.2 });
+  g.box(SLOT.ACCENT, r.x0 - 0.01, top - 0.04, r.z0 - 0.01, r.x1 + 0.01, top, r.z1 + 0.01, AMBER, { noBottom: true });
+  roofGear(g, r, top, rng, { ac: 2, antenna: true });
+  // A dish on a mast: the lab listens to the robots.
+  g.tube(SLOT.METAL, [0.0, top, 0.0], [0.0, top + 0.16, 0.0], 0.012, 5, STEEL_MID, 0.9);
+  g.cyl(SLOT.METAL, 0.0, top + 0.16, 0.0, 0.09, 0.02, 10, hex(0xe8ecee), { capTop: hex(0xf6f8f9) });
+  groundPatch(g, -f / 2 + 0.06, 0.5, f / 2 - 0.06, f / 2 - 0.05, ASPHALT, 0.013);
+  stripeLines(g, -f / 2 + 0.2, 0.6, f / 2 - 0.2, 0.95, 4, hex(0xe8e8e0));
+};
+
 export const RECIPES: Readonly<Record<number, Recipe>> = {
   ...MEGA_RECIPES,
+  [ARCH.ROBOTICS_LAB]: roboticsLab,
   [ARCH.DEPOT]: depot, [ARCH.POWER_PLANT]: powerPlant, [ARCH.WATER_PUMP]: waterPump, [ARCH.FIRE_STATION]: fireStation,
   [ARCH.SOLAR_FARM]: solarFarm, [ARCH.WATER_TOWER]: waterTower, [ARCH.FUSION_REACTOR]: fusionReactor,
   [ARCH.POLICE]: policeStation, [ARCH.CLINIC]: clinic, [ARCH.HOSPITAL]: hospital, [ARCH.SCHOOL]: school, [ARCH.UNIVERSITY]: university,

@@ -1,6 +1,7 @@
 import { useEffect, useReducer } from 'react';
 import type { AgentInfo, BuildingInfo, Thought } from '../sim/protocol.ts';
 import { isEditableTarget } from '../render/editable.ts';
+import { DepotModules, type DepotModuleControls } from './DepotModules';
 import { PANEL_ATTR } from './panels';
 import type { WhyStore } from './whyStore.ts';
 import './why.css';
@@ -10,6 +11,8 @@ interface Props {
   onJump(x: number, y: number): void;
   /** Chase a robot or vehicle by its agent key; false when it is already gone. */
   onFollow?(key: number): boolean;
+  /** Depot module picker (firmware): the treasury and the setter. Absent hides the section. */
+  modules?: DepotModuleControls;
 }
 
 const STATUS_WORD: Record<BuildingInfo['status'], string> = { constructing: 'Under construction', working: 'Working', idle: 'Not working', burning: 'On fire' };
@@ -27,7 +30,7 @@ function Thoughts({ list, why }: { list: readonly Thought[]; why: WhyStore }) {
   );
 }
 
-function BuildingBody({ info, why, onJump }: { info: BuildingInfo; why: WhyStore; onJump: Props['onJump'] }) {
+function BuildingBody({ info, why, onJump, modules }: { info: BuildingInfo; why: WhyStore; onJump: Props['onJump']; modules?: DepotModuleControls }) {
   return (
     <>
       <header>
@@ -43,6 +46,7 @@ function BuildingBody({ info, why, onJump }: { info: BuildingInfo; why: WhyStore
         {info.depot && <span>{info.depot.builders} builders, {info.depot.haulers} haulers, {info.depot.stock} material</span>}
       </p>
       <Thoughts list={info.thoughts} why={why} />
+      {info.depot && modules && info.status !== 'constructing' && <DepotModules slot={info.slot} depot={info.depot} controls={modules} />}
       <div className="info-actions">
         <button type="button" className="tb" data-testid="info-look" onClick={() => onJump(info.x + (info.w >> 1), info.y + (info.h >> 1))}>Look</button>
         <button type="button" className="tb danger" data-testid="info-bulldoze" onClick={() => why.bulldoze()}>Bulldoze</button>
@@ -69,7 +73,7 @@ function AgentBody({ info, why, gone, onFollow, onJump }: { info: AgentInfo; why
   );
 }
 
-export function InfoCard({ why, onJump, onFollow }: Props) {
+export function InfoCard({ why, onJump, onFollow, modules }: Props) {
   const [, bump] = useReducer((n: number) => n + 1, 0);
   useEffect(() => why.subscribe(bump), [why]);
   const open = why.selection !== null;
@@ -85,7 +89,7 @@ export function InfoCard({ why, onJump, onFollow }: Props) {
   return (
     <aside className="info-card" {...{ [PANEL_ATTR]: 'info' }} data-testid="info-card" data-kind={sel.kind} aria-label="Details">
       {!info && <p className="info-loading">Asking the sim...</p>}
-      {info && info.kind === 'building' && <BuildingBody info={info} why={why} onJump={onJump} />}
+      {info && info.kind === 'building' && <BuildingBody info={info} why={why} onJump={onJump} modules={modules} />}
       {info && info.kind === 'agent' && <AgentBody info={info} why={why} gone={why.gone} onFollow={onFollow} onJump={onJump} />}
     </aside>
   );

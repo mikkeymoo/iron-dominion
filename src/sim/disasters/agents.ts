@@ -1,4 +1,5 @@
 import { ARCH, BFLAG } from '../catalog.ts';
+import { MODULE, depotCaps, moduleCount } from '../firmware.ts';
 import { BMAX, MAP, ROAD, S, TILES, type World } from '../layers.ts';
 import { lotAccess, nearestRoad, type RoadNet } from '../roads/index.ts';
 import { AKIND, AST } from '../robots/constants.ts';
@@ -22,8 +23,13 @@ export function slotsOfKind(w: World, kind: number): number[] {
 
 const manhattan =(a: number, b: number): number => Math.abs((a & (MAP - 1)) - (b & (MAP - 1))) + Math.abs((a >> 8) - (b >> 8));
 
+/** A fire station, or a depot with a Drone Nest, that is standing: the places firefighter drones live. */
 const stationOk = (w: World, s: number): boolean =>
-  s >= 0 && w.bArch[s] === ARCH.FIRE_STATION && (w.bFlags[s]! & (BFLAG.CONSTRUCTING | BFLAG.RUBBLE)) === 0;
+  s >= 0 && (w.bFlags[s]! & (BFLAG.CONSTRUCTING | BFLAG.RUBBLE)) === 0
+  && (w.bArch[s] === ARCH.FIRE_STATION || (w.bArch[s] === ARCH.DEPOT && moduleCount(w, s, MODULE.DRONE_NEST) > 0));
+
+/** Firefighter drones a station keeps: FF_PER_STATION at a fire station, the Drone Nests of a depot. */
+const droneCap = (w: World, s: number): number => (w.bArch[s] === ARCH.FIRE_STATION ? FF_PER_STATION : depotCaps(w, s).drones);
 
 /** The fire station a firefighter belongs to, or -1 when it is gone or ruined. */
 export function stationOf(w: World, a: number): number {
@@ -58,13 +64,20 @@ const burning = (w: World, s: number): boolean => s >= 0 && w.bArch[s] !== 0 && 
 /** Each fire station with a road at its door keeps FF_PER_STATION firefighters, built one per call while the treasury allows. */
 export function spawnFirefighters(sim: Sim, net: RoadNet): void {
   const w = sim.world;
-  const have = new Map<number, number>();
+  const have = new Map<number, number>(), resting = new Map<number, number>();
   for (const a of slotsOfKind(w, AKIND.FIREFIGHTER)) {
     const s = stationOf(w, a);
-    if (s >= 0) have.set(s, (have.get(s) ?? 0) + 1);
+    if (s < 0) continue;
+    have.set(s, (have.get(s) ?? 0) + 1);
+    if (w.aState[a] === AST.IDLE) resting.set(s, a);
   }
   for (let s = 0; s < BMAX; s++) {
-    if (!stationOk(w, s) || (have.get(s) ?? 0) >= FF_PER_STATION || stationAccess(net, w, s) < 0) continue;
+    // A removed Drone Nest takes its drones with it, one resting drone per call.
+    if (!stationOk(w, s)) continue;
+    const cap = droneCap(w, s), n = have.get(s) ?? 0;
+    const spare = n > cap ? resting.get(s) : undefined;
+    if (spare !== undefined) { despawnAgent(w, spare); continue; }
+    if (n >= cap || stationAccess(net, w, s) < 0) continue;
     if (available(w) < FF_COST + SPAWN_RESERVE) continue;
     if (spawnAgent(w, AKIND.FIREFIGHTER, refOf(w, s), w.bX[s]! + w.bW[s]! / 2, w.bY[s]! + w.bH[s]! / 2) < 0) return;
     w.spend[SPEND.PURCHASES]! += FF_COST;

@@ -8,6 +8,7 @@ import { decodeSnapshot, encodeSnapshot } from './snapshot.ts';
 import { runScripted, runTicks, scriptedCity } from './testkit.ts';
 import { gridCity } from './traffic/testkit.ts';
 import { disasterModeOf, DEFAULT_SETTINGS } from '../platform/settings.ts';
+import type { Sim } from './world.ts';
 
 const DEFAULT_DISASTERS = disasterModeOf(DEFAULT_SETTINGS.disasters);
 
@@ -23,7 +24,11 @@ interface Golden {
   traffic: { ticks: number; hash: number };
 }
 
-function compute(): Golden {
+/** The two layers firmware added (bMod, firmware). */
+const FIRMWARE_LAYERS = new Set(['bMod', 'firmware']);
+const legacyHash = (sim: Sim): number => hashWorld(sim.world, (name) => !FIRMWARE_LAYERS.has(name));
+
+function compute(): Golden & { legacy: { scripted: number; idle: number; traffic: number } } {
   const sim = createSim(42);
   runScripted(sim, scriptedCity(sim.world), 2000);
   const idle = createSim(42, { disasters: DEFAULT_DISASTERS, starter: true });
@@ -31,6 +36,7 @@ function compute(): Golden {
   const town = trafficTown();
   return {
     seed: 42, scripted: { ticks: 2000, hash: stateHash(sim) }, idle: { ticks: 200, hash: stateHash(idle) }, traffic: { ticks: 300, hash: stateHash(town) },
+    legacy: { scripted: legacyHash(sim), idle: legacyHash(idle), traffic: legacyHash(town) },
   };
 }
 
@@ -42,6 +48,8 @@ function trafficTown(): ReturnType<typeof gridCity> {
 }
 
 describe('determinism', () => {
+  // The firmware unit added two layers (bMod, firmware), so every golden hash moved. `legacy` holds the hashes from before it, over
+  // every other layer: they must still match, which shows a city that buys no firmware, fits no module and enacts no edict plays exactly as it did.
   it('matches the golden hashes in golden.json (a deliberate change pastes the printed value there)', () => {
     const got = compute();
     expect(got, `golden.json should become: ${JSON.stringify(got)}`).toEqual(golden);

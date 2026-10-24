@@ -1,4 +1,5 @@
 import { BFLAG, RCI_BASE, SVC } from '../catalog.ts';
+import { mods } from '../firmware.ts';
 import { BMAX, MAP, TILES, ZONE, type World } from '../layers.ts';
 import { UNREACHED, lotAccess, roadFlow, roadsOf } from '../roads/index.ts';
 import { footprintMean, isOperating, occupancyOf, zoneOfArch } from '../economy/totals.ts';
@@ -161,7 +162,7 @@ export function discPass(sim: Sim): void {
       const arch = w.bArch[s]!;
       if (arch === 0 || serviceKind(arch) !== kind || !works(w.bFlags[s]!)) continue;
       count++;
-      const r = serviceRadius(arch), r2 = (r + 1) * (r + 1), bx = w.bX[s]!, by = w.bY[s]!, bw = w.bW[s]!, bh = w.bH[s]!;
+      const r = Math.floor(serviceRadius(arch) * (kind === SVC.REPAIR ? mods(w).repairRadius : 1)), r2 = (r + 1) * (r + 1), bx = w.bX[s]!, by = w.bY[s]!, bw = w.bW[s]!, bh = w.bH[s]!;
       for (let y = Math.max(0, by - r); y <= Math.min(MAP - 1, by + bh - 1 + r); y++) {
         const dy = y < by ? by - y : y > by + bh - 1 ? y - (by + bh - 1) : 0;
         for (let x = Math.max(0, bx - r); x <= Math.min(MAP - 1, bx + bw - 1 + r); x++) {
@@ -194,7 +195,7 @@ export function crimeOf(w: World, slot: number): number {
   const base = ((255 - footprintMax(w, w.covPolice, slot)) * CRIME_POLICE_W + (255 - lv) * CRIME_POOR_W) >> 8;
   const density = CRIME_DENSITY[densityOf(arch)]!;
   const c = (base * density) >> 8;
-  return Math.min(255, c + ((w.bFlags[slot]! & BFLAG.ABANDONED) !== 0 ? CRIME_ABANDONED : 0));
+  return Math.min(255, Math.floor((c + ((w.bFlags[slot]! & BFLAG.ABANDONED) !== 0 ? CRIME_ABANDONED : 0)) * mods(w).crime));
 }
 
 const densityOf = (arch: number): number => Math.floor(((arch - RCI_BASE) % 9) / 3);

@@ -1,3 +1,4 @@
+import { mods, roll } from '../firmware.ts';
 import { AMAX, MAP, PATH_CAP, RMAX, ROAD, S, TILES, type World } from '../layers.ts';
 import { liveSlot } from '../robots/pool.ts';
 import { neighbor } from '../roads/graph.ts';
@@ -80,6 +81,11 @@ export function bumpCommuteFail(w: World, slot: number): void {
 export function recordTrip(w: World, purpose: number, ok: boolean, srcRef: number, dstRef: number): void {
   const sc = w.scalars;
   const commute = purpose === PURPOSE.OUT || purpose === PURPOSE.BACK;
+  if (!ok && commute) {
+    // Free Robo-Taxis: a share of the commutes that would have failed are picked up and finish.
+    const rescue = mods(w).commuteRescue;
+    if (rescue > 0 && roll(sc[S.seed]!, sc[S.tick]!, sc[S.tripsDone]! + sc[S.tripsFailed]!) / 4294967296 < rescue) ok = true;
+  }
   if (ok) { sc[S.tripsDone]!++; if (commute) sc[S.commuteOk]!++; return; }
   sc[S.tripsFailed]!++;
   if (!commute) return;

@@ -168,6 +168,18 @@ export interface Issue {
 
 /** UNIT-0 directive progress: bit masks of the directives met and paid, and the capped progress toward each one's need (sim/directives.ts). */
 export interface DirectiveStats { done: number; claimed: number; have: number[] }
+/** Firmware (sim/firmware.ts): research points, what a month pays, owned nodes and active edicts as bit masks, and depot modules in the city by kind [Builder Bay, Hauler Pad, Drone Nest, Workshop]. */
+export interface FirmwareStats {
+  rp: number;
+  rpPerMonth: { population: number; directives: number; labs: number; total: number };
+  /** Powered, finished Robotics Labs that count toward the RP income. */
+  labs: number;
+  research: number;
+  researchCount: number;
+  edicts: number;
+  edictsActive: number;
+  modules: [number, number, number, number];
+}
 export interface Stats {
   type: 'stats';
   /** Up to 8 ranked problems, refreshed about every 2 s of sim time. */
@@ -212,6 +224,7 @@ export interface Stats {
   modelled: { power: boolean; water: boolean };
   milestone: MilestoneStats;
   directives: DirectiveStats;
+  firmware: FirmwareStats;
 }
 /** Debug builds only (Hello.debug): ask the road network for a path between two tiles. */
 export interface RequestPath { type: 'requestPath'; id: number; from: { x: number; y: number }; to: { x: number; y: number } }
@@ -249,7 +262,7 @@ export interface BuildingInfo {
   jobs: number;
   thoughts: Thought[];
   /** Depots only: the road distance robots work from it, and who lives there. */
-  depot?: { radius: number; builders: number; haulers: number; stock: number };
+  depot?: { radius: number; builders: number; haulers: number; stock: number; /** Robots the depot keeps (base, firmware and modules), and its two module codes (sim/firmware.ts MODULE). */ builderCap: number; haulerCap: number; droneCap: number; modules: [number, number] };
 }
 export interface AgentInfo {
   kind: 'agent';

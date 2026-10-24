@@ -1,3 +1,4 @@
+import { mods } from '../firmware.ts';
 import { S, type World } from '../layers.ts';
 import {
   C_PER_IJOB, C_PER_POP, C_SOFT, EMA_DIV, I_BASE, I_EXPORT_JOBS, I_GAP_W, I_PER_POP, I_SOFT, I_UNEMP_W, ONE, R_BASE,
@@ -44,7 +45,8 @@ export function demandTargets(world: World, t: Totals): [number, number, number]
   const i = I_BASE + Math.floor((gap * I_GAP_W) / ONE) + Math.floor((unRatio * I_UNEMP_W) / ONE)
     + (TAX_NEUTRAL - taxRate(world, 3)) * TAX_SLOPE[2];
 
-  return [r, c, i];
+  const m = mods(world);
+  return [r + m.demandR, c, i + m.demandI];
 }
 
 /**

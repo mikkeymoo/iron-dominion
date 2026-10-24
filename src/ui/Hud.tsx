@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DirectiveStats, LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { DirectiveStats, FirmwareStats, LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { DemandBars } from './DemandBars';
+import { FirmwareMenuRows } from './FirmwarePanels';
 import { UtilityBars } from './UtilityBars';
 import { InstallMenuItem } from './PwaUi';
 import type { Lifecycle, LifecycleState } from '../platform/lifecycle.ts';
@@ -57,6 +58,8 @@ export interface HudStats {
   milestone?: MilestoneStats;
   /** UNIT-0 directive progress from the newest Stats message. */
   directives?: DirectiveStats;
+  /** Research points, owned firmware, active edicts and depot modules from the newest Stats message. */
+  firmware?: FirmwareStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -292,6 +295,7 @@ export function Hud({
               {phone && <button type="button" className="tb row" onClick={() => { onSave(); closeMenu(); }} disabled={lc.saving}>{lc.saving ? 'Saving' : 'Save'}</button>}
               <button type="button" className="tb row" data-testid="services-menu" onClick={() => { onServices(); }}>City services</button>
               {onProjects && <button type="button" className="tb row" data-testid="projects-menu" onClick={() => { onProjects(); }}>Milestones and projects ({TIERS[stats.milestone?.tier ?? 0]!.name})</button>}
+              {onProjects && <FirmwareMenuRows stats={stats.firmware} onPanel={(p) => setOpenPanel(p)} />}
               <button type="button" className="tb row" onClick={() => { setName(''); setMode('saveAs'); }}>Save as...</button>
               <button type="button" className="tb row" onClick={() => { onExport(); closeMenu(); }}>Export to file</button>
               <label className="check">

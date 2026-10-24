@@ -1094,6 +1094,52 @@ async function starterChecks(open) {
   return out;
 }
 // ---- end starter block ----
+// ---- Firmware and edicts: the Research and Edicts panels, a node bought with debug RP, an edict enacted (webgl2 low; desktop) ----
+async function firmwareChecks(open) {
+  const out = [];
+  const add = (name, problem) => out.push([`firmware: ${name}`, problem]);
+  const page = await open(TRAFFIC_QUERY(0.5));
+  const up = await until(page, () => { const r = window.__iron?.render; return !!(r && r.ready && window.__iron.economy && window.__iron.sim.firmware); }, null, 120000);
+  if (!up) { add('city boots with the firmware stats', 'renderer, economy hook or firmware stats missing'); await page.close(); return out; }
+  const stat = () => page.evaluate(() => window.__iron.sim.firmware);
+  const first = await stat();
+  add('a new city starts with no research points, no firmware and no edicts', first.rp === 0 && first.researchCount === 0 && first.edictsActive === 0 ? null : JSON.stringify(first));
+
+  await page.evaluate(() => window.__iron.economy.command({ type: 'debugRp', amount: 100 }));
+  add('the debugRp command shows up in the stat (rp 100)', (await until(page, () => window.__iron.sim.firmware.rp === 100, null, 10000)) ? null : JSON.stringify(await stat()));
+
+  await openMenu(page);
+  add('the menu has Research and Edicts rows', (await visible(page, '[data-testid="research-menu"]')) && (await visible(page, '[data-testid="edicts-menu"]')) ? null : 'rows missing');
+  add('the Research row shows the points', /100 RP/.test(await page.locator('[data-testid="research-menu"]').textContent()) ? null : await page.locator('[data-testid="research-menu"]').textContent());
+  await page.locator('[data-testid="research-menu"]').click();
+  add('the Research panel opens', (await until(page, () => !!document.querySelector('[data-testid="research-panel"]'), null, 5000)) ? null : 'no panel');
+  add('it shows 100 points and all 12 nodes', (await page.locator('[data-testid="research-points"]').textContent()) === '100' && (await page.locator('[data-testid^="node-"]').count()) === 12 ? null : 'points or node count wrong');
+  const small = await page.evaluate(() => [...document.querySelectorAll('[data-testid="research-panel"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, w: r.width, h: r.height }; }).filter((t) => t.w < 43.5 || t.h < 43.5));
+  add('every Research panel button is at least 44 x 44 CSS px', small.length === 0 ? null : JSON.stringify(small));
+  add('only the first node of each branch can be bought', JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('button[data-testid]')].filter((b) => /^research-\d+$/.test(b.dataset.testid) && !b.disabled).map((b) => b.dataset.testid))) === JSON.stringify(['research-0', 'research-4', 'research-8']) ? null : 'wrong buttons enabled');
+  await page.locator('[data-testid="research-0"]').click();
+  add('buying Heavy lifters spends 30 points and the stat reflects it', (await until(page, () => window.__iron.sim.firmware.researchCount === 1 && window.__iron.sim.firmware.rp === 70 && (window.__iron.sim.firmware.research & 1) === 1, null, 10000)) ? null : JSON.stringify(await stat()));
+  add('the panel shows the node as owned and 70 points', (await until(page, () => document.querySelector('[data-testid="node-0"]')?.dataset.state === 'owned' && document.querySelector('[data-testid="research-points"]')?.textContent === '70', null, 5000)) ? null : 'panel did not update');
+  add('Rotor upgrade (60 points) is now unlocked', (await page.locator('[data-testid="node-1"]').getAttribute('data-state')) === 'ready' ? null : await page.locator('[data-testid="node-1"]').getAttribute('data-state'));
+  await page.keyboard.press('Escape');
+  add('Escape closes the Research panel', (await until(page, () => !document.querySelector('[data-testid="research-panel"]'), null, 3000)) ? null : 'still open');
+
+  await openMenu(page);
+  await page.locator('[data-testid="edicts-menu"]').click();
+  add('the Edicts panel opens with 8 cards and 0 of 4 active', (await until(page, () => !!document.querySelector('[data-testid="edicts-panel"]'), null, 5000)) && (await page.locator('[data-testid^="edict-toggle-"]').count()) === 8 && (await page.locator('[data-testid="edicts-count"]').textContent()) === '0 of 4 active' ? null : 'panel or cards wrong');
+  add('Tax Holiday is locked below Settlement', (await page.locator('[data-testid="edict-toggle-6"]').isDisabled()) ? null : 'enabled at tier 0');
+  await page.evaluate(() => window.__iron.economy.command({ type: 'debugTier', tier: 1 }));
+  add('it unlocks at Settlement', (await until(page, () => !document.querySelector('[data-testid="edict-toggle-6"]').disabled, null, 10000)) ? null : 'still locked');
+  const smallEdict = await page.evaluate(() => [...document.querySelectorAll('[data-testid="edicts-panel"] button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.textContent, w: r.width, h: r.height }; }).filter((t) => t.w < 43.5 || t.h < 43.5));
+  add('every Edicts panel button is at least 44 x 44 CSS px', smallEdict.length === 0 ? null : JSON.stringify(smallEdict));
+  await page.locator('[data-testid="edict-toggle-6"]').click();
+  add('enacting Tax Holiday shows in the stat and the panel', (await until(page, () => window.__iron.sim.firmware.edictsActive === 1 && document.querySelector('[data-testid="edicts-count"]')?.textContent === '1 of 4 active' && document.querySelector('[data-testid="edict-6"]')?.dataset.active === 'true', null, 10000)) ? null : JSON.stringify(await stat()));
+  await page.locator('[data-testid="edict-toggle-6"]').click();
+  add('repealing it brings the count back to 0', (await until(page, () => window.__iron.sim.firmware.edictsActive === 0, null, 10000)) ? null : JSON.stringify(await stat()));
+  await page.close();
+  return out;
+}
+// ---- end firmware block ----
 
 // ---- Why is this happening: advisor chip, jump to an issue, tap for details (webgl2 low; desktop) ----
 // A debug city with a power plant and one house that has no line to it: the sim names the house as an unpowered building, the advisor
@@ -1453,6 +1499,7 @@ try {
     if (quick && vp.name === 'desktop') buildChecks.push(...await trafficQuickChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await advisorChecks(open));
     if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await starterChecks(open));
+    if (vp.name === 'desktop' && (quick || full)) buildChecks.push(...await firmwareChecks(open));
     for (const [name, problem] of buildChecks) {
       console.log(`${vp.name.padEnd(8)} ${problem ? 'FAIL' : 'ok  '} ${name}${problem ? `: ${problem}` : ''}`);
       if (problem) failed++;

@@ -1,6 +1,7 @@
 import { ARCH, archetype, BFLAG, type Archetype } from './catalog.ts';
 import { DEPOT_START_STOCK } from './robots/constants.ts';
 import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
+import { grantRp, invalidateModuleCache, researchNode, setModule, toggleEdictCard } from './firmware.ts';
 import { clearJob } from './robots/pool.ts';
 import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
@@ -41,7 +42,15 @@ export type CommandBody =
   | { type: 'triggerDisaster'; kind: 'fire' | 'quake' | 'meteor'; x: number; y: number }
   | { type: 'undo'; target: number }
   /** Pay the credit reward of UNIT-0 directive `index` (sim/directives.ts) once it has been met. Rejected as `claimed` the second time. */
-  | { type: 'claimDirective'; index: number };
+  | { type: 'claimDirective'; index: number }
+  /** Buy firmware node `node` (sim/firmware.ts NODE) with research points. Needs its prerequisite; rejected `owned` the second time. */
+  | { type: 'research'; node: number }
+  /** Enact or repeal edict `edict` (EDICT; not `id`, which every command already carries). Enacting needs its population tier and fewer than MAX_EDICTS active. */
+  | { type: 'toggleEdict'; edict: number }
+  /** Fit module `module` (MODULE, 0 clears) into slot `index` (0 or 1) of the depot in building slot `slot`. Pays its price, refunds half the one it replaces. */
+  | { type: 'setDepotModule'; slot: number; index: number; module: number }
+  /** Debug-only: add research points. */
+  | { type: 'debugRp'; amount: number };
 
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
 export type Command = { id: number; tick: number } & CommandBody;
@@ -172,6 +181,7 @@ export function clearBuilding(sim: Sim, slot: number): void {
   w.bArch[slot] = 0; w.bX[slot] = 0; w.bY[slot] = 0; w.bW[slot] = 0; w.bH[slot] = 0;
   w.bRot[slot] = 0; w.bLevel[slot] = 0; w.bProg[slot] = 0; w.bFlags[slot] = 0; w.bAband[slot] = 0;
   w.bStock[slot] = 0; w.bAux[slot] = 0; w.bZone[slot] = 0; w.bDmg[slot] = 0; w.bHeat[slot] = 0;
+  if (w.bMod[slot] !== 0) { w.bMod[slot] = 0; invalidateModuleCache(w); }
   clearJob(w, slot);
   w.bGen[slot] = (w.bGen[slot]! + 1) & 0xffff;
   for (let u = 0; u < UMAX; u++) if (w.uKind[u] === UNDO.BUILDING && w.uArg[u] === slot) { w.uKind[u] = UNDO.NONE; w.uCmd[u] = 0; }
@@ -349,7 +359,7 @@ function undo(sim: Sim, c: Extract<Command, { type: 'undo' }>): number {
     if (w.bArch[b] === 0 || w.bGen[b] !== w.uGen[slot] || w.bProg[b] !== 0 || w.bLevel[b] !== 0) reject('consumed');
     // A depot whose starting stock was touched, or that already has robots, cannot be refunded: placing, using and undoing it would print material.
     if (w.bArch[b] === ARCH.DEPOT && w.bAux[b] === 1) {
-      if (w.bStock[b] !== DEPOT_START_STOCK) reject('consumed');
+      if (w.bStock[b] !== DEPOT_START_STOCK || w.bMod[b] !== 0) reject('consumed');
       const ref = ((b + 1) | (w.bGen[b]! << 16)) >>> 0;
       for (let a = 0; a < RMAX; a++) if (w.aKind[a] !== 0 && w.aHome[a] === ref) reject('consumed');
     }
@@ -392,6 +402,18 @@ function claimDirective(sim: Sim, c: Extract<Command, { type: 'claimDirective' }
   sim.events.push({ type: 'directiveClaimed', tick: sc[S.tick]!, index: c.index, reward });
 }
 
+function firmwareCommand(sim: Sim, c: Extract<Command, { type: 'research' | 'toggleEdict' | 'setDepotModule' | 'debugRp' }>): void {
+  const w = sim.world;
+  let why: string | undefined;
+  switch (c.type) {
+    case 'research': why = researchNode(w, c.node); break;
+    case 'toggleEdict': why = toggleEdictCard(w, c.edict); break;
+    case 'setDepotModule': why = setModule(w, c.slot, c.index, c.module); break;
+    case 'debugRp': why = sim.debug ? grantRp(w, c.amount) : 'debug-only'; break;
+  }
+  if (why) reject(why);
+}
+
 /** Validate and execute one command. Never throws: failures become `rejected` events with state unchanged. */
 export function execute(sim: Sim, cmd: Command): boolean {
   const tick = sim.world.scalars[S.tick]!;
@@ -414,6 +436,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'triggerDisaster': { const why = triggerDisaster(sim, cmd.kind, cmd.x, cmd.y); if (why) reject(why); break; }
       case 'undo': undo(sim, cmd); break;
       case 'claimDirective': claimDirective(sim, cmd); break;
+      case 'research': case 'toggleEdict': case 'setDepotModule': case 'debugRp': firmwareCommand(sim, cmd); break;
       default: reject('unknown-command');
     }
     sim.events.push(journal ? { type: 'accepted', cmd: cmd.id, tick, journal } : { type: 'accepted', cmd: cmd.id, tick });

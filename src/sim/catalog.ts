@@ -38,6 +38,8 @@ export const ARCH = {
   POLICE: 8, CLINIC: 9, HOSPITAL: 10, SCHOOL: 11, UNIVERSITY: 12, PARK_SMALL: 13, PARK_LARGE: 14, REPAIR_BAY: 15,
   /** Megaprojects (megaprojects.ts): ids sit after the 27 RCI archetypes so the RCI range stays contiguous. */
   FUSION_SPIRE: 43, ARCOLOGY: 44, MECH_ARENA: 45, SPACE_ELEVATOR: 46,
+  /** Produces research points while powered (sim/firmware.ts). Placed after the megaprojects so every existing id stays put. */
+  ROBOTICS_LAB: 47,
 } as const;
 
 /**
@@ -107,6 +109,7 @@ export const CATALOG: readonly Archetype[] = [
   { id: ARCH.ARCOLOGY, name: 'arcology', w: 7, h: 7, cost: 120000, placeable: true, upkeep: 700, unlock: 4 },
   { id: ARCH.MECH_ARENA, name: 'mechArena', w: 6, h: 6, cost: 80000, placeable: true, upkeep: 600, unlock: 4 },
   { id: ARCH.SPACE_ELEVATOR, name: 'spaceElevator', w: 6, h: 6, cost: 400000, placeable: true, upkeep: 2500, unlock: 5 },
+  { id: ARCH.ROBOTICS_LAB, name: 'roboticsLab', w: 3, h: 3, cost: 4000, placeable: true, upkeep: 80, unlock: 1 },
   ...rciArchetypes(),
 ];
 
