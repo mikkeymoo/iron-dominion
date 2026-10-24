@@ -750,10 +750,12 @@ async function utilitiesChecks(open) {
   for (const [dx, dy] of [[5, 1], [8, 4], [12, 4], [17, 4], [21, 4]]) await grow(sx + dx, sy + dy);
   const lit = await until(page, () => { const h = window.__iron.tools.buildings().filter((b) => b.arch === 16); return h.length === 5 && h.every((b) => b.powered); }, null, 30000);
   add('houses beside the plant and along the line all report powered', lit ? null : JSON.stringify(await houses()));
-  const stat = await until(page, () => { const s = window.__iron.economy.stats; return !!s && s.power.supply === 120 && s.power.demand === 5; }, null, 15000);
-  add('Stats carry the power supply (120 MW plant) and demand (5 houses at 1 MW)', stat ? null : JSON.stringify(await page.evaluate(() => window.__iron.economy.stats?.power)));
-  const hud = await until(page, () => { const e = document.querySelector('[data-testid="util-power"]'); return !!e && e.getAttribute('data-supply') === '120' && e.getAttribute('data-demand') === '5'; }, null, 15000);
-  add('the HUD power bar shows 120 supplied of 5 needed', hud ? null : await page.evaluate(() => document.querySelector('[data-testid="utilities"]')?.outerHTML ?? 'no utility bars'));
+  // The starter depot (not on this line) draws 2 MW and stays dark, so the city's demand is the 5 houses plus 2.
+  const STARTER_MW = 2;
+  const stat = await until(page, (extra) => { const s = window.__iron.economy.stats; return !!s && s.power.supply === 120 && s.power.demand === 5 + extra; }, STARTER_MW, 15000);
+  add('Stats carry the power supply (120 MW plant) and demand (5 houses at 1 MW plus the starter depot)', stat ? null : JSON.stringify(await page.evaluate(() => window.__iron.economy.stats?.power)));
+  const hud = await until(page, (extra) => { const e = document.querySelector('[data-testid="util-power"]'); return !!e && e.getAttribute('data-supply') === '120' && e.getAttribute('data-demand') === String(5 + extra); }, STARTER_MW, 15000);
+  add('the HUD power bar shows 120 supplied of 7 needed', hud ? null : await page.evaluate(() => document.querySelector('[data-testid="utilities"]')?.outerHTML ?? 'no utility bars'));
 
   const lines = await until(page, () => window.__iron.render.lines.pylons > 0 && window.__iron.render.lines.spans > 0, null, 20000);
   const gl = await page.evaluate(() => ({ ...window.__iron.render.lines, dc: window.__iron.render.drawCalls, budget: window.__iron.render.drawCallBudget }));
@@ -776,8 +778,8 @@ async function utilitiesChecks(open) {
   add('exactly the two houses beyond the cut go unpowered; the three upstream stay lit', dark && sameList(darkXs(h1), [17, 21]) ? null : JSON.stringify(h1));
   const icons = await until(page, () => window.__iron.render.outageIcons >= 2, null, 15000);
   add('outage icons are drawn for the dark houses', icons ? null : `icons ${await page.evaluate(() => window.__iron.render.outageIcons)}`);
-  const warn = await until(page, () => /2 without power/.test(document.querySelector('[data-testid="util-warn"]')?.textContent ?? ''), null, 15000);
-  add('the HUD warns "2 without power"', warn ? null : await page.evaluate(() => document.querySelector('[data-testid="utilities"]')?.textContent ?? 'no utility bars'));
+  const warn = await until(page, () => /3 without power/.test(document.querySelector('[data-testid="util-warn"]')?.textContent ?? ''), null, 15000);
+  add('the HUD warns "3 without power" (the two cut houses and the starter depot)', warn ? null : await page.evaluate(() => document.querySelector('[data-testid="utilities"]')?.textContent ?? 'no utility bars'));
 
   await sel('line', { kind: 'power' });
   const fixId = await drag({ x: sx + 14, y: sy + 3 }, { x: sx + 14, y: sy + 3 });
@@ -1143,6 +1145,7 @@ async function advisorChecks(open) {
   add('the list closes after a pick', (await page.locator('[data-testid="advisor-list"]').count()) === 0 ? null : 'list still open');
 
   await page.evaluate(() => window.__iron.render.setOverlay('none'));
+  await until(page, () => !window.__iron.render.cinematic.active, null, 5000);
   const box = await page.locator('canvas').first().boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const card = await until(page, () => document.querySelector('[data-testid="info-card"][data-kind="building"] [data-testid="info-name"]')?.textContent === 'House', null, 10000);
@@ -1249,8 +1252,9 @@ async function hudChecks(open, vp) {
     add('the menu button opens the menu drawer', await visible(page, '[data-testid="menu"]') ? null : 'no menu');
     await page.locator('[data-testid="status-chip"]').click();
     add('opening the status chip closes the menu (one panel at a time)', await until(page, () => !document.querySelector('[data-testid="menu"]') && !!document.querySelector('[data-testid="status-pop"]'), null, 5000) ? null : 'both open');
+    const hit = await page.evaluate(() => { const c = document.querySelector('canvas').getBoundingClientRect(); const el = document.elementFromPoint(c.x + c.width / 2, c.y + c.height / 2); return `${el?.tagName}.${el?.className} in ${el?.closest('[data-panel]')?.getAttribute('data-panel')}`; });
     await tapCanvas();
-    add('an outside tap closes the status panel', await until(page, () => !document.querySelector('[data-testid="status-pop"]'), null, 5000) ? null : 'status stayed open');
+    add('an outside tap closes the status panel', await until(page, () => !document.querySelector('[data-testid="status-pop"]'), null, 5000) ? null : `status stayed open (centre hits ${hit})`);
     await page.locator('[data-testid="menu-button"]').click();
     await page.keyboard.press('Escape');
     add('Escape closes the menu drawer', await until(page, () => !document.querySelector('[data-testid="menu"]'), null, 5000) ? null : 'menu stayed open');
@@ -1423,6 +1427,7 @@ async function disasterChecks(page, site) {
   if (toastWithJump) {
     await page.evaluate(() => window.__iron.render.resetCamera({ x: 5, z: 5, dist: 120 }));
     await jumpBtn.click();
+    await until(page, () => !window.__iron.render.cinematic.active, null, 5000);
     const cam = await camOf(page);
     add('Jump to flies the camera to the disaster', Math.hypot(cam.x - (cx + 0.5), cam.z - (cy + 0.5)) < 14 && cam.dist < 60 ? null : JSON.stringify(cam));
   }
