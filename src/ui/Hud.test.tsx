@@ -82,7 +82,7 @@ describe('phone HUD', () => {
     expect(screen.queryByTestId('menu')).toBeNull();
     fireEvent.click(screen.getByTestId('menu-button'));
     const menu = screen.getByTestId('menu');
-    for (const name of ['Budget', 'Follow a robot', 'Save', 'Export to file', 'Show tips again', 'Settings']) expect(within(menu).getByRole('button', { name })).toBeTruthy();
+    for (const name of ['Budget', 'Follow a robot', 'Save', 'Export to file', 'Restart tutorial', 'Settings']) expect(within(menu).getByRole('button', { name })).toBeTruthy();
     expect(within(menu).getByTestId('perf-toggle')).toBeTruthy();
     fireEvent.click(within(menu).getByRole('button', { name: 'Follow a robot' }));
     expect(calls.follow).toHaveBeenCalledOnce();
@@ -228,7 +228,7 @@ describe('shared HUD behaviour', () => {
   it('resets the tips from the menu', () => {
     const { calls } = mount('phone');
     fireEvent.click(screen.getByTestId('menu-button'));
-    fireEvent.click(screen.getByRole('button', { name: 'Show tips again' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restart tutorial' }));
     expect(calls.setting).toHaveBeenCalledWith('onboarding', { dismissed: false, collapsed: false, hintsSeen: [] });
   });
 });

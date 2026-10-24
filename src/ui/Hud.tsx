@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
+import type { DirectiveStats, LoanInfo, MilestoneStats, ServiceStats, Speed, TrafficStats, Workforce } from '../sim/protocol.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { DemandBars } from './DemandBars';
 import { UtilityBars } from './UtilityBars';
@@ -55,6 +55,8 @@ export interface HudStats {
   services: ServiceStats;
   /** Population tier and megaproject status from the newest Stats message. */
   milestone?: MilestoneStats;
+  /** UNIT-0 directive progress from the newest Stats message. */
+  directives?: DirectiveStats;
 }
 
 export const NO_WORKFORCE: Workforce = { builders: 0, haulers: 0, activeBuilders: 0, activeHaulers: 0, jobs: 0, stock: 0 };
@@ -302,7 +304,7 @@ export function Hud({
                   Auto-collapse the tool bar
                 </label>
               )}
-              <button type="button" className="tb row" onClick={() => { onSetting('onboarding', { ...DEFAULT_SETTINGS.onboarding }); closeMenu(); }}>Show tips again</button>
+              <button type="button" className="tb row" data-testid="restart-tutorial" onClick={() => { onSetting('onboarding', { ...DEFAULT_SETTINGS.onboarding }); closeMenu(); }}>Restart tutorial</button>
               {photo && <button type="button" className="tb row" data-testid="photo-menu" onClick={() => { closeMenu(); photo.enter(); }}>Photo mode (F2)</button>}
               {photo && <button type="button" className="tb row" data-testid="tour-menu" onClick={() => { closeMenu(); photo.tour(); }}>City tour</button>}
               <button type="button" className="tb row" onClick={() => setMode('settings')}>Settings</button>

@@ -1,6 +1,5 @@
 import { ARCH, archetype } from '../sim/catalog.ts';
 import { BMAX, MAP, ROAD } from '../sim/layers.ts';
-import type { ToolSel } from '../render/tools/toolSpec.ts';
 
 type Layers = Record<string, ArrayLike<number>>;
 
@@ -70,37 +69,12 @@ export function factsFromLayers(layers: Layers): CityFacts {
   return f;
 }
 
-export type StepId = 'depot' | 'road' | 'residential' | 'work' | 'power' | 'water';
-
-export interface ChecklistStep {
-  id: StepId;
-  label: string;
-  done: boolean;
-  /** The tool the step's button selects. */
-  tool: ToolSel;
-  action: string;
-}
-
-/** The six starter steps with their state, in the order a new city needs them. */
-export function evaluateChecklist(f: CityFacts): ChecklistStep[] {
-  return [
-    { id: 'depot', label: 'Place a Robot Depot', done: f.depots > 0, tool: { tool: 'service', arch: ARCH.DEPOT }, action: 'Choose depot' },
-    { id: 'road', label: 'Connect it with a road', done: f.depots > 0 && f.depotOnRoad, tool: { tool: 'road', cls: 1 }, action: 'Draw road' },
-    { id: 'residential', label: 'Zone Residential next to the road', done: f.residentialOnRoad, tool: { tool: 'zone', zone: 1, density: 0 }, action: 'Zone homes' },
-    { id: 'work', label: 'Zone Commercial or Industrial', done: f.workZoneOnRoad, tool: { tool: 'zone', zone: 2, density: 0 }, action: 'Zone shops' },
-    { id: 'power', label: 'Build a Power Plant and power line', done: f.powerPlants > 0 && f.powerLines > 0, tool: { tool: 'service', arch: ARCH.POWER_PLANT }, action: 'Choose plant' },
-    { id: 'water', label: 'Build a Water Pump and pipe', done: f.waterPumps > 0 && f.pipes > 0, tool: { tool: 'service', arch: ARCH.WATER_PUMP }, action: 'Choose pump' },
-  ];
-}
-
-export const checklistDone = (steps: readonly ChecklistStep[]): number => steps.filter((s) => s.done).length;
-
 /** First-use hint per tool group (one line, shown once). */
 export const TOOL_HINTS: Record<string, string> = {
   bulldoze: 'Drag over anything to clear it. Refunds are partial.',
   road: 'Drag to draw a road. Zones and the depot need one beside them.',
   zone: 'Drag a box beside a road. Robots build what the city asks for.',
-  service: 'Tap the map to place. Start with a Robot Depot.',
+  service: 'Tap the map to place. Each extra depot adds robots.',
   utilities: 'Power lines and pipes connect plants and pumps to buildings.',
   terraform: 'Drag to raise, lower or level the ground.',
 };

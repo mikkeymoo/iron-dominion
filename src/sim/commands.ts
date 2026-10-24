@@ -1,5 +1,6 @@
 import { ARCH, archetype, BFLAG, type Archetype } from './catalog.ts';
 import { DEPOT_START_STOCK } from './robots/constants.ts';
+import { DIRECTIVES, DIRECTIVE_COUNT, directiveMet } from './directives.ts';
 import { clearJob } from './robots/pool.ts';
 import { setDisasterMode, triggerDisaster } from './disasters/index.ts';
 import { repayLoan, takeLoan } from './economy/budget.ts';
@@ -38,7 +39,9 @@ export type CommandBody =
   | { type: 'setDisasters'; mode: number }
   /** Sandbox: start a fire in the building at (x, y) (or nearest), a quake centred on it, or a meteor that lands on it. Allowed in normal play, in any mode. */
   | { type: 'triggerDisaster'; kind: 'fire' | 'quake' | 'meteor'; x: number; y: number }
-  | { type: 'undo'; target: number };
+  | { type: 'undo'; target: number }
+  /** Pay the credit reward of UNIT-0 directive `index` (sim/directives.ts) once it has been met. Rejected as `claimed` the second time. */
+  | { type: 'claimDirective'; index: number };
 
 /** For undo, `target` is the sim-assigned journal id from the `accepted` event, not a command id. `tick` is the earliest tick the command may run; `id` is unique and positive. */
 export type Command = { id: number; tick: number } & CommandBody;
@@ -49,7 +52,7 @@ const NEI = [[0, -1, ROAD.N], [1, 0, ROAD.E], [0, 1, ROAD.S], [-1, 0, ROAD.W]] a
 class Reject extends Error {}
 const reject = (reason: string): never => { throw new Reject(reason); };
 
-function fixRoad(world: World, x: number, y: number): void {
+export function fixRoad(world: World, x: number, y: number): void {
   if (!inBounds(x, y)) return;
   const i = tileIdx(x, y);
   const r = world.road[i]!;
@@ -376,6 +379,19 @@ function loan(sim: Sim, c: Extract<Command, { type: 'takeLoan' | 'repayLoan' }>)
   if (why) reject(why);
 }
 
+function claimDirective(sim: Sim, c: Extract<Command, { type: 'claimDirective' }>): void {
+  const sc = sim.world.scalars;
+  if (!isInts(c.index) || c.index < 0 || c.index >= DIRECTIVE_COUNT) reject('invalid');
+  const bit = 1 << c.index;
+  if ((sc[S.directiveClaimed]! & bit) !== 0) reject('claimed');
+  if ((sc[S.directiveDone]! & bit) === 0 && !directiveMet(sim.world, c.index)) reject('not-ready');
+  const reward = DIRECTIVES[c.index]!.reward;
+  sc[S.directiveDone] = sc[S.directiveDone]! | bit;
+  sc[S.directiveClaimed] = sc[S.directiveClaimed]! | bit;
+  sc[S.treasury]! += reward;
+  sim.events.push({ type: 'directiveClaimed', tick: sc[S.tick]!, index: c.index, reward });
+}
+
 /** Validate and execute one command. Never throws: failures become `rejected` events with state unchanged. */
 export function execute(sim: Sim, cmd: Command): boolean {
   const tick = sim.world.scalars[S.tick]!;
@@ -397,6 +413,7 @@ export function execute(sim: Sim, cmd: Command): boolean {
       case 'setDisasters': { const why = setDisasterMode(sim.world, cmd.mode); if (why) reject(why); break; }
       case 'triggerDisaster': { const why = triggerDisaster(sim, cmd.kind, cmd.x, cmd.y); if (why) reject(why); break; }
       case 'undo': undo(sim, cmd); break;
+      case 'claimDirective': claimDirective(sim, cmd); break;
       default: reject('unknown-command');
     }
     sim.events.push(journal ? { type: 'accepted', cmd: cmd.id, tick, journal } : { type: 'accepted', cmd: cmd.id, tick });

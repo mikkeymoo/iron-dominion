@@ -154,7 +154,8 @@ export class AgentStore {
   activeKeys(kind?: number): number[] {
     const out: number[] = [];
     for (let i = 0; i < this.cur.count; i++) {
-      const k = this.cur.ids[i * 2 + 1]! & 0xff;
+      const meta = this.cur.ids[i * 2 + 1]!, k = meta & 0xff;
+      if ((meta & 0xff00) === 0) continue;
       if (kind === undefined ? !isVehicleKind(k) : k === kind) out.push(this.cur.ids[i * 2]!);
     }
     return out;

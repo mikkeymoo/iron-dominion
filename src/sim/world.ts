@@ -19,6 +19,11 @@ export type SimEvent =
   | { type: 'megaComplete'; tick: number; arch: number; slot: number; x: number; y: number; w: number; h: number }
   /** The Space Elevator was completed for the first time. */
   | { type: 'victory'; tick: number }
+  /** UNIT-0 directive `index` (sim/directives.ts) was met for the first time; its reward is paid by claimDirective. */
+  | { type: 'directiveReady'; tick: number; index: number }
+  | { type: 'directiveClaimed'; tick: number; index: number; reward: number }
+  /** The first grown building was finished; the footprint is in tiles. Fires once per city. */
+  | { type: 'firstBuilding'; tick: number; x: number; y: number; w: number; h: number }
   /**
    * A disaster began or landed at tile (x, y). Fires report only the ignition of a new blaze (spread is silent), with the burning
    * building's archetype. A meteor reports twice: 'start' when it is seen coming (it lands at impactTick) and 'impact'. A quake

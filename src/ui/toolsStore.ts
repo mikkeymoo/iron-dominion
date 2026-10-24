@@ -10,7 +10,9 @@ import type { SimEvent } from '../sim/world.ts';
 import { ToolController, type ToolAction, type ToolWorld } from '../render/tools/controller.ts';
 import { findFlatSite, findWaterTile } from '../render/tools/sites.ts';
 import { buildingAnchor, selectionFrom, type KeyAction, type Tile } from '../render/tools/toolSpec.ts';
+import { DIRECTIVES } from '../sim/directives.ts';
 import { MEGA } from '../sim/megaprojects.ts';
+import { copyOf } from './directiveCopy.ts';
 import { TIERS } from '../sim/unlocks.ts';
 import { money, projectLabel } from './projects.ts';
 import { UndoStack } from './undoStack.ts';
@@ -159,6 +161,9 @@ export class ToolsRuntime {
       case 'megaStage': this.toast(`${projectLabel(e.arch)}: ${MEGA[e.arch]!.stages[e.stage]!.name} done (${e.stage + 1}/${e.stages})`, 'good'); break;
       case 'megaComplete': this.showBanner(`${projectLabel(e.arch)} complete!`); break;
       case 'victory': this.showBanner('Victory! The Space Elevator reaches orbit.', true); break;
+      case 'directiveReady': this.toast(`UNIT-0: ${copyOf(DIRECTIVES[e.index]?.id ?? '')?.done ?? 'Directive done.'} Claim your reward.`, 'good'); break;
+      case 'directiveClaimed': this.toast(`UNIT-0 paid ${money(e.reward)}`, 'good'); break;
+      case 'firstBuilding': this.toast('Your first building is finished! The bots are cheering.', 'good'); break;
     }
   }
 

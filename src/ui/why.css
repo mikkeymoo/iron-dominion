@@ -53,3 +53,8 @@
 .ghost-chip.bad { background: #ff8f78; }
 
 @media (prefers-reduced-motion: reduce) { .info-card, .advisor-list { animation: none !important; } }
+
+/* UNIT-0's directive card owns the top-left under the top bar. The advisor moves beside it on a desktop, and beside the collapsed chip on a phone (hidden while the full card is open). */
+.hud[data-layout="desktop"]:has(> .directive) > .advisor-fallback { left: calc(env(safe-area-inset-left) + 332px); transform: none; }
+.hud[data-layout="phone"] > .advisor-fallback { top: calc(env(safe-area-inset-top) + 64px); left: calc(env(safe-area-inset-left) + 140px); transform: none; max-width: calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 146px); }
+.hud[data-layout="phone"]:has(> section.directive) > .advisor-fallback { visibility: hidden; }
