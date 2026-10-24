@@ -648,6 +648,8 @@ async function economyChecks(open) {
   if (!up) { add('debug session boots with __iron.economy', 'renderer, tools or economy hook never ready'); await page.close(); return out; }
   const site = await siteWhenReady(page, 24);
   if (!site) { add('a flat 24x24 land site exists near the centre', 'findSite returned null'); await page.close(); return out; }
+  // A random fire would trip "Pause on crises" at Max and freeze the month this block waits for (same as the traffic blocks).
+  await page.evaluate(() => window.__iron.economy.command({ type: 'setDisasters', mode: 0 }));
   const sx = site.x, sy = site.y, roadY = sy + 8;
   const accepted = (id) => until(page, (i) => window.__iron.tools.lastEvent?.cmd === i && window.__iron.tools.lastEvent.type === 'accepted', id);
   const drag = (tool, opts, from, to) => page.evaluate(({ tool, opts, from, to }) => { const t = window.__iron.tools; t.select(tool, opts); return t.dragTiles(from, to); }, { tool, opts, from, to });
