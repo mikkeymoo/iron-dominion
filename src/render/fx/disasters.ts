@@ -3,16 +3,16 @@
 // state drawn by the building views. Everything here is driven by sim events the mirror queues.
 import { AdditiveBlending, DoubleSide, Group, IcosahedronGeometry, Mesh, MeshBasicNodeMaterial, RingGeometry } from 'three/webgpu';
 import type { DisasterEvent } from '../mirror.ts';
-import { flashAt, meteorAt, ringAt, shakeOffset, type Shake } from './disasterMath.ts';
+import { flashAt, flightProgress, meteorAt, ringAt, shakeOffset, type Shake } from './disasterMath.ts';
 import type { ParticleSystem } from './particles.ts';
 
 const POOL = 4;
-const METEOR_SECONDS = 2.4;
+const METEOR_GIVE_UP_SECONDS = 30;
 const RING_SECONDS = 1.8;
 const FLASH_SECONDS = 0.7;
 const MAX_SHAKES = 6;
 
-interface Flight { from: [number, number, number]; to: [number, number, number]; t0: number }
+interface Flight { from: [number, number, number]; to: [number, number, number]; t0: number; startTick: number; impactTick: number; u: number; landed: boolean }
 interface Pulse { x: number; y: number; z: number; radius: number; t0: number }
 
 export interface DisasterStats { meteors: number; rings: number; flashes: number; shakes: number; impacts: number; quakes: number }
@@ -59,9 +59,12 @@ export class DisasterFx {
     if (e.kind === 'meteor' && e.phase === 'start') {
       // Comes in from the side the hash of the target picks, high and shallow so the streak crosses the screen.
       const a = ((e.x * 73 + e.y * 151) % 360) * (Math.PI / 180);
-      this.flights.push({ from: [e.x + 0.5 + Math.cos(a) * 70, y + 95, e.y + 0.5 + Math.sin(a) * 70], to: [e.x + 0.5, y, e.y + 0.5], t0: nowSec });
+      this.flights.push({
+        from: [e.x + 0.5 + Math.cos(a) * 70, y + 95, e.y + 0.5 + Math.sin(a) * 70], to: [e.x + 0.5, y, e.y + 0.5], t0: nowSec,
+        startTick: e.tick, impactTick: e.impactTick, u: 0, landed: false,
+      });
     } else if (e.kind === 'meteor') {
-      this.flights.length = 0;
+      for (const f of this.flights) f.landed = true;
       this.impacts++;
       this.pulse(this.rings, e, y, e.radius * 4, nowSec);
       this.pulse(this.flashes, e, y, e.radius * 0.9, nowSec);
@@ -93,16 +96,19 @@ export class DisasterFx {
     return shakeOffset(this.shakes, nowSec, focusX, focusZ, dist);
   }
 
-  update(dt: number, nowSec: number): void {
+  /** `tick` is the sim tick the mirror last applied; the meteor streak follows it. */
+  update(dt: number, nowSec: number, tick: number): void {
     this.shakes = this.shakes.filter((s) => nowSec - s.t0 < s.dur);
     this.carry += dt * 90;
     const n = Math.floor(this.carry);
     this.carry -= n;
     for (let i = this.flights.length - 1; i >= 0; i--) {
       const f = this.flights[i]!;
-      const u = (nowSec - f.t0) / METEOR_SECONDS;
-      if (u >= 1.05) { this.flights.splice(i, 1); continue; }
-      const [x, y, z] = meteorAt(f.from, f.to, Math.min(1, u));
+      // A paused or resynced sim can strand a flight whose impact never arrives; wall time is only the backstop.
+      if (f.u >= 1 || nowSec - f.t0 > METEOR_GIVE_UP_SECONDS) { this.flights.splice(i, 1); continue; }
+      f.u = flightProgress(f.u, dt, tick, f.startTick, f.impactTick, f.landed);
+      const u = f.u;
+      const [x, y, z] = meteorAt(f.from, f.to, u);
       const back = meteorAt(f.from, f.to, Math.max(0, u - 0.04));
       const dx = back[0] - x, dy = back[1] - y, dz = back[2] - z, len = Math.hypot(dx, dy, dz) || 1;
       // The head is a dense knot of flame; the tail is smoke and sparks thrown backwards along the path.

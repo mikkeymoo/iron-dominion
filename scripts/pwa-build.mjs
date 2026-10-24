@@ -30,8 +30,8 @@ export function precacheList(distFiles, hash) {
 
 /** Fills the placeholders in public/sw.js. */
 export function renderServiceWorker(template, hash, urls) {
-  if (!template.includes('__BUILD_HASH__') || !template.includes('__PRECACHE__')) throw new Error('sw template is missing its placeholders');
-  return template.replaceAll('__BUILD_HASH__', hash).replace('"__PRECACHE__"', JSON.stringify(urls));
+  if (!template.includes("'__BUILD_HASH__'") || !template.includes('"__PRECACHE__"')) throw new Error('sw template is missing its placeholders');
+  return template.replace("'__BUILD_HASH__'", () => JSON.stringify(hash)).replace('"__PRECACHE__"', () => JSON.stringify(urls));
 }
 
 const REQUIRED_STRINGS = ['name', 'short_name', 'description', 'start_url', 'scope', 'display', 'background_color', 'theme_color'];

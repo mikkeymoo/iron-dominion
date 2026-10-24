@@ -243,7 +243,7 @@ export class Fx {
     this.lamps.update(pose.tx, pose.tz);
     this.emitContinuous(dt, pose, camDist, spec.fx.emitters);
     for (const e of this.mirror.takeDisasters()) if (this.mirror.hasResync) this.disasters.handle(e, nowSec);
-    this.disasters.update(dt, nowSec);
+    this.disasters.update(dt, nowSec, this.mirror.tick);
     this.particles.update(dt);
 
     // Sun for the shaft pass: projected into screen uv, visible only when it is in front of the camera and above the horizon.

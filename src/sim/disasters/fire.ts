@@ -4,7 +4,7 @@ import { footprintMean } from '../economy/totals.ts';
 import { BMAX, D, MAP, S, WEATHER, type World } from '../layers.ts';
 import { nextU32 } from '../rng.ts';
 import { AKIND, AST } from '../robots/constants.ts';
-import { liveSlot } from '../robots/pool.ts';
+import { clearJob, liveSlot } from '../robots/pool.ts';
 import { slotsOfKind } from './agents.ts';
 import type { Sim } from '../world.ts';
 import {
@@ -91,6 +91,7 @@ export function destroyBuilding(sim: Sim, slot: number): void {
   w.bFlags[slot] = (w.bFlags[slot]! & ~(BFLAG.BURNING | BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING)) | BFLAG.RUBBLE | BFLAG.ABANDONED;
   w.bDmg[slot] = 255;
   w.bHeat[slot] = 0;
+  clearJob(w, slot);
   sim.dirty.buildings.add(slot);
 }
 

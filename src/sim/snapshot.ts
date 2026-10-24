@@ -44,6 +44,13 @@ export function encodeSnapshot(world: World): Uint8Array {
   return out;
 }
 
+/** Protocol version in a snapshot's header, or undefined when the buffer does not start like a snapshot. Reads 8 bytes; validates nothing else. */
+export function snapshotProtocol(buf: Uint8Array): number | undefined {
+  if (buf.byteLength < 16) return undefined;
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  return dv.getUint32(0, true) === MAGIC ? dv.getUint16(6, true) : undefined;
+}
+
 export function decodeSnapshot(buf: Uint8Array): World {
   if (buf.byteLength < 16) throw new SnapshotError('snapshot truncated');
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);

@@ -165,6 +165,7 @@ export function settleJobs(sim: Sim): void {
     if (kind === JOB.DEMOLISH) {
       if (w.jProg[s] === 0) { releaseLot(sim, s); continue; }
     } else if (w.jProg[s]! >= JOB_MAX) {
+      if ((w.bFlags[s]! & BFLAG.RUBBLE) !== 0) { clearJob(w, s); continue; }
       if (kind === JOB.BUILD && isMega(w.bArch[s]!) && advanceMega(sim, s)) continue;
       w.bFlags[s] = w.bFlags[s]! & ~(BFLAG.CONSTRUCTING | BFLAG.DEMOLISHING);
       w.bProg[s] = 255;

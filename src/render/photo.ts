@@ -63,9 +63,11 @@ export function createPhoto(hooks: PhotoHooks): PhotoController {
       const v = hooks.viewSize();
       const rect = cropRect(aspectRatio(settings.aspect, v.w, v.h), v.w, v.h);
       const size = captureSize(rect.w, rect.h, job.quality, hooks.maxTexture());
-      hooks.renderAt(size.width, size.height, rect.w / rect.h, cropFov(settings.fov, v.h, rect.h));
       let encoded: Promise<Blob | null>;
-      try { encoded = hooks.encode(); } finally { hooks.restore(); }
+      try {
+        hooks.renderAt(size.width, size.height, rect.w / rect.h, cropFov(settings.fov, v.h, rect.h));
+        encoded = hooks.encode();
+      } finally { hooks.restore(); }
       const blob = await encoded;
       if (!blob || blob.size === 0) throw new Error('The browser could not encode the frame as PNG');
       lastBlob = blob;

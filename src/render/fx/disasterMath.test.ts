@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flashAt, meteorAt, ringAt, shakeOffset, shakeStrength, type Shake } from './disasterMath.ts';
+import { flashAt, flightProgress, meteorAt, ringAt, shakeOffset, shakeStrength, type Shake } from './disasterMath.ts';
 
 const quake: Shake = { x: 100, z: 100, t0: 10, dur: 2, amp: 1, reach: 80 };
 
@@ -47,5 +47,37 @@ describe('meteor and rings', () => {
     expect(flashAt(0).opacity).toBe(1);
     expect(flashAt(1).opacity).toBe(0);
     expect(flashAt(0.5).scale).toBeGreaterThan(flashAt(0).scale);
+  });
+});
+
+describe('meteor streak progress', () => {
+  /** Plays a 25-tick flight at `tps` sim ticks per second, rendering at 60 fps; returns the progress when the sim reports the impact. */
+  const flyUntilImpact = (tps: number): number => {
+    const start = 100, impact = 125, dt = 1 / 60;
+    let u = 0, t = 0;
+    for (;;) {
+      t += dt;
+      const tick = start + Math.floor(t * tps);
+      if (tick >= impact) return u;
+      u = flightProgress(u, dt, tick, start, impact, false);
+    }
+  };
+
+  it('is far along when the impact arrives at any sim speed, so the impact does not cut the streak early', () => {
+    for (const tps of [10, 20, 40, 100]) expect(flyUntilImpact(tps), `${tps} ticks per second`).toBeGreaterThan(0.6);
+  });
+
+  it('never runs ahead of the sim and hangs while the sim is paused', () => {
+    let u = 0;
+    for (let i = 0; i < 120; i++) u = flightProgress(u, 1 / 60, 110, 100, 125, false);
+    expect(u).toBeCloseTo(11 / 25, 2);
+    expect(u).toBeLessThanOrEqual(11 / 25);
+  });
+
+  it('runs out to the ground once landed, in a few frames', () => {
+    let u = 0.5, frames = 0;
+    while (u < 1 && frames < 600) { u = flightProgress(u, 1 / 60, 125, 100, 125, true); frames++; }
+    expect(u).toBe(1);
+    expect(frames).toBeLessThan(30);
   });
 });

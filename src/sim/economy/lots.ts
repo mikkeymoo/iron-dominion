@@ -130,6 +130,8 @@ export function levelUpCandidates(sim: Sim, zone: number, max: number): LevelUp[
     if (zoneOfArch(arch) !== zone || !isOperating(w, s) || w.bLevel[s]! >= 3) continue;
     // Growing past level 1 needs both services: isOperating already excludes the unpowered, and a building the water misses stays put.
     if ((w.bFlags[s]! & BFLAG.UNWATERED) !== 0) continue;
+    // startLevelUp rebuilds from a foundation and clears flags and damage, so a burning or damaged building would be healed for free.
+    if ((w.bFlags[s]! & BFLAG.BURNING) !== 0 || w.bDmg[s]! > 0) continue;
     const lv = footprintMean(w, w.landValue, s);
     // Health and education coverage under the building: a lower land value is enough, and the building ranks higher.
     const edu = footprintMean(w, w.covHealth, s) + footprintMean(w, w.covEdu, s);

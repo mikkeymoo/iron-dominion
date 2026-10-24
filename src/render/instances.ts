@@ -188,6 +188,7 @@ export class BuildingInstances {
     composeMatrix(mat, cx, gy, cz, ((hsh >>> 20) & 3) * (Math.PI / 2), 1, clearing ? Math.max(0.06, p) : 1, 1);
     this.rubble.set(slot, `${Math.max(b.w, b.h)}:${(hsh >>> 4) & 3}`, { matrix: mat, tint: [1, 1, 1], state: [1, 0, 0, 0] });
     this.near.remove(slot); this.far.remove(slot); this.site.remove(slot); this.crane.remove(slot);
+    for (let i = 0; i < MEGA_CRANES; i++) this.crane.remove(extraCrane(slot, i));
     if (this.outages.delete(slot)) this.outageVersion++;
     const area = Math.max(1, b.w * b.h);
     this.emitters.set(slot, [clearing

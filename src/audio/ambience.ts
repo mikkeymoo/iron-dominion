@@ -128,7 +128,18 @@ export class Ambience {
   /** Targets of the most recent update, for the debug readout. */
   get targets(): Readonly<AmbienceWeights> { return this.lastWeights; }
 
+  /** Ramp every layer to nothing and forget the smoothed weights, so loops left running at their last gain go quiet. */
+  silence(): void {
+    const c = this.engine.context;
+    for (const layer of AMBIENCE_LAYERS) {
+      this.level[layer] = 0;
+      const out = this.outs[layer];
+      if (out && c) out.gain.setTargetAtTime(0, c.currentTime, 0.1);
+    }
+  }
+
   dispose(): void {
+    this.silence();
     for (const l of Object.values(this.loops)) l?.stop();
     for (const layer of AMBIENCE_LAYERS) this.engine.unregisterLoop(layer);
     this.loops = {};

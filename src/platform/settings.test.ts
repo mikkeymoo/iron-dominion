@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, loadSettings } from './settings.ts';
+import { DEFAULT_SETTINGS, disasterModeOf, haltDisasterMode, loadSettings } from './settings.ts';
 import type { PlatformDb } from './db.ts';
 
 const dbWith = (raw: Record<string, unknown>): PlatformDb => ({ allSettings: async () => ({ ok: true, value: raw }), setSetting: async () => ({ ok: true, value: undefined }) }) as unknown as PlatformDb;
+
+describe('haltAt debug runs', () => {
+  it('take the disaster mode from the query or the shipped default, never from stored settings', async () => {
+    const stored = await loadSettings(dbWith({ disasters: 'off' }), undefined);
+    expect(stored.disasters).toBe('off');
+    expect(haltDisasterMode(null)).toBe(disasterModeOf(DEFAULT_SETTINGS.disasters));
+    expect(haltDisasterMode('bogus')).toBe(disasterModeOf('rare'));
+    expect(haltDisasterMode('off')).toBe(disasterModeOf('off'));
+    expect(haltDisasterMode('normal')).toBe(disasterModeOf('normal'));
+  });
+});
 
 describe('onboarding and performance panel settings', () => {
   it('default to an open checklist, no hints seen, and a performance panel that follows the device', () => {

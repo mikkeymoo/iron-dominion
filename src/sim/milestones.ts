@@ -88,6 +88,7 @@ export function projectStatuses(w: World): ProjectStatus[] {
     for (let s = 0; s < BMAX; s++) if (w.bArch[s] === arch) { slot = s; break; }
     const stages = megaStages(arch);
     const building = slot >= 0 && (w.bFlags[slot]! & BFLAG.CONSTRUCTING) !== 0;
+    if (slot >= 0 && (w.bFlags[slot]! & (BFLAG.RUBBLE | BFLAG.ABANDONED)) !== 0) slot = -1;
     const r = megaRequirements(w, arch);
     return {
       arch, state: slot < 0 ? 'none' : building ? 'building' : 'done', stage: slot < 0 ? 0 : Math.min(stages, w.bLevel[slot]!), stages,

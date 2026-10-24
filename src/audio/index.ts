@@ -101,8 +101,15 @@ export class AudioDirector {
 
   private sync(): void {
     const run = this.active && this.src !== null;
-    if (run && this.timer === null) this.timer = setInterval(() => this.step(), STEP_MS);
-    else if (!run && this.timer !== null) { clearInterval(this.timer); this.timer = null; }
+    if (run && this.timer === null) {
+      this.timer = setInterval(() => this.step(), STEP_MS);
+      this.engine.setPaused(this.src!.lifecycle.state.speed === 0);
+    } else if (!run && this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+      this.ambience.silence();
+      this.engine.setPaused(true);
+    }
   }
 
   /** Follow one city session. Returns a disposer that only detaches if that session is still the current one. */

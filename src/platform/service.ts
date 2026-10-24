@@ -1,7 +1,8 @@
 import type { Outcome, PlatformDb, SlotMeta } from './db.ts';
 import { fail, ok } from './db.ts';
 import type { WriteOutcome } from './lifecycle.ts';
-import { browserCodec, buildSave, downloadSave, inspectSnapshot, parseSave, type Codec, type SaveMeta } from './save.ts';
+import { PROTOCOL_VERSION } from '../sim/protocol.ts';
+import { browserCodec, buildSave, downloadSave, inspectSnapshot, parseSave, saveProtocol, type Codec, type SaveMeta } from './save.ts';
 
 export interface SimLink {
   requestSnapshot(): Promise<Uint8Array>;
@@ -58,13 +59,31 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
   const newId = deps.newId ?? randomId;
   const codec = deps.codec ?? browserCodec;
   let current: CurrentSlot | null = null;
+  /** Protocol of slots that predate the recorded one, read once per session from the stored bytes. */
+  const protocols = new Map<string, number | undefined>();
 
   const svc: PlatformService = {
     get current() { return current; },
     lastSaveHash: undefined,
     lastSaveTick: undefined,
     startNew(name) { current = { id: newId(), name: cleanName(name), created: now() }; },
-    slots: async () => deps.getDb()?.listSlots() ?? unavailable(),
+    async slots() {
+      const d = deps.getDb();
+      if (!d) return unavailable();
+      const r = await d.listSlots();
+      if (!r.ok) return r;
+      const out: SlotMeta[] = [];
+      for (const s of r.value) {
+        if (s.protocol !== undefined) { out.push(s); continue; }
+        if (!protocols.has(s.id)) {
+          const raw = await d.getSave(s.id);
+          protocols.set(s.id, raw.ok ? await saveProtocol(raw.value, codec) : undefined);
+        }
+        const protocol = protocols.get(s.id);
+        out.push(protocol === undefined ? s : { ...s, protocol });
+      }
+      return ok(out);
+    },
     async writeSnapshot(snapshot, opt = {}) {
       let slot = current;
       if (opt.asName !== undefined) slot = { id: newId(), name: cleanName(opt.asName), created: now() };
@@ -76,7 +95,7 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
       if (!d) return { ok: false, reason: 'unavailable', message: 'saving is not available in this browser' };
       try {
         const info = inspectSnapshot(snapshot);
-        const meta: SaveMeta = { name: slot.name, population: info.population, treasury: info.treasury, day: info.day };
+        const meta: SaveMeta = { name: slot.name, population: info.population, treasury: info.treasury, day: info.day, protocol: PROTOCOL_VERSION };
         const thumb = deps.thumbnail?.();
         if (thumb) meta.thumbnail = thumb;
         const bytes = await buildSave(snapshot, meta, slot.created, codec);
@@ -112,7 +131,7 @@ export function createPlatformService(deps: ServiceDeps): PlatformService {
         const snapshot = await deps.sim.requestSnapshot();
         const info = inspectSnapshot(snapshot);
         const name = current?.name ?? 'city';
-        const meta: SaveMeta = { name, population: info.population, treasury: info.treasury, day: info.day };
+        const meta: SaveMeta = { name, population: info.population, treasury: info.treasury, day: info.day, protocol: PROTOCOL_VERSION };
         downloadSave(await buildSave(snapshot, meta, current?.created ?? now(), codec), name);
         return ok(true as const);
       } catch (e) {
